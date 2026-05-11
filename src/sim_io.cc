@@ -1,5 +1,6 @@
 #include "sim_io.h"
 #include "params.h"
+#include "sim_config.h"
 #include "format_compat.h"
 
 #include <cmath>
@@ -43,20 +44,21 @@ void SimIO::LogSetupSummary(std::string_view bc_name) {
     compat::println(log_file_, "  BC = {}", bc_name);
     compat::println(log_file_, "");
     compat::println(log_file_, "--- Time ---");
-    compat::println(log_file_, "  DT (numerical)  = {}", DT);
+    compat::println(log_file_, "  DT (numerical)      = {}", DT);
     compat::println(log_file_, "");
     compat::println(log_file_, "--- LBM ---");
-    compat::println(log_file_, "  TAUF            = {}", TAUF);
-    compat::println(log_file_, "  omega           = {}", omega);
-    compat::println(log_file_, "  omega_prime     = {}", omega_prime);
-    compat::println(log_file_, "  omega_forcing   = {}", omega_forcing);
-    compat::println(log_file_, "  rho0 (numerical)= {}", RHO);
+    compat::println(log_file_, "  TAUF                = {}", TAUF);
+    compat::println(log_file_, "  Kinematic Viscosity = {}", kinematicViscosity);
+    compat::println(log_file_, "  omega               = {}", omega);
+    compat::println(log_file_, "  omega_prime         = {}", omega_prime);
+    compat::println(log_file_, "  omega_forcing       = {}", omega_forcing);
+    compat::println(log_file_, "  rho0 (numerical)    = {}", RHO);
     compat::println(log_file_, "");
     compat::println(log_file_, "--- Free energy ---");
-    compat::println(log_file_, "  L (Frank elasticity)  = {}", L);
-    compat::println(log_file_, "  A                     = {}", A);
-    compat::println(log_file_, "  B                     = {}", B);
-    compat::println(log_file_, "  C                     = {}", C);
+    compat::println(log_file_, "  L (Frank elasticity) = {}", L);
+    compat::println(log_file_, "  A                    = {}", A);
+    compat::println(log_file_, "  B                    = {}", B);
+    compat::println(log_file_, "  C                    = {}", C);
     compat::println(log_file_, "");
     compat::println(log_file_, "--- Q-tensor dynamics ---");
     compat::println(log_file_, "  GAMMA (rot. viscosity^-1) = {}", GAMMA);
@@ -231,8 +233,12 @@ void SimIO::QtensorToOrderDirector(const QTensorFields& qf) {
 
 void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf,
                          const std::string& path, int step, double time) {
-    const std::string file_path = std::format("{}/lbm_{}.vtkhdf", path, step);
-
+    constexpr int kStepWidth = [] {
+        int w = 1, n = kNumSteps - 1;
+        while (n >= 10) { n /= 10; ++w; }
+        return w;
+    }();
+    const std::string file_path = std::format("{}/lbm_{:0{}}.vtkhdf", path, step, kStepWidth);
     hid_t file = H5Fcreate(file_path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
     if (file < 0) throw std::runtime_error("ExportVTKHDF: failed to create " + file_path);
 

@@ -42,7 +42,7 @@ namespace Params {
     inline constexpr double GAMMA  = 0.34;    // inverse rotational viscosity
 
     // Activity & friction
-    inline constexpr double ALPHA = 0.01;
+    inline constexpr double ALPHA = 0.04;
     inline constexpr double MU    = 0.0;
 
     // Initial conditions
@@ -51,6 +51,8 @@ namespace Params {
     // Wall BC (used by HandleBoundaries)
     inline constexpr double kLidVelocity = 0.0;
 
+    inline constexpr double kinematicViscosity = kDensity / kCs2Inv * (TAUF - 0.5 * DT);
+    
     // Logging verbosity
     inline constexpr bool kDebugLogging = false;
 }
