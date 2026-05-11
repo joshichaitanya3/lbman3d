@@ -1,4 +1,4 @@
-# lbman
+# lbman3d
 Lattice Boltzmann Method-based solver for 3D Active Nematics
 
 The flow equation is solved using a D3Q15 scheme. The Q-tensor equation is solved using a simple finite-difference scheme.
@@ -136,5 +136,21 @@ There are two output formats provided: CSV and VTKHDF. It can be selected via a 
 | `data/qyy_<step>.csv` | CSV | Q-tensor component Qyy |
 | `data/qyz_<step>.csv` | CSV | Q-tensor component Qyz |
 | `data/delta_m_<step>.csv` | CSV | Local density change since last export |
-| `data/lbm_<step>.vtkhdf` | VTKHDF (HDF5) | All fields in a single file, readable by ParaView 5.10+ (together with the LBM fields when `kDebugLogging` is `true`|
+| `data/lbm_<step>.vtkhdf` | VTKHDF (HDF5) | All fields in a single file, readable by ParaView 5.10+ (together with the LBM fields when `kDebugLogging` is `true`)|
 | `lbm.log` | text | Simulation parameters and per-step mass/momentum diagnostics |
+
+## Visualization with Paraview
+
+The full sequence of output VTKHDF files can be visualized conveniently by running the included script from this directory:
+
+```
+/path/to/paraview/binary --script=visualize_in_paraview.py
+```
+
+You will need to set the following parameters within that script according to your simulation:
+```
+DATA_DIR   = './data'
+OUTPUT_DIR = os.path.join(DATA_DIR, 'frames')
+
+NX, NY, NZ = 100, 100, 15
+```
