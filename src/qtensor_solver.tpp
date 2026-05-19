@@ -47,12 +47,12 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
         // Polynomials
         const double TrQ2 = 2.0*(Qxx*Qxx + Qyy*Qyy+ Qxx*Qyy + Qxy*Qxy +Qxz*Qxz +Qyz*Qyz);
         
-        // Q2 = Q_ik * Q_kj:
-        
-        const double Q2_xx = Qxx*Qxx + Qxy*Qxy + Qxz*Qxz;
+        // Q2 = Q_ik * Q_kj - 1/3 TrQ2 \delta_ij:
+        const double kone_thirds = 1.0/3.0;
+        const double Q2_xx = Qxx*Qxx + Qxy*Qxy + Qxz*Qxz - kone_thirds * TrQ2;
         const double Q2_xy = Qxx*Qxy + Qxy*Qyy + Qxz*Qyz;
         const double Q2_xz = Qxy*Qyz - Qxz*Qyy;
-        const double Q2_yy = Qxy*Qxy + Qyy*Qyy + Qyz*Qyz;
+        const double Q2_yy = Qxy*Qxy + Qyy*Qyy + Qyz*Qyz - kone_thirds * TrQ2;
         const double Q2_yz = Qxy*Qxz - Qyz*Qxx;
         
         const double TrQ3 = -3.0*(Qxx*Qxx*Qyy - Qxy*Qxy*Qyy + Qxz*Qxz*Qyy - 2*Qxy*Qxz*Qyz+Qxx * (-Qxy*Qxy + Qyy*Qyy + Qyz*Qyz)); 
