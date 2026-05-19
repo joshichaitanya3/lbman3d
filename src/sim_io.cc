@@ -144,8 +144,12 @@ void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
             compat::print(rho_file,  "{}\n", ff.rho[x, y, nz-1]);
             compat::print(ux_file,   "{}\n", ff.ux[x, y, nz-1]);
             compat::print(uy_file,   "{}\n", ff.uy[x, y, nz-1]);
+            compat::print(uz_file,   "{}\n", ff.uz[x, y, nz-1]);
             compat::print(qxx_file,  "{}\n", qf.qxx[x, y, nz-1]);
             compat::print(qxy_file,  "{}\n", qf.qxy[x, y, nz-1]);
+            compat::print(qxz_file,  "{}\n", qf.qxz[x, y, nz-1]);
+            compat::print(qyy_file,  "{}\n", qf.qyy[x, y, nz-1]);
+            compat::print(qyz_file,  "{}\n", qf.qyz[x, y, nz-1]);
             compat::print(dm_file,   "{}\n", ff.rho[x, y, nz-1] - rho_past_[x, y, nz-1]);
             rho_past_[x, y, nz-1] = ff.rho[x, y, nz-1];
         }
@@ -166,7 +170,7 @@ void SimIO::ExportDistributionCSV(const FluidFields& ff,
 
         for (int x = 0; x < nx; ++x) {
             for (int y = 0; y < ny; ++y) {
-                for (int z = 0; y < nz-1; ++z) {
+                for (int z = 0; z < nz-1; ++z) {
                     compat::print(f_file, "{},", ff.f[x, y, z, i]);
                 }
                 compat::print(f_file, "{}\n", ff.f[x, y, nz-1, i]);
