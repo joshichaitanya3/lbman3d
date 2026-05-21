@@ -24,15 +24,15 @@ double LbmSolver<BC>::Feq(double rhop, double uxp, double uyp, double uzp, int i
 
 template<typename BC>
 void LbmSolver<BC>::Initialize(FluidFields& ff) const {
-    for (int x : std::views::iota(0, nx)) {
+    for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
-            for (int z : std::views::iota(0, nz)) {
-                const double rhop = ff.rho[x, y, z];
-                const double uxp  = ff.ux[x, y, z];
-                const double uyp  = ff.uy[x, y, z];
-                const double uzp  = ff.uz[x, y, z];
+            for (int x : std::views::iota(0, nx)) {
+                const double rhop = ff.rho[z, y, x];
+                const double uxp  = ff.ux[z, y, x];
+                const double uyp  = ff.uy[z, y, x];
+                const double uzp  = ff.uz[z, y, x];
                 for (int i : std::views::iota(0, ndir))
-                    ff.f[x, y, z, i] = Feq(rhop, uxp, uyp, uzp, i);
+                    ff.f[z, y, x, i] = Feq(rhop, uxp, uyp, uzp, i);
             }
         }
     }
@@ -41,15 +41,15 @@ void LbmSolver<BC>::Initialize(FluidFields& ff) const {
 template<typename BC>
 void LbmSolver<BC>::ResetFeq(FluidFields& ff) const {
     #pragma omp parallel for default(shared) num_threads(numprocs)
-    for (int x : std::views::iota(0, nx)) {
+    for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
-            for (int z : std::views::iota(0, nz)) {
-                const double rhop = ff.rho[x, y, z];
-                const double uxp  = ff.ux[x, y, z];
-                const double uyp  = ff.uy[x, y, z];
-                const double uzp  = ff.uz[x, y, z];
+            for (int x : std::views::iota(0, nx)) {
+                const double rhop = ff.rho[z, y, x];
+                const double uxp  = ff.ux[z, y, x];
+                const double uyp  = ff.uy[z, y, x];
+                const double uzp  = ff.uz[z, y, x];
                 for (int i : std::views::iota(0, ndir))
-                    ff.f_eq[x, y, z, i] = Feq(rhop, uxp, uyp, uzp, i);
+                    ff.f_eq[z, y, x, i] = Feq(rhop, uxp, uyp, uzp, i);
             }
         }
     }
@@ -58,20 +58,20 @@ void LbmSolver<BC>::ResetFeq(FluidFields& ff) const {
 template<typename BC>
 void LbmSolver<BC>::ComputeForcingTerms(FluidFields& ff) const {
     #pragma omp parallel for default(shared) num_threads(numprocs) schedule(static)
-    for (int x : std::views::iota(0, nx)) {
+    for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
-            for (int z : std::views::iota(0, nz)) {
-                const double forceX = ff.fx[x, y, z];
-                const double forceY = ff.fy[x, y, z];
-                const double forceZ = ff.fz[x, y, z];
-                const double uxp    = ff.ux[x, y, z];
-                const double uyp    = ff.uy[x, y, z];
-                const double uzp    = ff.uz[x, y, z];
+            for (int x : std::views::iota(0, nx)) {
+                const double forceX = ff.fx[z, y, x];
+                const double forceY = ff.fy[z, y, x];
+                const double forceZ = ff.fz[z, y, x];
+                const double uxp    = ff.ux[z, y, x];
+                const double uyp    = ff.uy[z, y, x];
+                const double uzp    = ff.uz[z, y, x];
                 const double uF     = uxp * forceX + uyp * forceY + uzp * forceZ;
                 for (int i : std::views::iota(0, ndir)) {
                     const double ue = uxp * FluidFields::ex[i] + uyp * FluidFields::ey[i] + uzp * FluidFields::ez[i];
                     const double eF = FluidFields::ex[i] * forceX + FluidFields::ey[i] * forceY + FluidFields::ez[i] * forceZ;
-                    ff.forcing[x, y, z, i] = omega_forcing * FluidFields::w[i]
+                    ff.forcing[z, y, x, i] = omega_forcing * FluidFields::w[i]
                     * (3.0 * eF - 3.0 * uF + 9.0 * ue * eF);
                 }
             }
@@ -84,22 +84,22 @@ void LbmSolver<BC>::ComputeMoments(FluidFields& ff) const {
     double arho, aux, auy, auz;
     #pragma omp parallel for default(shared) reduction(+:arho, aux, auy, auz) \
         num_threads(numprocs) schedule(static)
-    for (int x : std::views::iota(0, nx)) {
+    for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
-            for (int z : std::views::iota(0, nz)) {
+            for (int x : std::views::iota(0, nx)) {
                 arho = 0; aux = 0; auy = 0, auz = 0;
                 for (int i = 0; i < ndir; ++i) {
-                    const double fi = ff.f[x, y, z, i];
+                    const double fi = ff.f[z, y, x, i];
                     arho += fi;
                     aux  += FluidFields::ex[i] * fi;
                     auy  += FluidFields::ey[i] * fi;
                     auz  += FluidFields::ez[i] * fi;
                 }
                 const double inv_r = 1.0 / arho;
-                ff.rho[x, y, z] = arho;
-                ff.ux[x, y, z]  = (aux + 0.5 * ff.fx[x, y, z] * DT) * inv_r;
-                ff.uy[x, y, z]  = (auy + 0.5 * ff.fy[x, y, z] * DT) * inv_r;
-                ff.uz[x, y, z]  = (auz + 0.5 * ff.fz[x, y, z] * DT) * inv_r;
+                ff.rho[z, y, x] = arho;
+                ff.ux[z, y, x]  = (aux + 0.5 * ff.fx[z, y, x] * DT) * inv_r;
+                ff.uy[z, y, x]  = (auy + 0.5 * ff.fy[z, y, x] * DT) * inv_r;
+                ff.uz[z, y, x]  = (auz + 0.5 * ff.fz[z, y, x] * DT) * inv_r;
             }
         }
     }
@@ -119,11 +119,11 @@ template<typename BC>
 void LbmSolver<BC>::Stream(FluidFields& ff) const {
     // Interior: plain ±1 offsets, no BC dispatch needed
     #pragma omp parallel for schedule(static) default(shared) num_threads(numprocs)
-    for (int x = 1; x < nx - 1; ++x)
+    for (int z = 1; z < nz - 1; ++z)
         for (int y = 1; y < ny - 1; ++y)
-            for (int z = 1; z < nz - 1; ++z)
+            for (int x = 1; x < nx - 1; ++x)
                 for (int i = 0; i < ndir; ++i)
-                    ff.f[x + FluidFields::ex[i], y + FluidFields::ey[i], z + FluidFields::ez[i], i] = ff.f_new[x, y, z, i];
+                    ff.f[z + FluidFields::ez[i], y + FluidFields::ey[i], x + FluidFields::ex[i], i] = ff.f_new[z, y, x, i];
 
     // Boundary rows/columns: use UXoff/UYoff; out-of-domain destinations are
     // silently dropped (InDomain check), then rebuilt by HandleBoundaries.
@@ -133,23 +133,23 @@ void LbmSolver<BC>::Stream(FluidFields& ff) const {
             const int dy = UYoff(y, FluidFields::ey[i]);
             const int dz = UZoff(z, FluidFields::ez[i]);
             if (InDomain(dx, dy, dz))
-                ff.f[dx, dy, dz, i] = ff.f_new[x, y, z, i];
+                ff.f[dz, dy, dx, i] = ff.f_new[z, y, x, i];
         }
     };
-    for (int x : std::views::iota(0, nx)) {
-        for (int y : std::views::iota(0, ny)) {
+    for (int y : std::views::iota(0, ny)) {
+        for (int x : std::views::iota(0, nx)) {
             stream_cell(x, y, 0);
             stream_cell(x, y, nz-1);
         }
     }
-    for (int x : std::views::iota(0, nx)) {
-        for (int z : std::views::iota(1, nz-1)) {
+    for (int z : std::views::iota(1, nz-1)) {
+        for (int x : std::views::iota(0, nx)) {
             stream_cell(x, 0, z);
             stream_cell(x, ny-1, z);
         }
     }
-    for (int y : std::views::iota(1, ny-1)) {
-        for (int z : std::views::iota(1, nz-1)) {
+    for (int z : std::views::iota(1, nz-1)) {
+        for (int y : std::views::iota(1, ny-1)) {
             stream_cell(0, y, z);
             stream_cell(nx-1, y, z);
         }
@@ -195,14 +195,14 @@ void LbmSolver<BC>::HandleWallZHi(FluidFields& ff) const {
     using U = typename WallSpec::UBC;
     if constexpr (std::is_same_v<U, Periodic>) return;
 
-    for (int x : std::views::iota(0, nx)) {
-        for (int y : std::views::iota(0, ny)) {
+    for (int y : std::views::iota(0, ny)) {
+        for (int x : std::views::iota(0, nx)) {
             constexpr int z = nz - 1;
             if constexpr (std::is_same_v<U, SpecularReflection>) {
                 for (int m : FluidFields::missingZHi)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::specZ[m]];
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::specZ[m]];
             } else {
-                const double rho = ff.rho[x, y, z];
+                const double rho = ff.rho[z, y, x];
                 const double Ux = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Ux; else return 0.0; }();
                 const double Uy = []() -> double {
@@ -210,7 +210,7 @@ void LbmSolver<BC>::HandleWallZHi(FluidFields& ff) const {
                     const double Uz = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Uz; else return 0.0; }();
                 for (int m : FluidFields::missingZHi)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::opp[m]]
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::opp[m]]
                                 + kCs2InvTimes2 * rho * FluidFields::w[m]
                                     * (FluidFields::ex[m] * Ux + FluidFields::ey[m] * Uy + FluidFields::ez[m] * Uz);
             }
@@ -224,14 +224,14 @@ void LbmSolver<BC>::HandleWallZLo(FluidFields& ff) const {
     using U = typename WallSpec::UBC;
     if constexpr (std::is_same_v<U, Periodic>) return;
 
-    for (int x : std::views::iota(0, nx)) {
-        for (int y : std::views::iota(0, ny)) {
+    for (int y : std::views::iota(0, ny)) {
+        for (int x : std::views::iota(0, nx)) {
             constexpr int z = 0;
             if constexpr (std::is_same_v<U, SpecularReflection>) {
                 for (int m : FluidFields::missingZLo)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::specZ[m]];
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::specZ[m]];
             } else {
-                const double rho = ff.rho[x, y, z];
+                const double rho = ff.rho[z, y, x];
                 const double Ux = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Ux; else return 0.0; }();
                 const double Uy = []() -> double {
@@ -239,7 +239,7 @@ void LbmSolver<BC>::HandleWallZLo(FluidFields& ff) const {
                     const double Uz = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Uz; else return 0.0; }();
                 for (int m : FluidFields::missingZLo)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::opp[m]]
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::opp[m]]
                                 + kCs2InvTimes2 * rho * FluidFields::w[m]
                                     * (FluidFields::ex[m] * Ux + FluidFields::ey[m] * Uy + FluidFields::ez[m] * Uz);
             }
@@ -258,14 +258,14 @@ void LbmSolver<BC>::HandleWallYHi(FluidFields& ff) const {
     using U = typename WallSpec::UBC;
     if constexpr (std::is_same_v<U, Periodic>) return;
 
-    for (int x : std::views::iota(0, nx)) {
-        for (int z : std::views::iota(0, nz)) {
+    for (int z : std::views::iota(0, nz)) {
+        for (int x : std::views::iota(0, nx)) {
             constexpr int y = ny - 1;
             if constexpr (std::is_same_v<U, SpecularReflection>) {
                 for (int m : FluidFields::missingYHi)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::specY[m]];
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::specY[m]];
             } else {
-                const double rho = ff.rho[x, y, z];
+                const double rho = ff.rho[z, y, x];
                 const double Ux = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Ux; else return 0.0; }();
                 const double Uy = []() -> double {
@@ -273,7 +273,7 @@ void LbmSolver<BC>::HandleWallYHi(FluidFields& ff) const {
                     const double Uz = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Uz; else return 0.0; }();
                 for (int m : FluidFields::missingYHi)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::opp[m]]
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::opp[m]]
                                 + kCs2InvTimes2 * rho * FluidFields::w[m]
                                     * (FluidFields::ex[m] * Ux + FluidFields::ey[m] * Uy + FluidFields::ez[m] * Uz);
             }
@@ -287,14 +287,14 @@ void LbmSolver<BC>::HandleWallYLo(FluidFields& ff) const {
     using U = typename WallSpec::UBC;
     if constexpr (std::is_same_v<U, Periodic>) return;
 
-    for (int x : std::views::iota(0, nx)) {
-        for (int z : std::views::iota(0, nz)) {
+    for (int z : std::views::iota(0, nz)) {
+        for (int x : std::views::iota(0, nx)) {
             constexpr int y = 0;
             if constexpr (std::is_same_v<U, SpecularReflection>) {
                 for (int m : FluidFields::missingYLo)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::specY[m]];
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::specY[m]];
             } else {
-                const double rho = ff.rho[x, y, z];
+                const double rho = ff.rho[z, y, x];
                 const double Ux = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Ux; else return 0.0; }();
                 const double Uy = []() -> double {
@@ -302,7 +302,7 @@ void LbmSolver<BC>::HandleWallYLo(FluidFields& ff) const {
                     const double Uz = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Uz; else return 0.0; }();
                 for (int m : FluidFields::missingYLo)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::opp[m]]
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::opp[m]]
                                 + kCs2InvTimes2 * rho * FluidFields::w[m]
                                     * (FluidFields::ex[m] * Ux + FluidFields::ey[m] * Uy + FluidFields::ez[m] * Uz);
             }
@@ -321,14 +321,14 @@ void LbmSolver<BC>::HandleWallXHi(FluidFields& ff) const {
     using U = typename WallSpec::UBC;
     if constexpr (std::is_same_v<U, Periodic>) return;
 
-    for (int y : std::views::iota(0, ny)) {
-        for (int z : std::views::iota(0, nz)) {
+    for (int z : std::views::iota(0, nz)) {
+        for (int y : std::views::iota(0, ny)) {
             constexpr int x = nx - 1;
             if constexpr (std::is_same_v<U, SpecularReflection>) {
                 for (int m : FluidFields::missingXHi)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::specX[m]];
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::specX[m]];
             } else {
-                const double rho = ff.rho[x, y, z];
+                const double rho = ff.rho[z, y, x];
                 const double Ux = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Ux; else return 0.0; }();
                 const double Uy = []() -> double {
@@ -336,7 +336,7 @@ void LbmSolver<BC>::HandleWallXHi(FluidFields& ff) const {
                     const double Uz = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Uz; else return 0.0; }();
                 for (int m : FluidFields::missingXHi)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::opp[m]]
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::opp[m]]
                                 + kCs2InvTimes2 * rho * FluidFields::w[m]
                                     * (FluidFields::ex[m] * Ux + FluidFields::ey[m] * Uy + FluidFields::ez[m] * Uz);
             }
@@ -350,14 +350,14 @@ void LbmSolver<BC>::HandleWallXLo(FluidFields& ff) const {
     using U = typename WallSpec::UBC;
     if constexpr (std::is_same_v<U, Periodic>) return;
 
-    for (int y : std::views::iota(0, ny)) {
-        for (int z : std::views::iota(0, nz)) {
+    for (int z : std::views::iota(0, nz)) {
+        for (int y : std::views::iota(0, ny)) {
             constexpr int x = 0;
             if constexpr (std::is_same_v<U, SpecularReflection>) {
                 for (int m : FluidFields::missingXLo)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::specX[m]];
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::specX[m]];
             } else {
-                const double rho = ff.rho[x, y, z];
+                const double rho = ff.rho[z, y, x];
                 const double Ux = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Ux; else return 0.0; }();
                 const double Uy = []() -> double {
@@ -365,7 +365,7 @@ void LbmSolver<BC>::HandleWallXLo(FluidFields& ff) const {
                     const double Uz = []() -> double {
                     if constexpr (is_moving_wall_v<U>) return U::Uz; else return 0.0; }();
                 for (int m : FluidFields::missingXLo)
-                    ff.f[x, y, z, m] = ff.f_new[x, y, z, FluidFields::opp[m]]
+                    ff.f[z, y, x, m] = ff.f_new[z, y, x, FluidFields::opp[m]]
                                 + kCs2InvTimes2 * rho * FluidFields::w[m]
                                     * (FluidFields::ex[m] * Ux + FluidFields::ey[m] * Uy + FluidFields::ez[m] * Uz);
             }

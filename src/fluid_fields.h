@@ -91,8 +91,8 @@ struct FluidFields {
     std::vector<double> rho_data, ux_data, uy_data, uz_data;
 
     // Non-owning views (declared after _data so initializer-list order is safe)
-    using ext3_t  = Kokkos::extents<int, Params::nx, Params::ny, Params::nz>;
-    using ext4_t = Kokkos::extents<int, Params::nx, Params::ny, Params::nz, Params::ndir>;
+    using ext3_t  = Kokkos::extents<int, Params::nz, Params::ny, Params::nx>;
+    using ext4_t = Kokkos::extents<int, Params::nz, Params::ny, Params::nx, Params::ndir>;
     Kokkos::mdspan<double, ext3_t>  rho, ux, uy, uz;
     Kokkos::mdspan<double, ext3_t>  fx, fy, fz;
     Kokkos::mdspan<double, ext4_t> f, f_new, f_eq, forcing;
