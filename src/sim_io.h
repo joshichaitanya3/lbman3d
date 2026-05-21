@@ -19,9 +19,13 @@ class SimIO {
 
     // Previous-step snapshots for per-export diagnostics
     std::vector<double> rho_past_data_, ux_past_data_, uy_past_data_, uz_past_data_;
-    std::vector<double> vel, director, order; // For VTKHDF export
-    using ext_t = Kokkos::extents<int, Params::nx, Params::ny, Params::nz>;
-    Kokkos::mdspan<double, ext_t> rho_past_, ux_past_, uy_past_, uz_past_;
+    // Order parameter and director fields populated by QtensorToOrderDirector
+    std::vector<double> order_data_, director_data_;
+    using ext_t  = Kokkos::extents<int, Params::nz, Params::ny, Params::nx>;
+    using ext4_t = Kokkos::extents<int, Params::nz, Params::ny, Params::nx, 3>;
+    Kokkos::mdspan<double, ext_t>  rho_past_, ux_past_, uy_past_, uz_past_;
+    Kokkos::mdspan<double, ext_t>  order_;
+    Kokkos::mdspan<double, ext4_t> director_;
 public:
     SimIO();
     ~SimIO();
