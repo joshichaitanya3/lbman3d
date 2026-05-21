@@ -56,6 +56,9 @@ target_include_directories(main PUBLIC
 
 target_link_libraries(main PRIVATE mdspan)
 
+# Set main include directory
+target_include_directories(main PUBLIC src/)
+
 # Wire up std::format detection result into the build
 if(HAVE_STD_FORMAT)
     target_compile_definitions(main PRIVATE HAVE_STD_FORMAT)
