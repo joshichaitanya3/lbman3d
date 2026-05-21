@@ -11,19 +11,7 @@
 
 using namespace Params;
 
-SimIO::SimIO() :
-    rho_past_data_(nx * ny * nz, kDensity),
-    ux_past_data_ (nx * ny * nz, 0.0),
-    uy_past_data_ (nx * ny * nz, 0.0),
-    uz_past_data_ (nx * ny * nz, 0.0),
-    order_data_   (nx * ny * nz, 0.0),
-    director_data_(nx * ny * nz * 3, 0.0),
-    rho_past_(rho_past_data_.data(), nz, ny, nx),
-    ux_past_ (ux_past_data_.data(),  nz, ny, nx),
-    uy_past_ (uy_past_data_.data(),  nz, ny, nx),
-    uz_past_ (uz_past_data_.data(),  nz, ny, nx),
-    order_   (order_data_.data(),    nz, ny, nx),
-    director_(director_data_.data(), nz, ny, nx, 3)
+SimIO::SimIO()
 {
     log_file_.open("lbm.log", std::ios::out);
 }
@@ -73,7 +61,7 @@ void SimIO::LogSetupSummary(std::string_view bc_name) {
     compat::println(log_file_, "##########################################################");
 }
 
-bool SimIO::Log(const FluidFields& ff, int time_step) {
+bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, int time_step) {
     double mass = 0.0, px = 0.0, py = 0.0, pz=0, e1 = 0.0, e2 = 0.0;
 
     #pragma omp parallel for schedule(static) default(shared) \
@@ -85,14 +73,14 @@ bool SimIO::Log(const FluidFields& ff, int time_step) {
                 px   += ff.rho[z, y, x] * ff.ux[z, y, x];
                 py   += ff.rho[z, y, x] * ff.uy[z, y, x];
                 pz   += ff.rho[z, y, x] * ff.uz[z, y, x];
-                e1   += (ff.ux[z,y,x]-ux_past_[z,y,x])*(ff.ux[z,y,x]-ux_past_[z,y,x])
-                        + (ff.uy[z,y,x]-uy_past_[z,y,x])*(ff.uy[z,y,x]-uy_past_[z,y,x])
-                        + (ff.uz[z,y,x]-uz_past_[z,y,x])*(ff.uz[z,y,x]-uz_past_[z,y,x]);
+                e1   += (ff.ux[z,y,x]-af.ux_past_[z,y,x])*(ff.ux[z,y,x]-af.ux_past_[z,y,x])
+                        + (ff.uy[z,y,x]-af.uy_past_[z,y,x])*(ff.uy[z,y,x]-af.uy_past_[z,y,x])
+                        + (ff.uz[z,y,x]-af.uz_past_[z,y,x])*(ff.uz[z,y,x]-af.uz_past_[z,y,x]);
 
                 e2   += ff.ux[z,y,x]*ff.ux[z,y,x] + ff.uy[z,y,x]*ff.uy[z,y,x]  + ff.uz[z,y,x]*ff.uz[z,y,x];
-                ux_past_[z, y, x] = ff.ux[z, y, x];
-                uy_past_[z, y, x] = ff.uy[z, y, x];
-                uz_past_[z, y, x] = ff.uz[z, y, x];
+                af.ux_past_[z, y, x] = ff.ux[z, y, x];
+                af.uy_past_[z, y, x] = ff.uy[z, y, x];
+                af.uz_past_[z, y, x] = ff.uz[z, y, x];
             }
         }
     }
@@ -109,14 +97,13 @@ bool SimIO::Log(const FluidFields& ff, int time_step) {
 
 void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
                    const std::string& path, int step) {
-    std::ofstream rho_file, ux_file, uy_file, uz_file, dm_file;
+    std::ofstream rho_file, ux_file, uy_file, uz_file;
     std::ofstream qxx_file, qxy_file, qxz_file, qyy_file, qyz_file;
 
     rho_file.open(compat::format("{}/rho_{}.csv",    path, step), std::ios::out);
     ux_file .open(compat::format("{}/ux_{}.csv",     path, step), std::ios::out);
     uy_file .open(compat::format("{}/uy_{}.csv",     path, step), std::ios::out);
     uz_file .open(compat::format("{}/uz_{}.csv",     path, step), std::ios::out);
-    dm_file .open(compat::format("{}/delta_m_{}.csv",path, step), std::ios::out);
     
     qxx_file.open(compat::format("{}/qxx_{}.csv",    path, step), std::ios::out);
     qxy_file.open(compat::format("{}/qxy_{}.csv",    path, step), std::ios::out);
@@ -138,9 +125,7 @@ void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
                 compat::print(qxy_file,  "{},", qf.qxy[z, y, x]);
                 compat::print(qxz_file,  "{},", qf.qxz[z, y, x]);
                 compat::print(qyy_file,  "{},", qf.qyy[z, y, x]);
-                compat::print(qyz_file,  "{},", qf.qyz[z, y, x]);
-                compat::print(dm_file,   "{},", ff.rho[z,y,x] - rho_past_[z,y,x]);
-                rho_past_[z, y, x] = ff.rho[z, y, x];
+                compat::print(qyz_file,  "{},", qf.qyz[z, y, x]);                
             }
             compat::print(rho_file,  "{}\n", ff.rho[z, y, nx-1]);
             compat::print(ux_file,   "{}\n", ff.ux[z, y, nx-1]);
@@ -151,8 +136,6 @@ void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
             compat::print(qxz_file,  "{}\n", qf.qxz[z, y, nx-1]);
             compat::print(qyy_file,  "{}\n", qf.qyy[z, y, nx-1]);
             compat::print(qyz_file,  "{}\n", qf.qyz[z, y, nx-1]);
-            compat::print(dm_file,   "{}\n", ff.rho[z, y, nx-1] - rho_past_[z, y, nx-1]);
-            rho_past_[z, y, nx-1] = ff.rho[z, y, nx-1];
         }
     }
 
@@ -181,62 +164,8 @@ void SimIO::ExportDistributionCSV(const FluidFields& ff,
     }
 }
 
-double SimIO::HalfTrQ2(
-        double Qxx,
-        double Qxy,
-        double Qxz,
-        double Qyy,
-        double Qyz) {
-    return (Qxx*Qxx + Qxx*Qyy + Qyy*Qyy + Qxy*Qxy + Qxz*Qxz + Qyz*Qyz);
-}
 
-double SimIO::DetQ(
-        double Qxx,
-        double Qxy,
-        double Qxz,
-        double Qyy,
-        double Qyz) {
-        
-        return (-(Qxx + Qyy) * (Qxx*Qyy - Qxy*Qxy) - Qyy*Qxz*Qxz - Qxx*Qyz*Qyz + 2*Qxy*Qxz*Qyz);
-    }
-
-void SimIO::QtensorToOrderDirector(const QTensorFields& qf) {
-
-    for (int z = 0; z < nz; ++z) {
-        for (int y = 0; y < ny; ++y) {
-            for (int x = 0; x < nx; ++x) {
-                const double Qxx = qf.qxx[z, y, x];
-                const double Qxy = qf.qxy[z, y, x];
-                const double Qxz = qf.qxz[z, y, x];
-                const double Qyy = qf.qyy[z, y, x];
-                const double Qyz = qf.qyz[z, y, x];
-                const double p = HalfTrQ2(Qxx, Qxy, Qxz, Qyy, Qyz);
-                const double q = DetQ(Qxx, Qxy, Qxz, Qyy, Qyz);
-
-                const double r = 2.0 * std::sqrt(p/3.0);
-
-                const double S = r * std::cos(1.0/3.0 * std::acos(4*q/(r*r*r)));
-
-                double nhatx = Qxz*(Qyy-S) - Qxy*Qyz;
-                double nhaty = Qyz*(Qxx-S) - Qxy*Qxz;
-                double nhatz = Qxy*Qxy - (Qxx-S)*(Qyy-S);
-                const double norm_inv = 1.0 / std::sqrt(nhatx*nhatx + nhaty*nhaty + nhatz*nhatz);
-                nhatx *= norm_inv;
-                nhaty *= norm_inv;
-                nhatz *= norm_inv;
-
-                director_[z, y, x, 0] = nhatx;
-                director_[z, y, x, 1] = nhaty;
-                director_[z, y, x, 2] = nhatz;
-                order_[z, y, x] = S;
-            }
-        }
-    }
-}
-
-
-
-void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf,
+void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, AnalysisFields& af,
                          const std::string& path, int step, double time) {
     constexpr int kStepWidth = [] {
         int w = 1, n = kNumSteps - 1;
@@ -343,8 +272,7 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf,
         }
     }
 
-    QtensorToOrderDirector(qf);
-    write_field("order", scalar_sp, order_data_.data());
+    write_field("order", scalar_sp, af.order_data_.data());
 
     // Velocity: three independent scalar fields, written directly from backing stores.
     write_field("ux", scalar_sp, ff.ux_data.data());
@@ -357,7 +285,7 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf,
     {
         const hsize_t dir_dims[4] = {(hsize_t)nz, (hsize_t)ny, (hsize_t)nx, 3};
         hid_t dir_sp = H5Screate_simple(4, dir_dims, nullptr);
-        write_field("director", dir_sp, director_data_.data());
+        write_field("director", dir_sp, af.director_data_.data());
         H5Sclose(dir_sp);
     }
 
