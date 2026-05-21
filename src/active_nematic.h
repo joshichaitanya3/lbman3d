@@ -8,6 +8,7 @@
 #include "params.h"
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
+#include "analysis_fields.h"
 #include "lbm_solver.h"
 #include "qtensor_solver.h"
 #include "sim_io.h"
@@ -25,6 +26,7 @@ template<typename BC>
 class ActiveNematicSim {
     FluidFields    fluid_;
     QTensorFields  qtensor_;
+    AnalysisFields af_;
     LbmSolver<BC>  lbm_;
     std::unique_ptr<QTensorSolver<BC>> qtensor_solver_;
     SimIO          io_;
@@ -56,10 +58,12 @@ public:
     }
 
     // Returns false if the simulation has diverged (NaN detected).
-    bool Log() { return io_.Log(fluid_, time_step_); }
+    bool Log() { return io_.Log(fluid_, af_, time_step_); }
 
     void Export(const std::string& path, ExportFormat fmt) {
         // io_.Export(fluid_, qtensor_, path, time_step_);
+        QtensorToOrderDirector(qtensor_, af_);
+
         switch (fmt)
         {
         case CSV:
@@ -67,7 +71,7 @@ public:
             num_files_exported++;
             break;
         case VTKHDF:
-            io_.ExportVTKHDF(fluid_, qtensor_, path, num_files_exported, static_cast<double>(time_step_)*Params::DT);
+            io_.ExportVTKHDF(fluid_, qtensor_, af_, path, num_files_exported, static_cast<double>(time_step_)*Params::DT);
             num_files_exported++;
             break;
         default:
