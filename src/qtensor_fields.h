@@ -10,7 +10,7 @@ struct QTensorFields {
     std::vector<double> qxx_data, qxy_data, qxz_data, qyy_data, qyz_data;
     std::vector<double> qxx_new_data, qxy_new_data, qxz_new_data, qyy_new_data, qyz_new_data;
 
-    using ext3_t  = Kokkos::extents<int, Params::nx, Params::ny, Params::nz>;
+    using ext3_t  = Kokkos::extents<int, Params::nz, Params::ny, Params::nx>;
     Kokkos::mdspan<double, ext3_t> qxx, qxy, qxz, qyy, qyz;
     Kokkos::mdspan<double, ext3_t> qxx_new, qxy_new, qxz_new, qyy_new, qyz_new;
 
@@ -31,8 +31,8 @@ private:
                                Kokkos::mdspan<double, ext3_t>& a_view,
                                Kokkos::mdspan<double, ext3_t>& b_view) {
         std::swap(a_data, b_data);
-        a_view = Kokkos::mdspan<double, ext3_t>(a_data.data(), Params::nx, Params::ny, Params::nz);
-        b_view = Kokkos::mdspan<double, ext3_t>(b_data.data(), Params::nx, Params::ny, Params::nz);
+        a_view = Kokkos::mdspan<double, ext3_t>(a_data.data(), Params::nz, Params::ny, Params::nx);
+        b_view = Kokkos::mdspan<double, ext3_t>(b_data.data(), Params::nz, Params::ny, Params::nx);
     }
 };
 

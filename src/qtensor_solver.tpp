@@ -15,14 +15,14 @@ void QTensorSolver<BC>::Initialize(QTensorFields& qf) const {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_real_distribution<double> noise_dist(-NOISE, NOISE);
-    for (int x : std::views::iota(0, nx)) {
+    for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
-            for (int z : std::views::iota(0, nz)) {
-                qf.qxx[x, y, z] = 0.66 + noise_dist(gen);
-                qf.qxy[x, y, z] = noise_dist(gen);
-                qf.qxz[x, y, z] = noise_dist(gen);
-                qf.qyy[x, y, z] = -0.33 + noise_dist(gen);
-                qf.qyz[x, y, z] = noise_dist(gen);
+            for (int x : std::views::iota(0, nx)) {
+                qf.qxx[z, y, x] = 0.66 + noise_dist(gen);
+                qf.qxy[z, y, x] = noise_dist(gen);
+                qf.qxz[z, y, x] = noise_dist(gen);
+                qf.qyy[z, y, x] = -0.33 + noise_dist(gen);
+                qf.qyz[z, y, x] = noise_dist(gen);
             }
         }
     }
@@ -34,15 +34,15 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
 
         // Fields
 
-        const double Qxx = qf.qxx[x, y, z];
-        const double Qxy = qf.qxy[x, y, z];
-        const double Qxz = qf.qxz[x, y, z];
-        const double Qyy = qf.qyy[x, y, z];
-        const double Qyz = qf.qyz[x, y, z];
+        const double Qxx = qf.qxx[z, y, x];
+        const double Qxy = qf.qxy[z, y, x];
+        const double Qxz = qf.qxz[z, y, x];
+        const double Qyy = qf.qyy[z, y, x];
+        const double Qyz = qf.qyz[z, y, x];
 
-        const double ux = ff.ux[x, y, z];
-        const double uy = ff.uy[x, y, z];
-        const double uz = ff.uz[x, y, z];
+        const double ux = ff.ux[z, y, x];
+        const double uy = ff.uy[z, y, x];
+        const double uz = ff.uz[z, y, x];
 
         // Polynomials
         const double TrQ2 = 2.0*(Qxx*Qxx + Qyy*Qyy+ Qxx*Qyy + Qxy*Qxy +Qxz*Qxz +Qyz*Qyz);
@@ -62,16 +62,16 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
         // Velocity gradient tensor (central differences; uses the same Q stencil offsets
         // since HandleBoundaries has already set correct wall velocities from the
         // previous LBM step before FiniteDifferenceStep is called)
-        const double uxx = (ff.ux[xp,y,z] - ff.ux[xm,y,z]) / 2.0;
-        const double uxy = (ff.ux[x,yp,z] - ff.ux[x,ym,z]) / 2.0;
-        const double uxz = (ff.ux[x,y,zp] - ff.ux[x,y,zm]) / 2.0;
+        const double uxx = (ff.ux[z,y,xp] - ff.ux[z,y,xm]) / 2.0;
+        const double uxy = (ff.ux[z,yp,x] - ff.ux[z,ym,x]) / 2.0;
+        const double uxz = (ff.ux[zp,y,x] - ff.ux[zm,y,x]) / 2.0;
 
-        const double uyx = (ff.uy[xp,y,z] - ff.uy[xm,y,z]) / 2.0;
-        const double uyy = (ff.uy[x,yp,z] - ff.uy[x,ym,z]) / 2.0;
-        const double uyz = (ff.uy[x,y,zp] - ff.uy[x,y,zm]) / 2.0;
+        const double uyx = (ff.uy[z,y,xp] - ff.uy[z,y,xm]) / 2.0;
+        const double uyy = (ff.uy[z,yp,x] - ff.uy[z,ym,x]) / 2.0;
+        const double uyz = (ff.uy[zp,y,x] - ff.uy[zm,y,x]) / 2.0;
 
-        const double uzx = (ff.uz[xp,y,z] - ff.uz[xm,y,z]) / 2.0;
-        const double uzy = (ff.uz[x,yp,z] - ff.uz[x,ym,z]) / 2.0;
+        const double uzx = (ff.uz[z,y,xp] - ff.uz[z,y,xm]) / 2.0;
+        const double uzy = (ff.uz[z,yp,x] - ff.uz[z,ym,x]) / 2.0;
         const double uzz = - (uxx + uyy); // from incompressibility
         
         /*
@@ -104,30 +104,30 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
         const double Wzy = -Wyz;
 
         // Q-tensor
-        const double Qxxx = (qf.qxx[xp, y, z] - qf.qxx[xm, y, z]) / 2.0;
-        const double Qxyx = (qf.qxy[xp, y, z] - qf.qxy[xm, y, z]) / 2.0;
-        const double Qxzx = (qf.qxz[xp, y, z] - qf.qxz[xm, y, z]) / 2.0;
-        const double Qyyx = (qf.qyy[xp, y, z] - qf.qyy[xm, y, z]) / 2.0;
-        const double Qyzx = (qf.qyz[xp, y, z] - qf.qyz[xm, y, z]) / 2.0;
+        const double Qxxx = (qf.qxx[z, y, xp] - qf.qxx[z, y, xm]) / 2.0;
+        const double Qxyx = (qf.qxy[z, y, xp] - qf.qxy[z, y, xm]) / 2.0;
+        const double Qxzx = (qf.qxz[z, y, xp] - qf.qxz[z, y, xm]) / 2.0;
+        const double Qyyx = (qf.qyy[z, y, xp] - qf.qyy[z, y, xm]) / 2.0;
+        const double Qyzx = (qf.qyz[z, y, xp] - qf.qyz[z, y, xm]) / 2.0;
 
-        const double Qxxy = (qf.qxx[x, yp, z] - qf.qxx[x, ym, z]) / 2.0;
-        const double Qxyy = (qf.qxy[x, yp, z] - qf.qxy[x, ym, z]) / 2.0;
-        const double Qxzy = (qf.qxz[x, yp, z] - qf.qxz[x, ym, z]) / 2.0;
-        const double Qyyy = (qf.qyy[x, yp, z] - qf.qyy[x, ym, z]) / 2.0;
-        const double Qyzy = (qf.qyz[x, yp, z] - qf.qyz[x, ym, z]) / 2.0;
+        const double Qxxy = (qf.qxx[z, yp, x] - qf.qxx[z, ym, x]) / 2.0;
+        const double Qxyy = (qf.qxy[z, yp, x] - qf.qxy[z, ym, x]) / 2.0;
+        const double Qxzy = (qf.qxz[z, yp, x] - qf.qxz[z, ym, x]) / 2.0;
+        const double Qyyy = (qf.qyy[z, yp, x] - qf.qyy[z, ym, x]) / 2.0;
+        const double Qyzy = (qf.qyz[z, yp, x] - qf.qyz[z, ym, x]) / 2.0;
 
-        const double Qxxz = (qf.qxx[x, y, zp] - qf.qxx[x, y, zm]) / 2.0;
-        const double Qxyz = (qf.qxy[x, y, zp] - qf.qxy[x, y, zm]) / 2.0;
-        const double Qxzz = (qf.qxz[x, y, zp] - qf.qxz[x, y, zm]) / 2.0;
-        const double Qyyz = (qf.qyy[x, y, zp] - qf.qyy[x, y, zm]) / 2.0;
-        const double Qyzz = (qf.qyz[x, y, zp] - qf.qyz[x, y, zm]) / 2.0;
+        const double Qxxz = (qf.qxx[zp, y, x] - qf.qxx[zm, y, x]) / 2.0;
+        const double Qxyz = (qf.qxy[zp, y, x] - qf.qxy[zm, y, x]) / 2.0;
+        const double Qxzz = (qf.qxz[zp, y, x] - qf.qxz[zm, y, x]) / 2.0;
+        const double Qyyz = (qf.qyy[zp, y, x] - qf.qyy[zm, y, x]) / 2.0;
+        const double Qyzz = (qf.qyz[zp, y, x] - qf.qyz[zm, y, x]) / 2.0;
 
         // Laplacian (seven-point stencil)
-        const double lap_Qxx = qf.qxx[xp,y,z] + qf.qxx[xm,y,z] + qf.qxx[x,yp,z] + qf.qxx[x,ym,z] + qf.qxx[x,y,zp] + qf.qxx[x,y,zm] - 6.0*Qxx;
-        const double lap_Qxy = qf.qxy[xp,y,z] + qf.qxy[xm,y,z] + qf.qxy[x,yp,z] + qf.qxy[x,ym,z] + qf.qxy[x,y,zp] + qf.qxy[x,y,zm] - 6.0*Qxy;
-        const double lap_Qxz = qf.qxz[xp,y,z] + qf.qxz[xm,y,z] + qf.qxz[x,yp,z] + qf.qxz[x,ym,z] + qf.qxz[x,y,zp] + qf.qxz[x,y,zm] - 6.0*Qxz;
-        const double lap_Qyy = qf.qyy[xp,y,z] + qf.qyy[xm,y,z] + qf.qyy[x,yp,z] + qf.qyy[x,ym,z] + qf.qyy[x,y,zp] + qf.qyy[x,y,zm] - 6.0*Qyy;
-        const double lap_Qyz = qf.qyz[xp,y,z] + qf.qyz[xm,y,z] + qf.qyz[x,yp,z] + qf.qyz[x,ym,z] + qf.qyz[x,y,zp] + qf.qyz[x,y,zm] - 6.0*Qyz;
+        const double lap_Qxx = qf.qxx[z,y,xp] + qf.qxx[z,y,xm] + qf.qxx[z,yp,x] + qf.qxx[z,ym,x] + qf.qxx[zp,y,x] + qf.qxx[zm,y,x] - 6.0*Qxx;
+        const double lap_Qxy = qf.qxy[z,y,xp] + qf.qxy[z,y,xm] + qf.qxy[z,yp,x] + qf.qxy[z,ym,x] + qf.qxy[zp,y,x] + qf.qxy[zm,y,x] - 6.0*Qxy;
+        const double lap_Qxz = qf.qxz[z,y,xp] + qf.qxz[z,y,xm] + qf.qxz[z,yp,x] + qf.qxz[z,ym,x] + qf.qxz[zp,y,x] + qf.qxz[zm,y,x] - 6.0*Qxz;
+        const double lap_Qyy = qf.qyy[z,y,xp] + qf.qyy[z,y,xm] + qf.qyy[z,yp,x] + qf.qyy[z,ym,x] + qf.qyy[zp,y,x] + qf.qyy[zm,y,x] - 6.0*Qyy;
+        const double lap_Qyz = qf.qyz[z,y,xp] + qf.qyz[z,y,xm] + qf.qyz[z,yp,x] + qf.qyz[z,ym,x] + qf.qyz[zp,y,x] + qf.qyz[zm,y,x] - 6.0*Qyz;
         
         // Advection: -u · ∇Q
         const double adv_xx = -(ux * Qxxx + uy * Qxxy + uz * Qxxz);
@@ -180,46 +180,44 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
        const double H_yz = L * lap_Qyz - A * Qyz - B * Q2_yz - C * Qyz * TrQ2;
        
        
-       qf.qxx_new[x, y, z] = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * H_xx);
-       qf.qxy_new[x, y, z] = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * H_xy);
-       qf.qxz_new[x, y, z] = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * H_xz);
-       qf.qyy_new[x, y, z] = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * H_yy);
-       qf.qyz_new[x, y, z] = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * H_yz);
+       qf.qxx_new[z, y, x] = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * H_xx);
+       qf.qxy_new[z, y, x] = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * H_xy);
+       qf.qxz_new[z, y, x] = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * H_xz);
+       qf.qyy_new[z, y, x] = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * H_yy);
+       qf.qyz_new[z, y, x] = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * H_yz);
     };
     
     #pragma omp parallel for num_threads(numprocs) schedule(static)
-    for (int x = 1; x < nx - 1; ++x) {
+    for (int z = 1; z < nz - 1; ++z) {
         for (int y = 1; y < ny - 1; ++y) {
-            for (int z = 1; z < nz - 1; ++z) {
-
+            for (int x = 1; x < nx - 1; ++x) {
                 compute_cell(x, y, z, x-1, x+1, y-1, y+1, z-1, z+1);
             }
         }
-
     }
 
     // Boundary rows/columns: resolve ghost nodes through Q-stencil offsets.
 
     // First, the 6 faces
-    for (int x = 1; x < nx-1; ++x) {
+    for (int z : {0, nz-1}) {
         for (int y = 1; y < ny - 1; ++y) {
-            for (int z : {0, nz-1}) {
+            for (int x = 1; x < nx-1; ++x) {
                 compute_cell(x, y, z, x-1, x+1, y-1, y+1, QZoff(z,-1), QZoff(z,1));
             }
         }
     }
 
-    for (int x = 1; x < nx-1; ++x) {
+    for (int z = 1; z < nz - 1; ++z) {
         for (int y : {0, ny-1}) {
-            for (int z = 1; z < nz - 1; ++z) {
+            for (int x = 1; x < nx-1; ++x) {
                 compute_cell(x, y, z, x-1, x+1, QYoff(y,-1), QYoff(y,1), z-1, z+1);
             }
         }
     }
 
     for (int x : {0, nx-1}) {
-        for (int y = 1; y < ny - 1; ++y) {
-            for (int z = 1; z < nz - 1; ++z) {
+        for (int z = 1; z < nz - 1; ++z) {
+            for (int y = 1; y < ny - 1; ++y) {
                 compute_cell(x, y, z, QXoff(x,-1), QXoff(x,1), y-1, y+1, z-1, z+1);
             }
         }
@@ -283,13 +281,13 @@ void QTensorSolver<BC>::HandleQWallZLo(QTensorFields& qf) const {
         const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
         const double qyz_bc = S * (sin_phi * sin_th_cos_th);
 
-        for (int x = 0; x < nx; ++x) {
-            for (int y = 0; y < ny; ++y) {
-                qf.qxx_new[x, y, 0] = qxx_bc;
-                qf.qxy_new[x, y, 0] = qxy_bc;
-                qf.qxz_new[x, y, 0] = qxz_bc;
-                qf.qyy_new[x, y, 0] = qyy_bc;
-                qf.qyz_new[x, y, 0] = qyz_bc;
+        for (int y = 0; y < ny; ++y) {
+            for (int x = 0; x < nx; ++x) {
+                qf.qxx_new[0, y, x] = qxx_bc;
+                qf.qxy_new[0, y, x] = qxy_bc;
+                qf.qxz_new[0, y, x] = qxz_bc;
+                qf.qyy_new[0, y, x] = qyy_bc;
+                qf.qyz_new[0, y, x] = qyz_bc;
             }
         }
     }
@@ -315,13 +313,13 @@ void QTensorSolver<BC>::HandleQWallZHi(QTensorFields& qf) const {
         const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
         const double qyz_bc = S * (sin_phi * sin_th_cos_th);
 
-        for (int x = 0; x < nx; ++x) {
-            for (int y = 0; y < ny; ++y) {
-                qf.qxx_new[x, y, nz-1] = qxx_bc;
-                qf.qxy_new[x, y, nz-1] = qxy_bc;
-                qf.qxz_new[x, y, nz-1] = qxz_bc;
-                qf.qyy_new[x, y, nz-1] = qyy_bc;
-                qf.qyz_new[x, y, nz-1] = qyz_bc;
+        for (int y = 0; y < ny; ++y) {
+            for (int x = 0; x < nx; ++x) {
+                qf.qxx_new[nz-1, y, x] = qxx_bc;
+                qf.qxy_new[nz-1, y, x] = qxy_bc;
+                qf.qxz_new[nz-1, y, x] = qxz_bc;
+                qf.qyy_new[nz-1, y, x] = qyy_bc;
+                qf.qyz_new[nz-1, y, x] = qyz_bc;
             }
         }
     }
@@ -348,13 +346,13 @@ void QTensorSolver<BC>::HandleQWallYLo(QTensorFields& qf) const {
         const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
         const double qyz_bc = S * (sin_phi * sin_th_cos_th);
 
-        for (int x = 0; x < nx; ++x) {
-            for (int z = 0; z < nz; ++z) {
-                qf.qxx_new[x, 0, z] = qxx_bc;
-                qf.qxy_new[x, 0, z] = qxy_bc;
-                qf.qxz_new[x, 0, z] = qxz_bc;
-                qf.qyy_new[x, 0, z] = qyy_bc;
-                qf.qyz_new[x, 0, z] = qyz_bc;
+        for (int z = 0; z < nz; ++z) {
+            for (int x = 0; x < nx; ++x) {
+                qf.qxx_new[z, 0, x] = qxx_bc;
+                qf.qxy_new[z, 0, x] = qxy_bc;
+                qf.qxz_new[z, 0, x] = qxz_bc;
+                qf.qyy_new[z, 0, x] = qyy_bc;
+                qf.qyz_new[z, 0, x] = qyz_bc;
             }
         }
     }
@@ -380,13 +378,13 @@ void QTensorSolver<BC>::HandleQWallYHi(QTensorFields& qf) const {
         const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
         const double qyz_bc = S * (sin_phi * sin_th_cos_th);
 
-        for (int x = 0; x < nx; ++x) {
-            for (int z = 0; z < nz; ++z) {
-                qf.qxx_new[x, ny-1, z] = qxx_bc;
-                qf.qxy_new[x, ny-1, z] = qxy_bc;
-                qf.qxz_new[x, ny-1, z] = qxz_bc;
-                qf.qyy_new[x, ny-1, z] = qyy_bc;
-                qf.qyz_new[x, ny-1, z] = qyz_bc;
+        for (int z = 0; z < nz; ++z) {
+            for (int x = 0; x < nx; ++x) {
+                qf.qxx_new[z, ny-1, x] = qxx_bc;
+                qf.qxy_new[z, ny-1, x] = qxy_bc;
+                qf.qxz_new[z, ny-1, x] = qxz_bc;
+                qf.qyy_new[z, ny-1, x] = qyy_bc;
+                qf.qyz_new[z, ny-1, x] = qyz_bc;
             }
         }
     }
@@ -413,13 +411,13 @@ void QTensorSolver<BC>::HandleQWallXLo(QTensorFields& qf) const {
         const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
         const double qyz_bc = S * (sin_phi * sin_th_cos_th);
 
-        for (int y = 0; y < ny; ++y) {
-            for (int z = 0; z < nz; ++z) {
-                qf.qxx_new[0, y, z] = qxx_bc;
-                qf.qxy_new[0, y, z] = qxy_bc;
-                qf.qxz_new[0, y, z] = qxz_bc;
-                qf.qyy_new[0, y, z] = qyy_bc;
-                qf.qyz_new[0, y, z] = qyz_bc;
+        for (int z = 0; z < nz; ++z) {
+            for (int y = 0; y < ny; ++y) {
+                qf.qxx_new[z, y, 0] = qxx_bc;
+                qf.qxy_new[z, y, 0] = qxy_bc;
+                qf.qxz_new[z, y, 0] = qxz_bc;
+                qf.qyy_new[z, y, 0] = qyy_bc;
+                qf.qyz_new[z, y, 0] = qyz_bc;
             }
         }
     }
@@ -445,13 +443,13 @@ void QTensorSolver<BC>::HandleQWallXHi(QTensorFields& qf) const {
         const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
         const double qyz_bc = S * (sin_phi * sin_th_cos_th);
 
-        for (int y = 0; y < ny; ++y) {
-            for (int z = 0; z < nz; ++z) {
-                qf.qxx_new[nx-1, y, z] = qxx_bc;
-                qf.qxy_new[nx-1, y, z] = qxy_bc;
-                qf.qxz_new[nx-1, y, z] = qxz_bc;
-                qf.qyy_new[nx-1, y, z] = qyy_bc;
-                qf.qyz_new[nx-1, y, z] = qyz_bc;
+        for (int z = 0; z < nz; ++z) {
+            for (int y = 0; y < ny; ++y) {
+                qf.qxx_new[z, y, nx-1] = qxx_bc;
+                qf.qxy_new[z, y, nx-1] = qxy_bc;
+                qf.qxz_new[z, y, nx-1] = qxz_bc;
+                qf.qyy_new[z, y, nx-1] = qyy_bc;
+                qf.qyz_new[z, y, nx-1] = qyz_bc;
             }
         }
     }
@@ -476,51 +474,51 @@ void QTensorSolver<BC>::UpdateQnewWithQ(QTensorFields& qf) const {
 template<typename BC>
 void QTensorSolver<BC>::ComputeActiveBodyForce(FluidFields& ff, const QTensorFields& qf) const {
     auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
-        ff.fx[x, y, z] = -ALPHA*((qf.qxx[xp, y, z] - qf.qxx[xm, y, z])/2.0
-                               + (qf.qxy[x, yp, z] - qf.qxy[x, ym, z])/2.0
-                               + (qf.qxz[x, y, zp] - qf.qxz[x, y, zm])/2.0)
-                         -MU * ff.ux[x, y, z];
+        ff.fx[z, y, x] = -ALPHA*((qf.qxx[z, y, xp] - qf.qxx[z, y, xm])/2.0
+                               + (qf.qxy[z, yp, x] - qf.qxy[z, ym, x])/2.0
+                               + (qf.qxz[zp, y, x] - qf.qxz[zm, y, x])/2.0)
+                         -MU * ff.ux[z, y, x];
 
-        ff.fy[x, y, z] = -ALPHA*((qf.qxy[xp, y, z] - qf.qxy[xm, y, z])/2.0
-                               + (qf.qyy[x, yp, z] - qf.qyy[x, ym, z])/2.0
-                               + (qf.qyz[x, y, zp] - qf.qyz[x, y, zm])/2.0)
-                         -MU * ff.uy[x, y, z];
+        ff.fy[z, y, x] = -ALPHA*((qf.qxy[z, y, xp] - qf.qxy[z, y, xm])/2.0
+                               + (qf.qyy[z, yp, x] - qf.qyy[z, ym, x])/2.0
+                               + (qf.qyz[zp, y, x] - qf.qyz[zm, y, x])/2.0)
+                         -MU * ff.uy[z, y, x];
 
-        ff.fz[x, y, z] = -ALPHA*((qf.qxz[xp, y, z] - qf.qxz[xm, y, z])/2.0
-                               + (qf.qyz[x, yp, z] - qf.qyz[x, ym, z])/2.0
-                               - (qf.qxx[x, y, zp] - qf.qxx[x, y, zm])/2.0
-                               - (qf.qyy[x, y, zp] - qf.qyy[x, y, zm])/2.0) // Since Qzz = -(Qxx + Qyy)
-                         -MU * ff.uz[x, y, z];
+        ff.fz[z, y, x] = -ALPHA*((qf.qxz[z, y, xp] - qf.qxz[z, y, xm])/2.0
+                               + (qf.qyz[z, yp, x] - qf.qyz[z, ym, x])/2.0
+                               - (qf.qxx[zp, y, x] - qf.qxx[zm, y, x])/2.0
+                               - (qf.qyy[zp, y, x] - qf.qyy[zm, y, x])/2.0) // Since Qzz = -(Qxx + Qyy)
+                         -MU * ff.uz[z, y, x];
     };
 
     #pragma omp parallel for default(shared) num_threads(numprocs) schedule(static)
-    for (int x = 1; x < nx - 1; ++x)
+    for (int z = 1; z < nz - 1; ++z)
         for (int y = 1; y < ny - 1; ++y)
-            for (int z = 1; z < nz - 1; ++z)
+            for (int x = 1; x < nx - 1; ++x)
                 compute_cell(x, y, z, x-1, x+1, y-1, y+1, z-1, z+1);
 
         // Boundary rows/columns: resolve ghost nodes through Q-stencil offsets.
 
     // First, the 6 faces
-    for (int x = 1; x < nx-1; ++x) {
+    for (int z : {0, nz-1}) {
         for (int y = 1; y < ny - 1; ++y) {
-            for (int z : {0, nz-1}) {
+            for (int x = 1; x < nx-1; ++x) {
                 compute_cell(x, y, z, x-1, x+1, y-1, y+1, QZoff(z,-1), QZoff(z,1));
             }
         }
     }
 
-    for (int x = 1; x < nx-1; ++x) {
+    for (int z = 1; z < nz - 1; ++z) {
         for (int y : {0, ny-1}) {
-            for (int z = 1; z < nz - 1; ++z) {
+            for (int x = 1; x < nx-1; ++x) {
                 compute_cell(x, y, z, x-1, x+1, QYoff(y,-1), QYoff(y,1), z-1, z+1);
             }
         }
     }
 
     for (int x : {0, nx-1}) {
-        for (int y = 1; y < ny - 1; ++y) {
-            for (int z = 1; z < nz - 1; ++z) {
+        for (int z = 1; z < nz - 1; ++z) {
+            for (int y = 1; y < ny - 1; ++y) {
                 compute_cell(x, y, z, QXoff(x,-1), QXoff(x,1), y-1, y+1, z-1, z+1);
             }
         }

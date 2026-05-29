@@ -22,10 +22,10 @@ import os
 import sys
 
 from paraview.simple import (
-    ComputeDerivatives, GetActiveViewOrCreate, GetAnimationScene,
+    Calculator, ComputeDerivatives, GetActiveViewOrCreate, GetAnimationScene,
     GetColorTransferFunction, GetOpacityTransferFunction,
     Glyph, Hide, IsoVolume, OpenDataFile,
-    RenameSource, Render, ResetCamera, 
+    RenameSource, Render, ResetCamera,
     SaveScreenshot, Show, Slice, ColorBy,
 )
 
@@ -38,7 +38,7 @@ DATA_DIR   = './data'
 OUTPUT_DIR = os.path.join(DATA_DIR, 'frames')
 
 # Physical dimensions (must match what was passed to VTKHDF3DNematicWriter)
-NX, NY, NZ = 100, 100, 15
+NX, NY, NZ = 128, 32, 32
 LX, LY, LZ = NX, NY, NZ
 ORIGIN      = (0.0, 0.0, 0.0)
 
@@ -70,10 +70,17 @@ def build_pipeline(reader):
     Construct the full filter pipeline from a loaded reader source.
     Returns a dict of named pipeline objects for display setup.
     """
+    # ---- Assemble velocity vector from the three scalar components ----
+    vel = Calculator(Input=reader)
+    vel.AttributeType    = 'Point Data'
+    vel.Function         = 'iHat*ux + jHat*uy + kHat*uz'
+    vel.ResultArrayName  = 'velocity'
+    RenameSource('velocity', vel)
+
     # ---- Vorticity: curl of velocity via ComputeDerivatives ----
     # ComputeDerivatives with ComputeVorticity=1 directly outputs a
     # 'Vorticity' vector array — no Calculator needed.
-    deriv = ComputeDerivatives(Input=reader)
+    deriv = ComputeDerivatives(Input=vel)
     deriv.Vectors         = ['POINTS', 'velocity']
     # deriv.Vorticity = 1
     # deriv.VorticityArrayName = 'Vorticity'
