@@ -61,7 +61,7 @@ void SimIO::LogSetupSummary(std::string_view bc_name) {
 }
 
 bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, int time_step) {
-    double mass = 0.0, px = 0.0, py = 0.0, pz=0, e1 = 0.0, e2 = 0.0;
+    double mass = 0.0, px = 0.0, py = 0.0, pz=0, ke=0.0, e1 = 0.0, e2 = 0.0;
 
     #pragma omp parallel for schedule(static) default(shared) \
         reduction(+:mass,px,py,pz,e1,e2) num_threads(numprocs)
