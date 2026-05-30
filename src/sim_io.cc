@@ -6,8 +6,7 @@
 #include <cmath>
 #include <ranges>
 #include <stdexcept>
-#include <hdf5.h>
-#include <cstring> // for hdf5
+#include "vtkhdf_writer.h"
 
 using namespace Params;
 
@@ -177,92 +176,12 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, Analysi
         return w;
     }();
     const std::string file_path = std::format("{}/lbm_{:0{}}.vtkhdf", path, step, kStepWidth);
-    hid_t file = H5Fcreate(file_path.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
-    if (file < 0) throw std::runtime_error("ExportVTKHDF: failed to create " + file_path);
 
-    hid_t vtkhdf = H5Gcreate2(file, "VTKHDF", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-
-    // --- Attributes on /VTKHDF ---
-
-    // Version = [2, 0]
-    {
-        hsize_t dim = 2;
-        int64_t version[2] = {2, 0};
-        hid_t sp = H5Screate_simple(1, &dim, nullptr);
-        hid_t attr = H5Acreate2(vtkhdf, "Version", H5T_NATIVE_INT64, sp, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attr, H5T_NATIVE_INT64, version);
-        H5Aclose(attr); H5Sclose(sp);
-    }
-    
-    // Type = "ImageData"  (fixed-length, null-padded string)
-    {
-        const char* type_str = "ImageData";
-        hid_t str_t = H5Tcopy(H5T_C_S1);
-        H5Tset_size(str_t, strlen(type_str));
-        H5Tset_strpad(str_t, H5T_STR_NULLPAD);
-        hid_t sp = H5Screate(H5S_SCALAR);
-        hid_t attr = H5Acreate2(vtkhdf, "Type", str_t, sp, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attr, str_t, type_str);
-        H5Aclose(attr); H5Sclose(sp); H5Tclose(str_t);
-    }
-
-    // WholeExtent = [0, nx-1, 0, ny-1, 0, nz-1]
-    {
-        hsize_t dim = 6;
-        int64_t extent[6] = {0, nx - 1, 0, ny - 1, 0, nz-1};
-        hid_t sp = H5Screate_simple(1, &dim, nullptr);
-        hid_t attr = H5Acreate2(vtkhdf, "WholeExtent", H5T_NATIVE_INT64, sp, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attr, H5T_NATIVE_INT64, extent);
-        H5Aclose(attr); H5Sclose(sp);
-    }
-
-    // Origin = [0, 0, 0]
-    {
-        hsize_t dim = 3;
-        double origin[3] = {0.0, 0.0, 0.0};
-        hid_t sp = H5Screate_simple(1, &dim, nullptr);
-        hid_t attr = H5Acreate2(vtkhdf, "Origin", H5T_NATIVE_DOUBLE, sp, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attr, H5T_NATIVE_DOUBLE, origin);
-        H5Aclose(attr); H5Sclose(sp);
-    }    
-
-    // Spacing = [1, 1, 1]
-    {
-        hsize_t dim = 3;
-        double spacing[3] = {1.0, 1.0, 1.0};
-        hid_t sp = H5Screate_simple(1, &dim, nullptr);
-        hid_t attr = H5Acreate2(vtkhdf, "Spacing", H5T_NATIVE_DOUBLE, sp, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attr, H5T_NATIVE_DOUBLE, spacing);
-        H5Aclose(attr); H5Sclose(sp);
-    }    
-
-    // Direction = identity matrix (3x3, row-major, flattened to 9 doubles)
-    {
-        hsize_t dim = 9;
-        double direction[9] = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0};
-        hid_t sp = H5Screate_simple(1, &dim, nullptr);
-        hid_t attr = H5Acreate2(vtkhdf, "Direction", H5T_NATIVE_DOUBLE, sp, H5P_DEFAULT, H5P_DEFAULT);
-        H5Awrite(attr, H5T_NATIVE_DOUBLE, direction);
-        H5Aclose(attr); H5Sclose(sp);
-    }
-
+    ImageDataWriter writer(file_path);
 
     // --- PointData datasets, shape [nz, ny, nx] (z slowest, x fastest) ---
 
-    hid_t pd = H5Gcreate2(vtkhdf, "PointData", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-
-    const hsize_t scalar_dims[3] = {(hsize_t)nz, (hsize_t)ny, (hsize_t)nx};
-    hid_t scalar_sp = H5Screate_simple(3, scalar_dims, nullptr);
-
-    // Direct write from a contiguous backing store with the correct layout.
-    auto write_field = [&](const char* name, hid_t sp, const double* data) {
-        hid_t ds = H5Dcreate2(pd, name, H5T_NATIVE_DOUBLE, sp,
-                               H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-        H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data);
-        H5Dclose(ds);
-    };
-
-    write_field("rho", scalar_sp, ff.rho_data.data());
+    writer.WriteScalarField("rho", ff.rho_data.data());
 
     if constexpr (Params::kDebugLogging) {
         // f[z,y,x,i] is interleaved, so we still need a scratch buffer per direction.
@@ -272,26 +191,19 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, Analysi
                 for (int y = 0; y < ny; ++y)
                     for (int x = 0; x < nx; ++x)
                         buf[z * ny * nx + y * nx + x] = ff.f[z, y, x, i];
-            write_field(std::format("f{}", i).c_str(), scalar_sp, buf.data());
+            writer.WriteScalarField(std::format("f{}", i).c_str(), buf.data());
         }
     }
 
-    write_field("order", scalar_sp, af.order_data_.data());
+    writer.WriteScalarField("order", af.order_data_.data());
 
     // Velocity: three independent scalar fields, written directly from backing stores.
-    write_field("ux", scalar_sp, ff.ux_data.data());
-    write_field("uy", scalar_sp, ff.uy_data.data());
-    write_field("uz", scalar_sp, ff.uz_data.data());
-
-    H5Sclose(scalar_sp);
+    writer.WriteScalarField("ux", ff.ux_data.data());
+    writer.WriteScalarField("uy", ff.uy_data.data());
+    writer.WriteScalarField("uz", ff.uz_data.data());
 
     // Director: AoS layout [nz, ny, nx, 3] matches the mdspan backing store directly.
-    {
-        const hsize_t dir_dims[4] = {(hsize_t)nz, (hsize_t)ny, (hsize_t)nx, 3};
-        hid_t dir_sp = H5Screate_simple(4, dir_dims, nullptr);
-        write_field("director", dir_sp, af.director_data_.data());
-        H5Sclose(dir_sp);
-    }
+    writer.WriteVectorField("director", af.director_data_.data());
 
     // --- FieldData: simulation time ---
     // {
@@ -304,8 +216,5 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, Analysi
     //     H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, &time_val);
     //     H5Dclose(ds);
     // }
-    H5Gclose(pd);
-    H5Gclose(vtkhdf);
-    H5Fclose(file);
 }
 
