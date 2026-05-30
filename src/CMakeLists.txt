@@ -6,3 +6,5 @@ target_sources(main
     analysis_fields.cc
     sim_io.cc
 )
+
+add_subdirectory(analysis)
