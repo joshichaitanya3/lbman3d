@@ -10,6 +10,8 @@
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 #include "analysis_fields.h"
+#include "analysis/defect_finder.h"
+
 
 // Handles all logging and CSV export.
 // Owns diagnostic tracking fields (rho_past, ux_past, uy_past) to keep
@@ -34,6 +36,10 @@ public:
 
     void ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, AnalysisFields& af,
                 const std::string& path, int step, double time);
+    
+    void ExportDisclinations(const DefectFields& df,
+                const std::string& path, int step, double time);
+    
     // Write one CSV per lattice direction to `path/`.
     void ExportDistributionCSV(const FluidFields& ff,
         const std::string& path, int step);

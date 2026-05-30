@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include "vtkhdf_writer.h"
 
+#include "analysis/disclination.h"
 using namespace Params;
 
 SimIO::SimIO()
@@ -218,3 +219,35 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, Analysi
     // }
 }
 
+void SimIO::ExportDisclinations(
+    const DefectFields& df,
+    const std::string& path,
+    int step,
+    double time) 
+{
+    
+    DisclinationMesh mesh;
+
+    for (Disclination d : df.disclinations) {
+        mesh.AddDisclination(d);
+    }
+
+    constexpr int kStepWidth = [] {
+        int w = 1, n = kNumSteps - 1;
+        while (n >= 10) { n /= 10; ++w; }
+        return w;
+    }();
+    const std::string file_path = std::format("{}/disclinations_{:0{}}.vtkhdf", path, step, kStepWidth);
+
+    UnstructuredGridWriter writer(file_path);
+
+    writer.Write1DToRoot<int64_t>("NumberOfPoints", {mesh.NumPoints()});
+    writer.Write1DToRoot<int64_t>("NumberOfCells", {mesh.NumCells()});
+    writer.Write1DToRoot<int64_t>("NumberOfConnectivityIds", {mesh.NumConnectivityIds()});
+    
+    writer.Write2DToRoot<double>("Points", mesh.Points(), mesh.NumPoints(), 3);
+    writer.Write1DToRoot<int64_t>("Connectivity", mesh.Connectivity());
+    writer.Write1DToRoot<int64_t>("Offsets", mesh.Offsets());
+    writer.Write1DToRoot<uint8_t>("Types", mesh.CellTypes());
+
+}
