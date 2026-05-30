@@ -73,6 +73,10 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, int time_step) {
                 px   += ff.rho[z, y, x] * ff.ux[z, y, x];
                 py   += ff.rho[z, y, x] * ff.uy[z, y, x];
                 pz   += ff.rho[z, y, x] * ff.uz[z, y, x];
+                ke   += 0.5 * ff.rho[z, y, x] * (ff.ux[z, y, x]*ff.ux[z, y, x] + 
+                                                 ff.uy[z, y, x]*ff.uy[z, y, x] + 
+                                                 ff.uz[z, y, x]*ff.uz[z, y, x]);
+
                 e1   += (ff.ux[z,y,x]-af.ux_past_[z,y,x])*(ff.ux[z,y,x]-af.ux_past_[z,y,x])
                         + (ff.uy[z,y,x]-af.uy_past_[z,y,x])*(ff.uy[z,y,x]-af.uy_past_[z,y,x])
                         + (ff.uz[z,y,x]-af.uz_past_[z,y,x])*(ff.uz[z,y,x]-af.uz_past_[z,y,x]);
@@ -85,8 +89,8 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, int time_step) {
         }
     }
 
-    compat::println(log_file_, "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, Relative Error: {}",
-                    time_step, mass, px, py, pz, e1/e2);
+    compat::println(log_file_, "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, Kinetic Energy: {} Relative Error: {}",
+                    time_step, mass, px, py, pz, ke, e1/e2);
     std::flush(log_file_);
     if (std::isnan(mass) || std::isnan(px) || std::isnan(py) || std::isnan(pz)) {
         compat::println(log_file_, "DIVERGED at time step {} — aborting.", time_step);
