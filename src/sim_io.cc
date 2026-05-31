@@ -243,13 +243,7 @@ void SimIO::ExportDisclinations(
 
     UnstructuredGridWriter writer(file_path);
 
-    writer.Write1DToRoot<int64_t>("NumberOfPoints", {mesh.NumPoints()});
-    writer.Write1DToRoot<int64_t>("NumberOfCells", {mesh.NumCells()});
-    writer.Write1DToRoot<int64_t>("NumberOfConnectivityIds", {mesh.NumConnectivityIds()});
-    
-    writer.Write2DToRoot<double>("Points", mesh.Points(), mesh.NumPoints(), 3);
-    writer.Write1DToRoot<int64_t>("Connectivity", mesh.Connectivity());
-    writer.Write1DToRoot<int64_t>("Offsets", mesh.Offsets());
-    writer.Write1DToRoot<uint8_t>("Types", mesh.CellTypes());
+    writer.WriteTopology(mesh.Points(), mesh.Connectivity(),
+                         mesh.Offsets(), mesh.CellTypes());
 
 }
