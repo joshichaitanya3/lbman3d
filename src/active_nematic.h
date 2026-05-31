@@ -63,7 +63,7 @@ public:
     }
 
     // Returns false if the simulation has diverged (NaN detected).
-    bool Log() { return io_.Log(fluid_, af_, time_step_); }
+    bool Log() { return io_.Log(fluid_, af_, df_, time_step_); }
 
     void Export(const std::string& path, ExportFormat fmt) {
         // io_.Export(fluid_, qtensor_, path, time_step_);

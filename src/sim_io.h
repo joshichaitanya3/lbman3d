@@ -10,6 +10,7 @@
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 #include "analysis_fields.h"
+#include "analysis/defect_fields.h"
 #include "analysis/defect_finder.h"
 
 
@@ -28,7 +29,7 @@ public:
 
     // Log mass, momentum, velocity error; update internal past-velocity state.
     // Returns false (and logs a message) if any quantity is NaN.
-    bool Log(const FluidFields& ff, AnalysisFields& af, int time_step);
+    bool Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step);
 
     // Write per-field CSV files to `path/`.  Updates internal rho_past state.
     void ExportCSV(const FluidFields& ff, const QTensorFields& qf,
