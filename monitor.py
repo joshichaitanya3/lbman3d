@@ -20,7 +20,8 @@ _KV_RE = re.compile(r"^\s{2}(\S.*?)\s*=\s*(.+)$")
 _DATA_RE = re.compile(
     r"Time (\d+): Mass: ([^\s,]+), "
     r"Px: ([^\s,]+), Py: ([^\s,]+), Pz: ([^\s,]+), "
-    r"Kinetic Energy: ([^\s]+) Relative Error: ([^\s]+)"
+    r"Kinetic Energy: ([^\s,]+) Relative Error: ([^\s,]+)"
+    r"(?:, NumDisclinations: (\d+))?"
 )
 
 
@@ -58,7 +59,11 @@ def parse_log(path):
 
         m = _DATA_RE.match(line)
         if m:
-            rows.append(tuple(_safe_float(g) for g in m.groups()))
+            groups = m.groups()
+            # First 7 groups are floats; 8th (NumDisclinations) is optional int
+            row = tuple(_safe_float(g) for g in groups[:7])
+            disc = float(groups[7]) if groups[7] is not None else float("nan")
+            rows.append(row + (disc,))
 
     return params, rows
 
@@ -108,19 +113,21 @@ def main():
     fig.canvas.manager.set_window_title("LBM Monitor")
 
     gs = gridspec.GridSpec(
-        2, 2, figure=fig,
+        3, 2, figure=fig,
         width_ratios=[2.6, 1],
-        height_ratios=[1.3, 1],
-        hspace=0.42, wspace=0.28,
+        height_ratios=[1.3, 1, 1],
+        hspace=0.52, wspace=0.28,
         left=0.07, right=0.97, top=0.91, bottom=0.09,
     )
 
     ax_ke = fig.add_subplot(gs[0, 0])
     ax_mom = fig.add_subplot(gs[1, 0])
+    ax_disc = fig.add_subplot(gs[2, 0])
     ax_info = fig.add_subplot(gs[:, 1])
 
     style_ax(ax_ke)
     style_ax(ax_mom)
+    style_ax(ax_disc)
 
     ax_info.set_facecolor(PANEL)
     ax_info.axis("off")
@@ -143,6 +150,12 @@ def main():
     ax_mom.set_title("Net Momentum")
     leg = ax_mom.legend(fontsize=7, facecolor=PANEL, edgecolor="#45475a",
                         labelcolor=FG, loc="upper left")
+
+    # Disclinations axes
+    (disc_line,) = ax_disc.plot([], [], color=RED, lw=1.5)
+    ax_disc.set_xlabel("Time step")
+    ax_disc.set_ylabel("Count")
+    ax_disc.set_title("Disclinations")
 
     # Info panel: parameters (top) + mass status (bottom)
     param_text = ax_info.text(
@@ -188,6 +201,7 @@ def main():
         masses = arr[:, 1]
         px, py, pz = arr[:, 2], arr[:, 3], arr[:, 4]
         kes = arr[:, 5]
+        discs = arr[:, 7]
 
         if state["mass0"] is None:
             state["mass0"] = masses[0]
@@ -206,6 +220,13 @@ def main():
         pz_line.set_data(times, pz)
         ax_mom.relim()
         ax_mom.autoscale_view()
+
+        # ── Disclinations plot ────────────────────────────────────────────────
+        valid_disc = np.isfinite(discs)
+        if valid_disc.any():
+            disc_line.set_data(times[valid_disc], discs[valid_disc])
+            ax_disc.relim()
+            ax_disc.autoscale_view()
 
         # ── Mass status ───────────────────────────────────────────────────────
         rel_err = abs(masses[-1] - mass0) / abs(mass0) if mass0 != 0 else 0.0
