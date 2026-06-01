@@ -12,6 +12,8 @@
 #include "lbm_solver.h"
 #include "qtensor_solver.h"
 #include "sim_io.h"
+#include "analysis/defect_fields.h"
+#include "analysis/defect_finder.h"
 
 enum ExportFormat { CSV, VTKHDF };
 
@@ -27,6 +29,8 @@ class ActiveNematicSim {
     FluidFields    fluid_;
     QTensorFields  qtensor_;
     AnalysisFields af_;
+    DefectFields   df_;
+    DefectFinder<BC> finder_;
     LbmSolver<BC>  lbm_;
     std::unique_ptr<QTensorSolver<BC>> qtensor_solver_;
     SimIO          io_;
@@ -44,7 +48,8 @@ public:
                               std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
         : lbm_(grid),
           qtensor_solver_(solver ? std::move(solver)
-                                 : std::make_unique<QTensorSolver<BC>>(grid))
+                                 : std::make_unique<QTensorSolver<BC>>(grid)),
+          finder_(grid)
     {
         Initialize();
         io_.LogSetupSummary(Grid<BC>::GridType());
@@ -58,11 +63,12 @@ public:
     }
 
     // Returns false if the simulation has diverged (NaN detected).
-    bool Log() { return io_.Log(fluid_, af_, time_step_); }
+    bool Log() { return io_.Log(fluid_, af_, df_, time_step_); }
 
     void Export(const std::string& path, ExportFormat fmt) {
         // io_.Export(fluid_, qtensor_, path, time_step_);
         QtensorToOrderDirector(qtensor_, af_);
+        finder_.FindDefects(qtensor_, af_, df_);
 
         switch (fmt)
         {
@@ -72,6 +78,7 @@ public:
             break;
         case VTKHDF:
             io_.ExportVTKHDF(fluid_, qtensor_, af_, path, num_files_exported, static_cast<double>(time_step_)*Params::DT);
+            io_.ExportDisclinations(df_, path, num_files_exported, static_cast<double>(time_step_)*Params::DT);
             num_files_exported++;
             break;
         default:

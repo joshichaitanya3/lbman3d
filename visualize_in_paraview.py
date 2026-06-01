@@ -38,7 +38,7 @@ DATA_DIR   = './data'
 OUTPUT_DIR = os.path.join(DATA_DIR, 'frames')
 
 # Physical dimensions (must match what was passed to VTKHDF3DNematicWriter)
-NX, NY, NZ = 128, 32, 32
+NX, NY, NZ = 64, 32, 32
 LX, LY, LZ = NX, NY, NZ
 ORIGIN      = (0.0, 0.0, 0.0)
 
@@ -149,7 +149,7 @@ def build_pipeline(reader):
     }
 
 
-def setup_display(pipeline, reader, view):
+def setup_display(pipeline, reader, view, disc_reader=None):
     """
     Add all pipeline objects to the render view with their colour mappings.
     Returns display objects so their properties can be adjusted later.
@@ -195,6 +195,14 @@ def setup_display(pipeline, reader, view):
     if S_RANGE:
         lut = GetColorTransferFunction('order')
         lut.RescaleTransferFunction(*S_RANGE)
+
+    # --- Disclination lines ---
+    if disc_reader is not None:
+        disp_disc = Show(disc_reader, view)
+        disp_disc.Representation = 'Wireframe'
+        disp_disc.LineWidth = 3
+        disp_disc.AmbientColor = [1.0, 1.0, 1.0]
+        disp_disc.DiffuseColor = [1.0, 1.0, 1.0]
 
     return {
         'slice_yz': disp_yz,
@@ -270,6 +278,17 @@ def main():
     reader = OpenDataFile(files)
     reader.UpdatePipeline()
 
+    disc_files = sorted(glob.glob(os.path.join(DATA_DIR, 'disclinations_*.vtkhdf')))
+    if args.test and disc_files:
+        disc_files = disc_files[:min(len(disc_files), 5)]
+    if disc_files:
+        print(f"Found {len(disc_files)} disclination file(s).")
+        disc_reader = OpenDataFile(disc_files)
+        disc_reader.UpdatePipeline()
+    else:
+        print("No disclinations_*.vtkhdf files found; skipping disclination display.")
+        disc_reader = None
+
     # ---- Build pipeline (no display yet) ----
     pipeline = build_pipeline(reader)
 
@@ -290,7 +309,7 @@ def main():
     view.Background2    = [0.0, 0.0, 0.0]
     # view.UseGradientBackground = 1
 
-    setup_display(pipeline, reader, view)
+    setup_display(pipeline, reader, view, disc_reader)
 
     lut = GetColorTransferFunction('Vorticity')
     lut.RescaleTransferFunction(vort_min, vort_max)
@@ -313,6 +332,8 @@ def main():
     for i, t in enumerate(timesteps):
         scene.AnimationTime = t
         reader.UpdatePipeline(t)
+        if disc_reader is not None:
+            disc_reader.UpdatePipeline(t)
         Render()
 
         out_path = os.path.join(OUTPUT_DIR, f'frame_{i:06d}.png')
