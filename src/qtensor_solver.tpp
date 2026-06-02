@@ -171,18 +171,18 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
                             + Qxz * Exy + Qyz * Eyy + (-Qxx - Qyy) * Eyz;
        
        // Molecular field H
-       const double H_xx = L * lap_Qxx - A * Qxx - B * Q2_xx - C * Qxx * TrQ2;
-       const double H_xy = L * lap_Qxy - A * Qxy - B * Q2_xy - C * Qxy * TrQ2;
-       const double H_xz = L * lap_Qxz - A * Qxz - B * Q2_xz - C * Qxz * TrQ2;
-       const double H_yy = L * lap_Qyy - A * Qyy - B * Q2_yy - C * Qyy * TrQ2;
-       const double H_yz = L * lap_Qyz - A * Qyz - B * Q2_yz - C * Qyz * TrQ2;
+       const double Hxx = L * lap_Qxx - A * Qxx - B * Q2_xx - C * Qxx * TrQ2;
+       const double Hxy = L * lap_Qxy - A * Qxy - B * Q2_xy - C * Qxy * TrQ2;
+       const double Hxz = L * lap_Qxz - A * Qxz - B * Q2_xz - C * Qxz * TrQ2;
+       const double Hyy = L * lap_Qyy - A * Qyy - B * Q2_yy - C * Qyy * TrQ2;
+       const double Hyz = L * lap_Qyz - A * Qyz - B * Q2_yz - C * Qyz * TrQ2;
        
        
-       qf.qxx_new[z, y, x] = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * H_xx);
-       qf.qxy_new[z, y, x] = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * H_xy);
-       qf.qxz_new[z, y, x] = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * H_xz);
-       qf.qyy_new[z, y, x] = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * H_yy);
-       qf.qyz_new[z, y, x] = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * H_yz);
+       qf.qxx_new[z, y, x] = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * Hxx);
+       qf.qxy_new[z, y, x] = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * Hxy);
+       qf.qxz_new[z, y, x] = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * Hxz);
+       qf.qyy_new[z, y, x] = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * Hyy);
+       qf.qyz_new[z, y, x] = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * Hyz);
     };
     
     #pragma omp parallel for num_threads(numprocs) schedule(static)
