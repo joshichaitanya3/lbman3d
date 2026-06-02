@@ -55,8 +55,6 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
         const double Q2_yy = Qxy*Qxy + Qyy*Qyy + Qyz*Qyz - kone_thirds * TrQ2;
         const double Q2_yz = Qxy*Qxz - Qyz*Qxx;
         
-        const double TrQ3 = -3.0*(Qxx*Qxx*Qyy - Qxy*Qxy*Qyy + Qxz*Qxz*Qyy - 2*Qxy*Qxz*Qyz+Qxx * (-Qxy*Qxy + Qyy*Qyy + Qyz*Qyz)); 
-        
         // First-order derivatives 
 
         // Velocity gradient tensor (central differences; uses the same Q stencil offsets
