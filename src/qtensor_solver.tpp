@@ -156,33 +156,32 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
         Q:E (trace): (2 e_1 + e_4) Q_1 + 2 e_2 Q_2 + 2 e_3 Q_3 + e_1 Q_4 + 2 e_4 Q_4 + 2 e_5 Q_5
         // ##############################################################################
         */
-       const double ktwo_thirds = 2.0/3.0;
-       
-       const double tr_QE = (2.0 * Exx + Eyy) * Qxx + (2.0 * Exy) * Qxy + (2.0 * Exz) * Qxz + (Exx + 2.0 * Eyy) * Qyy + 2.0 * Eyz * Qyz;
+        const double ktwo_thirds = 2.0/3.0;
+        
+        const double tr_QE = (2.0 * Exx + Eyy) * Qxx + (2.0 * Exy) * Qxy + (2.0 * Exz) * Qxz + (Exx + 2.0 * Eyy) * Qyy + 2.0 * Eyz * Qyz;
 
-       const double aln2_xx = 2.0 * (Exx * Qxx + Exy * Qxy + Exz * Qxz) - ktwo_thirds * tr_QE;
-       const double aln2_xy = Exy * Qxx + Eyy * Qxy + Eyz * Qxz
-                            + Qxy * Exx + Qyy * Exy + Qyz * Exz;
-       const double aln2_xz = Exz * Qxx + Eyz * Qxy + (-Exx - Eyy) * Qxz
-                            + Qxz * Exx + Qyz * Exy + (-Qxx - Qyy) * Exz;
-       
-       const double aln2_yy = 2.0 * (Exy * Qxy + Eyy * Qyy + Eyz * Qyz) - ktwo_thirds * tr_QE;
-       const double aln2_yz = Exz * Qxy + Eyz * Qyy + (-Exx - Eyy) * Qyz
-                            + Qxz * Exy + Qyz * Eyy + (-Qxx - Qyy) * Eyz;
-       
-       // Molecular field H
-       const double Hxx = L * lap_Qxx - A * Qxx - B * Q2_xx - C * Qxx * TrQ2;
-       const double Hxy = L * lap_Qxy - A * Qxy - B * Q2_xy - C * Qxy * TrQ2;
-       const double Hxz = L * lap_Qxz - A * Qxz - B * Q2_xz - C * Qxz * TrQ2;
-       const double Hyy = L * lap_Qyy - A * Qyy - B * Q2_yy - C * Qyy * TrQ2;
-       const double Hyz = L * lap_Qyz - A * Qyz - B * Q2_yz - C * Qyz * TrQ2;
-       
-       
-       qf.qxx_new[z, y, x] = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * Hxx);
-       qf.qxy_new[z, y, x] = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * Hxy);
-       qf.qxz_new[z, y, x] = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * Hxz);
-       qf.qyy_new[z, y, x] = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * Hyy);
-       qf.qyz_new[z, y, x] = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * Hyz);
+        const double aln2_xx = 2.0 * (Exx * Qxx + Exy * Qxy + Exz * Qxz) - ktwo_thirds * tr_QE;
+        const double aln2_xy = Exy * Qxx + Eyy * Qxy + Eyz * Qxz
+                                + Qxy * Exx + Qyy * Exy + Qyz * Exz;
+        const double aln2_xz = Exz * Qxx + Eyz * Qxy + (-Exx - Eyy) * Qxz
+                                + Qxz * Exx + Qyz * Exy + (-Qxx - Qyy) * Exz;
+        
+        const double aln2_yy = 2.0 * (Exy * Qxy + Eyy * Qyy + Eyz * Qyz) - ktwo_thirds * tr_QE;
+        const double aln2_yz = Exz * Qxy + Eyz * Qyy + (-Exx - Eyy) * Qyz
+                                + Qxz * Exy + Qyz * Eyy + (-Qxx - Qyy) * Eyz;
+        
+        // Molecular field H
+        const double Hxx = L * lap_Qxx - A * Qxx - B * Q2_xx - C * Qxx * TrQ2;
+        const double Hxy = L * lap_Qxy - A * Qxy - B * Q2_xy - C * Qxy * TrQ2;
+        const double Hxz = L * lap_Qxz - A * Qxz - B * Q2_xz - C * Qxz * TrQ2;
+        const double Hyy = L * lap_Qyy - A * Qyy - B * Q2_yy - C * Qyy * TrQ2;
+        const double Hyz = L * lap_Qyz - A * Qyz - B * Q2_yz - C * Qyz * TrQ2;
+        
+        qf.qxx_new[z, y, x] = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * Hxx);
+        qf.qxy_new[z, y, x] = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * Hxy);
+        qf.qxz_new[z, y, x] = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * Hxz);
+        qf.qyy_new[z, y, x] = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * Hyy);
+        qf.qyz_new[z, y, x] = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * Hyz);
     };
     
     #pragma omp parallel for num_threads(numprocs) schedule(static)
