@@ -217,11 +217,11 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
         const double Tauyz = (Hxz*Qxy + Hyz*Qyy + (-Hxx - Hyy)*Qyz) - (Qxz*Hxy + Qyz*Hyy + (-Qxx - Qyy)*Hyz);
 
         // Update nematic stress (passive + active)
-        qf.Pxx[z, y, x] = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx + Tauxx - ALPHA * Qxx;
-        qf.Pxy[z, y, x] = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy + Tauxy - ALPHA * Qxy;
-        qf.Pxz[z, y, x] = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz + Tauxz - ALPHA * Qxz;
-        qf.Pyy[z, y, x] = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy + Tauyy - ALPHA * Qyy;
-        qf.Pyz[z, y, x] = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz + Tauyz - ALPHA * Qyz;
+        qf.Pxx[z, y, x] = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx + Tauxx;
+        qf.Pxy[z, y, x] = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy + Tauxy;
+        qf.Pxz[z, y, x] = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz + Tauxz;
+        qf.Pyy[z, y, x] = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy + Tauyy;
+        qf.Pyz[z, y, x] = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz + Tauyz;
 
         // Now, we perform the timestep
 
@@ -519,6 +519,25 @@ void QTensorSolver<BC>::UpdateQnewWithQ(QTensorFields& qf) const {
 template<typename BC>
 void QTensorSolver<BC>::ComputeActiveBodyForce(FluidFields& ff, const QTensorFields& qf) const {
     auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
+        
+        // First, add the active force.
+        ff.fx[z, y, x] += -ALPHA * (
+                           (qf.Qxx[z, y, xp] - qf.Qxx[z, y, xm])/2.0
+                         + (qf.Qxy[z, yp, x] - qf.Qxy[z, ym, x])/2.0
+                         + (qf.Qxz[zp, y, x] - qf.Qxz[zm, y, x])/2.0);
+
+        ff.fy[z, y, x] += -ALPHA * (
+                           (qf.Qxy[z, y, xp] - qf.Qxy[z, y, xm])/2.0
+                         + (qf.Qyy[z, yp, x] - qf.Qyy[z, ym, x])/2.0
+                         + (qf.Qyz[zp, y, x] - qf.Qyz[zm, y, x])/2.0);
+
+        ff.fz[z, y, x] += -ALPHA * (
+                           (qf.Qxz[z, y, xp] - qf.Qxz[z, y, xm])/2.0
+                         + (qf.Qyz[z, yp, x] - qf.Qyz[z, ym, x])/2.0
+                         - (qf.Qxx[zp, y, x] - qf.Qxx[zm, y, x])/2.0
+                         - (qf.Qyy[zp, y, x] - qf.Qyy[zm, y, x])/2.0); // Since Pzz = -(Pxx + Pyy)
+        
+        // Now, add the passive stress and friction
         ff.fx[z, y, x] += ((qf.Pxx[z, y, xp] - qf.Pxx[z, y, xm])/2.0
                          + (qf.Pxy[z, yp, x] - qf.Pxy[z, ym, x])/2.0
                          + (qf.Pxz[zp, y, x] - qf.Pxz[zm, y, x])/2.0)
