@@ -177,6 +177,54 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
         const double Hyy = L * lap_Qyy - A * Qyy - B * Q2_yy - C * Qyy * TrQ2;
         const double Hyz = L * lap_Qyz - A * Qyz - B * Q2_yz - C * Qyz * TrQ2;
         
+        // Add the advective counter part of the back-flow to the body force, H:\nabla Q
+        // since this does not come from the divergence of the stress tensor.
+        // The backflow from the divergence will be added to this by ComputeActiveBodyForce
+
+        ff.fx[z, y, x] = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) + Hxx*Qyyx + Hyy*Qxxx;
+        ff.fy[z, y, x] = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) + Hxx*Qyyy + Hyy*Qxxy;
+        ff.fz[z, y, x] = -2.0 * (Hxx*Qxxz + Hxy*Qxyz + Hxz*Qxzz + Hyy*Qyyz + Hyz*Qyzz) + Hxx*Qyyz + Hyy*Qxxz;
+
+        // Now, update the nematic stress tensor
+
+        // Counterpart of higher order order flow alignment in the stress-tensor:
+        // lambda [(H Q + Q H)_ij]
+        // 1->xx, 2->xy, 3->xz, 4->yy, 5->yz
+        // QH_xx = H_1 Q_1 + H_2 Q_2 + H_3 Q_3
+        // QH_xy = H_2 Q_1 + H_4 Q_2 + H_5 Q_3
+        // QH_xz = H_3 Q_1 + H_5 Q_2 + (-H_1 - H_4) Q_3
+        // QH_yy = H_2 Q_2 + H_4 Q_4 + H_5 Q_5
+        // QH_yz = H_3 Q_2 + H_5 Q_4 + (-H_1 - H_4) Q_5
+        // We will call the symmetric-traceless part QH and the antisymmetric part Tau
+
+        
+        const double tr_QH = (2.0 * Hxx + Hyy) * Qxx + (2.0 * Hxy) * Qxy + (2.0 * Hxz) * Qxz + (Hxx + 2.0 * Hyy) * Qyy + 2.0 * Hyz * Qyz;
+
+        const double QHxx = 2.0 * (Hxx * Qxx + Hxy * Qxy + Hxz * Qxz) - ktwo_thirds * tr_QH;
+        const double QHxy = Hxy * Qxx + Hyy * Qxy + Hyz * Qxz
+                                + Qxy * Hxx + Qyy * Hxy + Qyz * Hxz;
+        const double QHxz = Hxz * Qxx + Hyz * Qxy + (-Hxx - Hyy) * Qxz
+                                + Qxz * Hxx + Qyz * Hxy + (-Qxx - Qyy) * Hxz;
+        
+        const double QHyy = 2.0 * (Hxy * Qxy + Hyy * Qyy + Hyz * Qyz) - ktwo_thirds * tr_QH;
+        const double QHyz = Hxz * Qxy + Hyz * Qyy + (-Hxx - Hyy) * Qyz
+                                + Qxz * Hxy + Qyz * Hyy + (-Qxx - Qyy) * Hyz;
+        
+        const double Tauxx = 0.0; // Diagonal component of antisymmetric tensor
+        const double Tauxy = (Hxy*Qxx + Hyy*Qxy + Hyz*Qxz) - (Qxy*Hxx + Qyy*Hxy + Qyz*Qxz);
+        const double Tauxz = (Hxz*Qxx + Hyz*Qxy + (-Hxx - Hyy)*Qxz) - (Qxz*Hxx + Qyz*Hxy + (-Qxx - Qyy)*Hxz);
+        const double Tauyy = 0.0; // Diagonal component of antisymmetric tensor
+        const double Tauyz = (Hxz*Qxy + Hyz*Qyy + (-Hxx - Hyy)*Qyz) - (Qxz*Hxy + Qyz*Hyy + (-Qxx - Qyy)*Hyz);
+
+        // Update nematic stress (passive + active)
+        qf.Pxx[z, y, x] = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx + Tauxx - ALPHA * Qxx;
+        qf.Pxy[z, y, x] = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy + Tauxy - ALPHA * Qxy;
+        qf.Pxz[z, y, x] = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz + Tauxz - ALPHA * Qxz;
+        qf.Pyy[z, y, x] = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy + Tauyy - ALPHA * Qyy;
+        qf.Pyz[z, y, x] = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz + Tauyz - ALPHA * Qyz;
+
+        // Now, we perform the timestep
+
         qf.qxx_new[z, y, x] = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * Hxx);
         qf.qxy_new[z, y, x] = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * Hxy);
         qf.qxz_new[z, y, x] = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * Hxz);
