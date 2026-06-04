@@ -519,20 +519,20 @@ void QTensorSolver<BC>::UpdateQnewWithQ(QTensorFields& qf) const {
 template<typename BC>
 void QTensorSolver<BC>::ComputeActiveBodyForce(FluidFields& ff, const QTensorFields& qf) const {
     auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
-        ff.fx[z, y, x] = -ALPHA*((qf.qxx[z, y, xp] - qf.qxx[z, y, xm])/2.0
-                               + (qf.qxy[z, yp, x] - qf.qxy[z, ym, x])/2.0
-                               + (qf.qxz[zp, y, x] - qf.qxz[zm, y, x])/2.0)
+        ff.fx[z, y, x] += ((qf.Pxx[z, y, xp] - qf.Pxx[z, y, xm])/2.0
+                         + (qf.Pxy[z, yp, x] - qf.Pxy[z, ym, x])/2.0
+                         + (qf.Pxz[zp, y, x] - qf.Pxz[zm, y, x])/2.0)
                          -MU * ff.ux[z, y, x];
 
-        ff.fy[z, y, x] = -ALPHA*((qf.qxy[z, y, xp] - qf.qxy[z, y, xm])/2.0
-                               + (qf.qyy[z, yp, x] - qf.qyy[z, ym, x])/2.0
-                               + (qf.qyz[zp, y, x] - qf.qyz[zm, y, x])/2.0)
+        ff.fy[z, y, x] += ((qf.Pxy[z, y, xp] - qf.Pxy[z, y, xm])/2.0
+                         + (qf.Pyy[z, yp, x] - qf.Pyy[z, ym, x])/2.0
+                         + (qf.Pyz[zp, y, x] - qf.Pyz[zm, y, x])/2.0)
                          -MU * ff.uy[z, y, x];
 
-        ff.fz[z, y, x] = -ALPHA*((qf.qxz[z, y, xp] - qf.qxz[z, y, xm])/2.0
-                               + (qf.qyz[z, yp, x] - qf.qyz[z, ym, x])/2.0
-                               - (qf.qxx[zp, y, x] - qf.qxx[zm, y, x])/2.0
-                               - (qf.qyy[zp, y, x] - qf.qyy[zm, y, x])/2.0) // Since Qzz = -(Qxx + Qyy)
+        ff.fz[z, y, x] += ((qf.Pxz[z, y, xp] - qf.Pxz[z, y, xm])/2.0
+                         + (qf.Pyz[z, yp, x] - qf.Pyz[z, ym, x])/2.0
+                         - (qf.Pxx[zp, y, x] - qf.Pxx[zm, y, x])/2.0
+                         - (qf.Pyy[zp, y, x] - qf.Pyy[zm, y, x])/2.0) // Since Pzz = -(Pxx + Pyy)
                          -MU * ff.uz[z, y, x];
     };
 
