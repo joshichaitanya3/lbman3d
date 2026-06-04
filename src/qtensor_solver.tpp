@@ -522,20 +522,20 @@ void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, cons
         
         // First, add the active force.
         ff.fx[z, y, x] += -ALPHA * (
-                           (qf.Qxx[z, y, xp] - qf.Qxx[z, y, xm])/2.0
-                         + (qf.Qxy[z, yp, x] - qf.Qxy[z, ym, x])/2.0
-                         + (qf.Qxz[zp, y, x] - qf.Qxz[zm, y, x])/2.0);
+                           (qf.qxx[z, y, xp] - qf.qxx[z, y, xm])/2.0
+                         + (qf.qxy[z, yp, x] - qf.qxy[z, ym, x])/2.0
+                         + (qf.qxz[zp, y, x] - qf.qxz[zm, y, x])/2.0);
 
         ff.fy[z, y, x] += -ALPHA * (
-                           (qf.Qxy[z, y, xp] - qf.Qxy[z, y, xm])/2.0
-                         + (qf.Qyy[z, yp, x] - qf.Qyy[z, ym, x])/2.0
-                         + (qf.Qyz[zp, y, x] - qf.Qyz[zm, y, x])/2.0);
+                           (qf.qxy[z, y, xp] - qf.qxy[z, y, xm])/2.0
+                         + (qf.qyy[z, yp, x] - qf.qyy[z, ym, x])/2.0
+                         + (qf.qyz[zp, y, x] - qf.qyz[zm, y, x])/2.0);
 
         ff.fz[z, y, x] += -ALPHA * (
-                           (qf.Qxz[z, y, xp] - qf.Qxz[z, y, xm])/2.0
-                         + (qf.Qyz[z, yp, x] - qf.Qyz[z, ym, x])/2.0
-                         - (qf.Qxx[zp, y, x] - qf.Qxx[zm, y, x])/2.0
-                         - (qf.Qyy[zp, y, x] - qf.Qyy[zm, y, x])/2.0); // Since Pzz = -(Pxx + Pyy)
+                           (qf.qxz[z, y, xp] - qf.qxz[z, y, xm])/2.0
+                         + (qf.qyz[z, yp, x] - qf.qyz[z, ym, x])/2.0
+                         - (qf.qxx[zp, y, x] - qf.qxx[zm, y, x])/2.0
+                         - (qf.qyy[zp, y, x] - qf.qyy[zm, y, x])/2.0); // Since Pzz = -(Pxx + Pyy)
         
         // Now, add the passive stress and friction
         ff.fx[z, y, x] += ((qf.Pxx[z, y, xp] - qf.Pxx[z, y, xm])/2.0
