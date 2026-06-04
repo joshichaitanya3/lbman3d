@@ -29,7 +29,7 @@ void QTensorSolver<BC>::Initialize(QTensorFields& qf) const {
 }
 
 template<typename BC>
-void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidFields& ff) const {
+void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, const FluidFields& ff) const {
     auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
 
         // Fields
@@ -59,7 +59,7 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
 
         // Velocity gradient tensor (central differences; uses the same Q stencil offsets
         // since HandleBoundaries has already set correct wall velocities from the
-        // previous LBM step before FiniteDifferenceStep is called)
+        // previous LBM step before StepAndSetupBodyForce is called)
         const double uxx = (ff.ux[z,y,xp] - ff.ux[z,y,xm]) / 2.0;
         const double uxy = (ff.ux[z,yp,x] - ff.ux[z,ym,x]) / 2.0;
         const double uxz = (ff.ux[zp,y,x] - ff.ux[zm,y,x]) / 2.0;
@@ -179,7 +179,7 @@ void QTensorSolver<BC>::FiniteDifferenceStep(QTensorFields& qf, const FluidField
         
         // Add the advective counter part of the back-flow to the body force, H:\nabla Q
         // since this does not come from the divergence of the stress tensor.
-        // The backflow from the divergence will be added to this by ComputeActiveBodyForce
+        // The backflow from the divergence will be added to this by SetActiveStressAndComputeBodyForce
 
         ff.fx[z, y, x] = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) + Hxx*Qyyx + Hyy*Qxxx;
         ff.fy[z, y, x] = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) + Hxx*Qyyy + Hyy*Qxxy;
@@ -517,7 +517,7 @@ void QTensorSolver<BC>::UpdateQnewWithQ(QTensorFields& qf) const {
 }
 
 template<typename BC>
-void QTensorSolver<BC>::ComputeActiveBodyForce(FluidFields& ff, const QTensorFields& qf) const {
+void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, const QTensorFields& qf) const {
     auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
         
         // First, add the active force.
@@ -613,6 +613,6 @@ void QTensorSolver<BC>::ComputeActiveBodyForce(FluidFields& ff, const QTensorFie
 
 template<typename BC>
 void QTensorSolver<BC>::Step(QTensorFields& qf, FluidFields& ff) const {
-    FiniteDifferenceStep(qf, ff);
-    ComputeActiveBodyForce(ff, qf);
+    StepAndSetupBodyForce(qf, ff);
+    SetActiveStressAndComputeBodyForce(ff, qf);
 }
