@@ -7,17 +7,17 @@
 
 // Q-tensor dynamics solver (Beris-Edwards + active stress).
 //
-// Subclass and override ComputeActiveBodyForce to change the activity model:
+// Subclass and override SetActiveStressAndComputeBodyForce to change the activity model:
 //
 //   class VaryingAlpha : public QTensorSolver<PeriodicBC> {
 //   public:
 //       using QTensorSolver::QTensorSolver;   // inherit ctor
-//       void ComputeActiveBodyForce(FluidFields&, const QTensorFields&) const override;
+//       void SetActiveStressAndComputeBodyForce(FluidFields&, const QTensorFields&) const override;
 //   };
 //
 //   ActiveNematicSim<PeriodicBC> sim{grid, std::make_unique<VaryingAlpha>(grid)};
 //
-// For pure relaxation (zero activity), override ComputeActiveBodyForce with an empty body.
+// For pure relaxation (zero activity), override SetActiveStressAndComputeBodyForce with an empty body.
 template<typename BC>
 class QTensorSolver {
     Grid<BC> grid_;
@@ -48,15 +48,23 @@ public:
     // Set initial Q field with uniform noise (qxx ≈ 0.5, qxy ≈ 0).
     void Initialize(QTensorFields& qf) const;
 
-    // Beris-Edwards FD step — updates Q using the current velocity in ff.
-    // Does NOT touch ff.fx/fy.
-    void FiniteDifferenceStep(QTensorFields& qf, const FluidFields& ff) const;
+    /* !\brief Beris-Edwards FD step + setting up the backflow coupling
+     *
+     * Beris-Edwards FD step — updates Q using the current velocity in `ff`.
+     * In addition, it uses the already-computed gradients of Q to compute the 
+     * passive component of the nematic stress tensor and add the
+     *  advective backflow (not coming from the stress tensor) to the 
+     * body force `ff.fx/fy/fz`. The divergence of the stress will be added 
+     * to the body force separately.
+     */
+    void StepAndSetupBodyForce(QTensorFields& qf, const FluidFields& ff) const;
 
     // Compute active body force from Q gradients → writes ff.fx, ff.fy.
-    // Override to implement spatiotemporally varying activity or zero activity.
-    virtual void ComputeActiveBodyForce(FluidFields& ff, const QTensorFields& qf) const;
+    // Then add passive stresses and friction.
+    // Override this to implement spatiotemporally varying activity or zero activity.
+    virtual void SetActiveStressAndComputeBodyForce(FluidFields& ff, const QTensorFields& qf) const;
 
-    // Convenience: FiniteDifferenceStep then ComputeActiveBodyForce.
+    // Convenience: StepAndSetupBodyForce then SetActiveStressAndComputeBodyForce.
     void Step(QTensorFields& qf, FluidFields& ff) const;
 };
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Live monitor for lbm.log — run from the simulation working directory."""
 
+import argparse
 import re
 import os
 import sys
@@ -20,8 +21,10 @@ _KV_RE = re.compile(r"^\s{2}(\S.*?)\s*=\s*(.+)$")
 _DATA_RE = re.compile(
     r"Time (\d+): Mass: ([^\s,]+), "
     r"Px: ([^\s,]+), Py: ([^\s,]+), Pz: ([^\s,]+), "
-    r"Kinetic Energy: ([^\s,]+) Relative Error: ([^\s,]+)"
-    r"(?:, NumDisclinations: (\d+))?"
+    r"Kinetic Energy: ([^\s,]+)"
+    r"(?:,\s*Total Energy: ([^\s,]+))?"   # optional; absent in older logs
+    r"[, ]+Relative Error: ([^\s,]+)"      # comma (new) or space (old) separator
+    r"(?:,\s*NumDisclinations: (\d+))?"
 )
 
 
@@ -60,10 +63,13 @@ def parse_log(path):
         m = _DATA_RE.match(line)
         if m:
             groups = m.groups()
-            # First 7 groups are floats; 8th (NumDisclinations) is optional int
-            row = tuple(_safe_float(g) for g in groups[:7])
-            disc = float(groups[7]) if groups[7] is not None else float("nan")
-            rows.append(row + (disc,))
+            # groups: time, mass, px, py, pz, ke, total_e?, rel_err, disc?
+            row = tuple(_safe_float(g) for g in groups[:6])   # time..ke
+            total_e = _safe_float(groups[6]) if groups[6] is not None else float("nan")
+            rel_err = _safe_float(groups[7])
+            disc = _safe_float(groups[8]) if groups[8] is not None else float("nan")
+            # tuple layout: time, mass, px, py, pz, ke, rel_err, disc, total_e
+            rows.append(row + (rel_err, disc, total_e))
 
     return params, rows
 
@@ -105,6 +111,14 @@ def style_ax(ax):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
+    ap = argparse.ArgumentParser(description="Live monitor for lbm.log")
+    ap.add_argument(
+        "--total_energy", action="store_true",
+        help="Plot Total Energy instead of Kinetic Energy (useful for passive benchmarks)",
+    )
+    args = ap.parse_args()
+    plot_total_energy = args.total_energy
+
     log_path = os.path.join(os.getcwd(), LOG_FILE)
     print(f"Monitoring {log_path}  (refresh every {POLL_MS / 1000:.1f} s)")
 
@@ -134,12 +148,18 @@ def main():
     for spine in ax_info.spines.values():
         spine.set_color("#45475a")
 
-    # KE axes
-    (ke_line,) = ax_ke.plot([], [], color=BLUE, lw=1.5, label="KE")
+    # Top energy axes — KE by default, Total Energy with --total_energy
+    if plot_total_energy:
+        top_label, top_col, top_color = "Total Energy", 8, PEACH
+    else:
+        top_label, top_col, top_color = "Kinetic Energy", 5, BLUE
+
+    (ke_line,) = ax_ke.plot([], [], color=top_color, lw=1.5)
     ax_ke.set_xlabel("Time step")
-    ax_ke.set_ylabel("Kinetic Energy")
-    ax_ke.set_title("Kinetic Energy")
-    ax_ke.set_yscale("log")
+    ax_ke.set_ylabel(top_label)
+    ax_ke.set_title(top_label)
+    if not plot_total_energy:
+        ax_ke.set_yscale("log")  # KE is always positive; Total Energy can be negative
 
     # Momentum axes
     (px_line,) = ax_mom.plot([], [], color=MAUVE, lw=1.2, label="Px")
@@ -166,13 +186,22 @@ def main():
         wrap=False,
     )
 
-    # Mass status box — sits just below the params text
+    # Mass status box — sits at the very bottom of the info panel
     mass_box = ax_info.text(
         0.04, 0.05, "",
         transform=ax_info.transAxes,
         fontsize=9, va="bottom", ha="left",
         family="monospace", weight="bold", color=GREEN,
     )
+
+    # Energy trend indicator — only created when --total_energy is active
+    if plot_total_energy:
+        energy_box = ax_info.text(
+            0.04, 0.22, "",
+            transform=ax_info.transAxes,
+            fontsize=9, va="bottom", ha="left",
+            family="monospace", weight="bold", color=SUBTEXT,
+        )
 
     # Title bar
     title_obj = fig.suptitle(
@@ -200,17 +229,17 @@ def main():
         times = arr[:, 0]
         masses = arr[:, 1]
         px, py, pz = arr[:, 2], arr[:, 3], arr[:, 4]
-        kes = arr[:, 5]
         discs = arr[:, 7]
 
         if state["mass0"] is None:
             state["mass0"] = masses[0]
         mass0 = state["mass0"]
 
-        # ── KE plot ──────────────────────────────────────────────────────────
-        valid = np.isfinite(kes) & (kes > 0)
+        # ── Top energy plot (KE or Total Energy) ─────────────────────────────
+        top_vals = arr[:, top_col]
+        valid = np.isfinite(top_vals) & (top_vals != 0 if plot_total_energy else top_vals > 0)
         if valid.any():
-            ke_line.set_data(times[valid], kes[valid])
+            ke_line.set_data(times[valid], top_vals[valid])
             ax_ke.relim()
             ax_ke.autoscale_view()
 
@@ -245,11 +274,24 @@ def main():
             f"M  = {masses[-1]:.9g}"
         )
 
+        # ── Energy trend indicator (--total_energy mode only) ────────────────
+        if plot_total_energy:
+            te_vals = arr[:, 8]
+            finite_te = te_vals[np.isfinite(te_vals)]
+            if len(finite_te) >= 2:
+                delta = finite_te[-1] - finite_te[-2]
+                if delta < 0:
+                    e_color, e_label = GREEN, "ENERGY  ↓"
+                else:
+                    e_color, e_label = RED, "ENERGY  ↑"
+                energy_box.set_color(e_color)
+                energy_box.set_text(f"{e_label}\ndE = {delta:.3e}")
+
         # ── Title ─────────────────────────────────────────────────────────────
         t_cur = int(times[-1])
-        ke_cur = kes[-1]
+        top_cur = arr[-1, top_col]
         title_obj.set_text(
-            f"LBM Monitor  │  t = {t_cur:,}  │  KE = {ke_cur:.4e}  │  steps = {len(rows)}"
+            f"LBM Monitor  │  t = {t_cur:,}  │  {top_label} = {top_cur:.4e}  │  steps = {len(rows)}"
         )
 
     ani = animation.FuncAnimation(

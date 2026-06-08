@@ -44,7 +44,7 @@ constexpr int UOffset(int i, int s, int n) {
 // Grid<BCConfig>: maps (coord, step) → effective neighbour index.
 //
 // Four methods, one per field/direction pair:
-//   QXoff / QYoff  — Q-tensor stencil (FiniteDifferenceStep, ComputeActiveBodyForce)
+//   QXoff / QYoff  — Q-tensor stencil (StepAndSetupBodyForce, SetActiveStressAndComputeBodyForce)
 //   UXoff / UYoff  — velocity streaming (Stream)
 // ─────────────────────────────────────────────────────────────────────────────
 

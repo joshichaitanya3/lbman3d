@@ -12,6 +12,11 @@ QTensorFields::QTensorFields() :
     qxz_new_data (Params::nx * Params::ny * Params::nz, 0.0),
     qyy_new_data (Params::nx * Params::ny * Params::nz, 0.0),
     qyz_new_data (Params::nx * Params::ny * Params::nz, 0.0),
+    Pxx_data     (Params::nx * Params::ny * Params::nz, 0.0),
+    Pxy_data     (Params::nx * Params::ny * Params::nz, 0.0),
+    Pxz_data     (Params::nx * Params::ny * Params::nz, 0.0),
+    Pyy_data     (Params::nx * Params::ny * Params::nz, 0.0),
+    Pyz_data     (Params::nx * Params::ny * Params::nz, 0.0),
     qxx    (qxx_data.data(),     Params::nz, Params::ny, Params::nx),
     qxy    (qxy_data.data(),     Params::nz, Params::ny, Params::nx),
     qxz    (qxz_data.data(),     Params::nz, Params::ny, Params::nx),
@@ -21,5 +26,10 @@ QTensorFields::QTensorFields() :
     qxy_new(qxy_new_data.data(), Params::nz, Params::ny, Params::nx),
     qxz_new(qxz_new_data.data(), Params::nz, Params::ny, Params::nx),
     qyy_new(qyy_new_data.data(), Params::nz, Params::ny, Params::nx),
-    qyz_new(qyz_new_data.data(), Params::nz, Params::ny, Params::nx)
+    qyz_new(qyz_new_data.data(), Params::nz, Params::ny, Params::nx),
+    Pxx    (Pxx_data.data(),     Params::nz, Params::ny, Params::nx),
+    Pxy    (Pxy_data.data(),     Params::nz, Params::ny, Params::nx),
+    Pxz    (Pxz_data.data(),     Params::nz, Params::ny, Params::nx),
+    Pyy    (Pyy_data.data(),     Params::nz, Params::ny, Params::nx),
+    Pyz    (Pyz_data.data(),     Params::nz, Params::ny, Params::nx)
 {}
