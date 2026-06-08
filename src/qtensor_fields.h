@@ -13,6 +13,8 @@ struct QTensorFields {
     // Nematic stress tensor (active + passive)
     std::vector<double> Pxx_data, Pxy_data, Pxz_data, Pyy_data, Pyz_data;
 
+    double nematic_energy = 0.0;
+
     using ext3_t  = Kokkos::extents<int, Params::nz, Params::ny, Params::nx>;
     Kokkos::mdspan<double, ext3_t> qxx, qxy, qxz, qyy, qyz;
     Kokkos::mdspan<double, ext3_t> qxx_new, qxy_new, qxz_new, qyy_new, qyz_new;
