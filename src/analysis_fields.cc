@@ -54,6 +54,24 @@ double NematicFreeEnergyDensity(
                          + 2.0*(Qxy*lap_Qxy + Qxz*lap_Qxz + Qyz*lap_Qyz);
 
     return 0.5*A*TrQ2 + (B/3.0)*TrQ3 + 0.25*C*TrQ2*TrQ2 - 0.5*L*Q_lap_Q;
+
+}
+
+OrderDirector QtensorToOrderDirectorPoint(
+    double Qxx, double Qxy, double Qxz, double Qyy, double Qyz) {
+
+    const double p = HalfTrQ2(Qxx, Qxy, Qxz, Qyy, Qyz);
+    const double q = DetQ(Qxx, Qxy, Qxz, Qyy, Qyz);
+
+    const double r = 2.0 * std::sqrt(p/3.0);
+    const double S = r * std::cos(1.0/3.0 * std::acos(4*q/(r*r*r)));
+
+    double nhatx = Qxz*(Qyy-S) - Qxy*Qyz;
+    double nhaty = Qyz*(Qxx-S) - Qxy*Qxz;
+    double nhatz = Qxy*Qxy - (Qxx-S)*(Qyy-S);
+    const double norm_inv = 1.0 / std::sqrt(nhatx*nhatx + nhaty*nhaty + nhatz*nhatz);
+
+    return {S, nhatx*norm_inv, nhaty*norm_inv, nhatz*norm_inv};
 }
 
 void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
@@ -64,28 +82,17 @@ void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
         for (int y = 0; y < g.local_ny; ++y) {
             for (int x = 0; x < g.local_nx; ++x) {
                 const int idxp = g.halo_idx(x, y, z);
-                const double Qxx = qf.qxx[idxp];
-                const double Qxy = qf.qxy[idxp];
-                const double Qxz = qf.qxz[idxp];
-                const double Qyy = qf.qyy[idxp];
-                const double Qyz = qf.qyz[idxp];
-                const double p = HalfTrQ2(Qxx, Qxy, Qxz, Qyy, Qyz);
-                const double q = DetQ(Qxx, Qxy, Qxz, Qyy, Qyz);
 
-                const double r = 2.0 * std::sqrt(p/3.0);
+                const auto [S, dnx, dny, dnz] = QtensorToOrderDirectorPoint(
+                    qf.qxx[idxp],
+                    qf.qxy[idxp],
+                    qf.qxz[idxp],
+                    qf.qyy[idxp],
+                    qf.qyz[idxp]);
 
-                const double S = r * std::cos(1.0/3.0 * std::acos(std::clamp(4*q/(r*r*r), -1.0, 1.0)));
-
-                double nhatx = Qxz*(Qyy-S) - Qxy*Qyz;
-                double nhaty = Qyz*(Qxx-S) - Qxy*Qxz;
-                double nhatz = Qxy*Qxy - (Qxx-S)*(Qyy-S);
-                const double norm_inv = 1.0 / std::sqrt(nhatx*nhatx + nhaty*nhaty + nhatz*nhatz);
-                nhatx *= norm_inv;
-                nhaty *= norm_inv;
-                nhatz *= norm_inv;
-                af.director_[g.halo_dirIdx(x, y, z, 0)] = nhatx;
-                af.director_[g.halo_dirIdx(x, y, z, 1)] = nhaty;
-                af.director_[g.halo_dirIdx(x, y, z, 2)] = nhatz;
+                af.director_[g.halo_dirIdx(x, y, z, 0)] = dnx;
+                af.director_[g.halo_dirIdx(x, y, z, 1)] = dny;
+                af.director_[g.halo_dirIdx(x, y, z, 2)] = dnz;
                 af.order_[idxp] = S;
             }
         }
