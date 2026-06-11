@@ -234,4 +234,8 @@ void SimIO::ExportDisclinations(
     writer.WriteTopology(mesh.Points(), mesh.Connectivity(),
                          mesh.Offsets(), mesh.CellTypes());
 
+    if (mesh.TangentsAvailable()) {
+        writer.WriteVectorPointField("Tangents", mesh.Tangents());
+    }
+
 }
