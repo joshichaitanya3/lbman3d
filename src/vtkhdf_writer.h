@@ -415,6 +415,20 @@ public:
             pdata_ = create_group(root_, "PointData");
         write_1d(pdata_, name, data);
     }
+
+    // Write a vector field over the mesh points into the PointData group.
+    // data.size() must equal n_points * components.
+    void WriteVectorPointField(const char* name, const std::vector<double>& data,
+                               int components = 3) {
+        if (static_cast<int64_t>(data.size()) != n_points_ * components)
+            throw std::runtime_error(
+                std::format("WriteVectorPointField: size mismatch for {} [data.size(): {}, n_points_: {}]", name, data.size(), n_points_)
+            );
+        if (pdata_.get() < 0)
+            pdata_ = create_group(root_, "PointData");
+        write_2d(pdata_, name, data, static_cast<hsize_t>(n_points_),
+                 static_cast<hsize_t>(components));
+    }
 };
 
 #endif // LBM_AN_VTKHDFWRITER_H_
