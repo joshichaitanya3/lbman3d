@@ -126,6 +126,14 @@ inline int dirIdx(int x, int y, int z, int c) {
     and pass dtype=np.float32 here when reduced output precision is desired.
 
 */
+struct OrderDirector {
+    double S;
+    double nx, ny, nz;
+};
+
+OrderDirector QtensorToOrderDirectorPoint(
+    double Qxx, double Qxy, double Qxz, double Qyy, double Qyz);
+
 void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af);
 
 #endif // LBM_AN_ANALYSIS_FIELDS_H_
