@@ -3,6 +3,8 @@
 
 #include <vector>
 #include <cstdint>
+#include <algorithm>
+#include <stdexcept>
 
 inline constexpr uint8_t kVTK_LINE = 3;
 
@@ -33,10 +35,15 @@ class DisclinationMesh {
     int64_t num_cells = 0;
     std::vector<int64_t> offsets = {0};
     std::vector<uint8_t> cell_types;
+    bool tangents_available = false;
+    std::vector<double> tangents;
 
 public:
     void AddDisclination(const Disclination& d) {
-        const int64_t num_pts = static_cast<int64_t>(d.points.size() / 3);
+
+        const std::vector<double>& disc_pts = d.SmoothingAvailable() ? d.smooth_points : d.points;
+
+        const int64_t num_pts = static_cast<int64_t>(disc_pts.size() / 3);
         if (num_pts < 2) return;
 
         const int64_t num_new_cells = num_pts - 1;
@@ -51,8 +58,18 @@ public:
         offsets.reserve(1 + static_cast<size_t>(num_cells));
         cell_types.reserve(static_cast<size_t>(num_cells));
 
-        points.insert(points.end(), d.points.begin(), d.points.end());
-
+        points.insert(points.end(), disc_pts.begin(), disc_pts.end());
+        
+        tangents.reserve(3 * static_cast<size_t>(num_points));
+        
+        if (d.TangentsAvailable()) {
+            tangents_available = true;
+            tangents.insert(tangents.end(), d.smooth_tangents.begin(), d.smooth_tangents.end());
+        }
+        else if (tangents_available) {
+            throw std::runtime_error("Buggy disclination analysis: some contain tangents, some don't.");
+        }
+        
         for (int64_t i = 0; i < num_new_cells; ++i) {
             connectivity.push_back(points_base + i);
             connectivity.push_back(points_base + i + 1);
@@ -69,6 +86,9 @@ public:
     int64_t NumPoints() const { return num_points; }
     int64_t NumCells() const { return num_cells; }
     int64_t NumConnectivityIds() const {return connectivity.size();}
+    const std::vector<double>& Tangents() const { return tangents; }
+
+    const bool TangentsAvailable() const {return tangents_available;}
 };
 
 #endif // LBM_AN_ANALYSIS_DISCLINATION_H
