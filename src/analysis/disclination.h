@@ -13,6 +13,17 @@ inline constexpr uint8_t kVTK_LINE = 3;
 */
 struct Disclination {
     std::vector<double> points;
+    std::vector<double> smooth_points;
+    std::vector<double> smooth_tangents; // Unit tangent vectors at every point
+    bool is_loop = false;
+
+    const bool SmoothingAvailable() const {
+        return (smooth_points.size() == points.size());
+    }
+
+    const bool TangentsAvailable() const {
+        return (smooth_tangents.size() == smooth_points.size());
+    }
 };
 
 class DisclinationMesh {
