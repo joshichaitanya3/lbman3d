@@ -5,7 +5,7 @@
 #include "fluid_fields.h"
 
 // Pure LBM fluid solver — no knowledge of Q-tensor.
-// fx/fy in FluidFields are the only coupling point; set them externally
+// fx/fy/fz in FluidFields are the only coupling point; set them externally
 // (e.g. by QTensorSolver) before calling LatticeBoltzmannStep.
 template<typename BC>
 class LbmSolver {
@@ -17,22 +17,30 @@ class LbmSolver {
     bool InDomain(int x, int y, int z) const;
 
     double Feq(double rho, double ux, double uy, double uz, int i) const;
-    void ResetFeq(FluidFields& ff) const;
-    void ComputeForcingTerms(FluidFields& ff) const;
-    void ComputeMoments(FluidFields& ff) const;
-    void Collide(FluidFields& ff) const;
-    void Stream(FluidFields& ff) const;
 
-    // Per-wall bounce-back / specular-reflection handlers.
-    // Dispatched at compile time via if constexpr on WallSpec::UBC.
-    template<typename WallSpec> void HandleWallZHi(FluidFields& ff) const;
-    template<typename WallSpec> void HandleWallZLo(FluidFields& ff) const;
-    template<typename WallSpec> void HandleWallYHi(FluidFields& ff) const;
-    template<typename WallSpec> void HandleWallYLo(FluidFields& ff) const;
-    template<typename WallSpec> void HandleWallXLo(FluidFields& ff) const;
-    template<typename WallSpec> void HandleWallXHi(FluidFields& ff) const;
-
-    void HandleBoundaries(FluidFields& ff) const;
+    // Apply the boundary condition for WallSpec to a single out-of-domain stream.
+    // Called when direction i at node (x,y,z) streams outside the domain.
+    //
+    // Parameters:
+    //   x, y, z  — coordinates of the source fluid node
+    //   i        — lattice direction index that streamed out of domain
+    //   i_refl   — the specular-reflection partner of i for the relevant wall axis
+    //              (specX[i], specY[i], or specZ[i]); used only for SpecularReflection
+    //   f_star   — post-collision value of f at (x,y,z) for direction i
+    //   ff       — fluid fields (reads rho for moving-wall correction; writes f_new)
+    //
+    // Writes to f_new at the SOURCE node (x,y,z), not the out-of-domain destination:
+    //   SpecularReflection : f_new[i_refl] = f_star
+    //   NoSlip / MovingWall: f_new[opp[i]] = f_star + 6·ρ·w[opp[i]]·(e[opp[i]]·u_wall)
+    template<typename WallSpec> void HandleBoundaryPoint(
+        int x,
+        int y,
+        int z,
+        int i,
+        int i_refl,
+        double f_star,
+        FluidFields& ff
+    ) const;
 
 public:
     explicit LbmSolver(Grid<BC> grid);
@@ -40,8 +48,7 @@ public:
     // Set f = f_eq at initial rho/u (call once before the time loop).
     void Initialize(FluidFields& ff) const;
 
-    // Single LBM step: ResetFeq → ComputeForcingTerms → Collide → Stream
-    //                  → HandleBoundaries → ComputeMoments.
+    // Single LBM step: compute moments → collide → stream + apply boundary conditions.
     void LatticeBoltzmannStep(FluidFields& ff) const;
 };
 
