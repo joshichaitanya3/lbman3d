@@ -1,6 +1,7 @@
 #include "params.h"
 #include "boundary.h"
 
+#include <iostream>
 #include <ranges>
 #include <cmath>
 
