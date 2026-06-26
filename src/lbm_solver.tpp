@@ -7,7 +7,25 @@
 using namespace Params;
 
 template<typename BC>
-LbmSolver<BC>::LbmSolver(Grid<BC> grid) : grid_(std::move(grid)) {}
+LbmSolver<BC>::LbmSolver(Grid<BC> grid) : grid_(std::move(grid)) {
+    constexpr bool x_sensitive =
+        std::is_same_v<typename BC::XLo::UBC, SpecularReflection> || is_moving_wall_v<typename BC::XLo::UBC> ||
+        std::is_same_v<typename BC::XHi::UBC, SpecularReflection> || is_moving_wall_v<typename BC::XHi::UBC>;
+    constexpr bool y_sensitive =
+        std::is_same_v<typename BC::YLo::UBC, SpecularReflection> || is_moving_wall_v<typename BC::YLo::UBC> ||
+        std::is_same_v<typename BC::YHi::UBC, SpecularReflection> || is_moving_wall_v<typename BC::YHi::UBC>;
+    constexpr bool z_sensitive =
+        std::is_same_v<typename BC::ZLo::UBC, SpecularReflection> || is_moving_wall_v<typename BC::ZLo::UBC> ||
+        std::is_same_v<typename BC::ZHi::UBC, SpecularReflection> || is_moving_wall_v<typename BC::ZHi::UBC>;
+
+    if constexpr ((x_sensitive && y_sensitive) || (x_sensitive && z_sensitive) || (y_sensitive && z_sensitive)) {
+        std::cerr << "Warning [LbmSolver]: BCConfig has two or more intersecting SpecularReflection or\n"
+                     "  MovingWall boundaries on different axes. Per-wall boundary handling is applied\n"
+                     "  independently and does not compose correctly at shared edges and corners:\n"
+                     "  mass conservation is violated at those locations. An explicit HandleCorner\n"
+                     "  override is required for correct behavior.\n";
+    }
+}
 
 template<typename BC>
 bool LbmSolver<BC>::InDomain(int x, int y, int z) const {
