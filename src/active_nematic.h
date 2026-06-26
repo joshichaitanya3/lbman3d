@@ -55,6 +55,12 @@ public:
         io_.LogSetupSummary(Grid<BC>::GridType());
     }
 
+    void QTensorStep() {
+        qtensor_solver_->Step(qtensor_, fluid_);
+    }
+    void LBMStep() {
+        lbm_.LatticeBoltzmannStep(fluid_);
+    }
     // Q-tensor FD step + active force + LBM step.
     void Step() {
         qtensor_solver_->Step(qtensor_, fluid_);
