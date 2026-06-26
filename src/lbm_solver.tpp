@@ -35,10 +35,9 @@ bool LbmSolver<BC>::InDomain(int x, int y, int z) const {
 
 template<typename BC>
 double LbmSolver<BC>::Feq(double rhop, double uxp, double uyp, double uzp, int i) const {
-    const double u2 = uxp * uxp + uyp * uyp + uzp * uzp;	//Velocity squared
+    const double u2 = uxp * uxp + uyp * uyp + uzp * uzp;
     const double u_dot_e = uxp * FluidFields::ex[i] + uyp * FluidFields::ey[i] + uzp * FluidFields::ez[i];
     return (FluidFields::w[i] * rhop * (1.0 + kCs2Inv * u_dot_e + khalfCs4Inv * u_dot_e * u_dot_e - khalfCs2Inv * u2));
-        
 }
 
 template<typename BC>
