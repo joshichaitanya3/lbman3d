@@ -86,7 +86,7 @@ struct FluidFields {
     static constexpr std::array<int, 5> missingXLo = {1,  7, 10, 11, 14};
 
      // Owned storage — all mdspan views below point into these
-    std::vector<double> f_data, f_new_data, f_eq_data, forcing_data;
+    std::vector<double> f_data, f_new_data;
     std::vector<double> fx_data, fy_data, fz_data;
     std::vector<double> rho_data, ux_data, uy_data, uz_data;
 
@@ -95,7 +95,7 @@ struct FluidFields {
     using ext4_t = Kokkos::extents<int, Params::nz, Params::ny, Params::nx, Params::ndir>;
     Kokkos::mdspan<double, ext3_t>  rho, ux, uy, uz;
     Kokkos::mdspan<double, ext3_t>  fx, fy, fz;
-    Kokkos::mdspan<double, ext4_t> f, f_new, f_eq, forcing;
+    Kokkos::mdspan<double, ext4_t> f, f_new;
 
     FluidFields();
 
