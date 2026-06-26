@@ -98,6 +98,19 @@ struct FluidFields {
     Kokkos::mdspan<double, ext4_t> f, f_new, f_eq, forcing;
 
     FluidFields();
+
+    void SwapFandFnew() {
+        SwapF(f_data, f_new_data, f, f_new);
+    }
+
+private:
+    static void SwapF(std::vector<double>& a_data, std::vector<double>& b_data,
+                      Kokkos::mdspan<double, ext4_t>& a_view,
+                      Kokkos::mdspan<double, ext4_t>& b_view) {
+        std::swap(a_data, b_data);
+        a_view = Kokkos::mdspan<double, ext4_t>(a_data.data(), Params::nz, Params::ny, Params::nx, Params::ndir);
+        b_view = Kokkos::mdspan<double, ext4_t>(b_data.data(), Params::nz, Params::ny, Params::nx, Params::ndir);
+    }
 };
 
 #endif // LBM_AN_FLUID_FIELDS_H_
