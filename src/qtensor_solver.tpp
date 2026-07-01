@@ -242,284 +242,67 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, const FluidFiel
         return 0.5*A*TrQ2 + (B/3.0)*TrQ3 + 0.25*C*TrQ2*TrQ2 - 0.5*L*Q_lap_Q;
     };
     
+    // Single parallel loop over the full domain. Ghost-node stencil offsets are
+    // resolved inline; anchoring BCs are applied per-point after the FD step.
     #pragma omp parallel for num_threads(numprocs) schedule(static) reduction(+:total_nematic_energy)
-    for (int z = 1; z < nz - 1; ++z) {
-        for (int y = 1; y < ny - 1; ++y) {
-            for (int x = 1; x < nx - 1; ++x) {
-                total_nematic_energy += compute_cell(x, y, z, x-1, x+1, y-1, y+1, z-1, z+1);
-            }
-        }
-    }
-
-    // Boundary rows/columns: resolve ghost nodes through Q-stencil offsets.
-
-    // First, the 6 faces
-    for (int z : {0, nz-1}) {
-        for (int y = 1; y < ny - 1; ++y) {
-            for (int x = 1; x < nx-1; ++x) {
-                total_nematic_energy += compute_cell(x, y, z, x-1, x+1, y-1, y+1, QZoff(z,-1), QZoff(z,1));
-            }
-        }
-    }
-
-    for (int z = 1; z < nz - 1; ++z) {
-        for (int y : {0, ny-1}) {
-            for (int x = 1; x < nx-1; ++x) {
-                total_nematic_energy += compute_cell(x, y, z, x-1, x+1, QYoff(y,-1), QYoff(y,1), z-1, z+1);
-            }
-        }
-    }
-
-    for (int x : {0, nx-1}) {
-        for (int z = 1; z < nz - 1; ++z) {
-            for (int y = 1; y < ny - 1; ++y) {
-                total_nematic_energy += compute_cell(x, y, z, QXoff(x,-1), QXoff(x,1), y-1, y+1, z-1, z+1);
-            }
-        }
-    }
-    // Now, the 12 edges and 8 corners together
-    for (int x = 0; x < nx; ++x) {
-        total_nematic_energy += compute_cell(x, 0,       0, QXoff(x,-1), QXoff(x,1), QYoff(0,-1),             1, QZoff(0, -1),              1);
-        total_nematic_energy += compute_cell(x, ny-1,    0, QXoff(x,-1), QXoff(x,1),        ny-2, QYoff(ny-1,1), QZoff(0, -1),              1);
-        total_nematic_energy += compute_cell(x, 0,    nz-1, QXoff(x,-1), QXoff(x,1), QYoff(0,-1),             1,         nz-2, QZoff(nz-1, 1));
-        total_nematic_energy += compute_cell(x, ny-1, nz-1, QXoff(x,-1), QXoff(x,1),        ny-2, QYoff(ny-1,1),         nz-2, QZoff(nz-1, 1));
-    }
-
-    for (int y = 0; y < ny; ++y) {
-        total_nematic_energy += compute_cell(   0, y,    0, QXoff(0,-1),             1, QYoff(y,-1), QYoff(y,1), QZoff(0, -1),              1);
-        total_nematic_energy += compute_cell(nx-1, y,    0,        nx-2, QXoff(nx-1,1), QYoff(y,-1), QYoff(y,1), QZoff(0, -1),              1);
-        total_nematic_energy += compute_cell(   0, y, nz-1, QXoff(0,-1),             1, QYoff(y,-1), QYoff(y,1),         nz-2, QZoff(nz-1, 1));
-        total_nematic_energy += compute_cell(nx-1, y, nz-1,        nx-2, QXoff(nx-1,1), QYoff(y,-1), QYoff(y,1),         nz-2, QZoff(nz-1, 1));
-    }
-
     for (int z = 0; z < nz; ++z) {
-        total_nematic_energy += compute_cell(   0,    0, z, QXoff(0,-1),             1, QYoff(0, -1),              1, QZoff(z,-1), QZoff(z,1));
-        total_nematic_energy += compute_cell(nx-1,    0, z,        nx-2, QXoff(nx-1,1), QYoff(0, -1),              1, QZoff(z,-1), QZoff(z,1));
-        total_nematic_energy += compute_cell(   0, ny-1, z, QXoff(0,-1),             1,         ny-2, QYoff(ny-1, 1), QZoff(z,-1), QZoff(z,1));
-        total_nematic_energy += compute_cell(nx-1, ny-1, z,        nx-2, QXoff(nx-1,1),         ny-2, QYoff(ny-1, 1), QZoff(z,-1), QZoff(z,1));
+        for (int y = 0; y < ny; ++y) {
+            for (int x = 0; x < nx; ++x) {
+                const int xm = (x == 0)    ? QXoff(0, -1)   : x - 1;
+                const int xp = (x == nx-1) ? QXoff(nx-1, 1) : x + 1;
+                const int ym = (y == 0)    ? QYoff(0, -1)   : y - 1;
+                const int yp = (y == ny-1) ? QYoff(ny-1, 1) : y + 1;
+                const int zm = (z == 0)    ? QZoff(0, -1)   : z - 1;
+                const int zp = (z == nz-1) ? QZoff(nz-1, 1) : z + 1;
+
+                total_nematic_energy += compute_cell(x, y, z, xm, xp, ym, yp, zm, zp);
+
+                // Apply anchoring BCs pointwise after the timestep.
+                // X walls first, Z walls last — Z-wall writes take precedence at edges/corners.
+                if (x == 0)    HandleQBoundaryPoint<typename BC::XLo>(qf, x, y, z);
+                if (x == nx-1) HandleQBoundaryPoint<typename BC::XHi>(qf, x, y, z);
+                if (y == 0)    HandleQBoundaryPoint<typename BC::YLo>(qf, x, y, z);
+                if (y == ny-1) HandleQBoundaryPoint<typename BC::YHi>(qf, x, y, z);
+                if (z == 0)    HandleQBoundaryPoint<typename BC::ZLo>(qf, x, y, z);
+                if (z == nz-1) HandleQBoundaryPoint<typename BC::ZHi>(qf, x, y, z);
+            }
+        }
     }
 
     qf.nematic_energy = total_nematic_energy;
-
-    HandleQBoundary(qf);
     UpdateQnewWithQ(qf);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Per-wall Q-tensor boundary handlers
+// Per-point Q-tensor boundary handler
 //
-// Neumann/Periodic: no action — the stencil clamping/wrapping in QXoff/QYoff
-// already enforces ∂Q/∂n = 0 at the correct wall position.
+// Neumann/Periodic: compile-time no-op — the stencil clamping/wrapping in
+// QXoff/QYoff/QZoff already enforces ∂Q/∂n = 0 at the correct wall position.
 //
-// Anchoring<S,θ, phi>: overwrite q_new at the wall with the
-// prescribed strong-anchoring value after the FD step.  On the next step, the
-// Laplacian of interior cells adjacent to the wall reads this fixed value,
-// giving the correct Dirichlet influence.
+// Anchoring<S,θ,φ>: overwrites q_new at (z,y,x) with the prescribed
+// strong-anchoring value after the FD step. On the next step the Laplacian of
+// adjacent interior cells reads this fixed value, giving the correct Dirichlet
+// influence.
 // ─────────────────────────────────────────────────────────────────────────────
 
 template<typename BC>
 template<typename WallSpec>
-void QTensorSolver<BC>::HandleQWallZLo(QTensorFields& qf) const {
+void QTensorSolver<BC>::HandleQBoundaryPoint(QTensorFields& qf, int x, int y, int z) const {
     using Q = typename WallSpec::QBC;
     if constexpr (is_anchoring_v<Q>) {
-        const double cos_phi = std::cos(Q::phi);
-        const double sin_phi = std::sin(Q::phi);
-        const double sin_th_cos_th = 0.5 * std::sin(2.0 * Q::theta);
-        const double sin_phi_cos_phi = 0.5 * std::sin(2.0 * Q::phi);
-        const double sin_sq_th = 0.5 * (1.0 - std::cos(2.0 * Q::theta));
         const double sin_sq_phi   = 0.5 * (1.0 - std::cos(2.0 * Q::phi));
         const double cos_sq_phi   = 1.0 - sin_sq_phi;
-
-        const double S = Q::s;
-        const double qxx_bc = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qxy_bc = S * (sin_phi_cos_phi * sin_sq_th);
-        const double qxz_bc = S * (cos_phi * sin_th_cos_th);
-        const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qyz_bc = S * (sin_phi * sin_th_cos_th);
-
-        for (int y = 0; y < ny; ++y) {
-            for (int x = 0; x < nx; ++x) {
-                qf.qxx_new[0, y, x] = qxx_bc;
-                qf.qxy_new[0, y, x] = qxy_bc;
-                qf.qxz_new[0, y, x] = qxz_bc;
-                qf.qyy_new[0, y, x] = qyy_bc;
-                qf.qyz_new[0, y, x] = qyz_bc;
-            }
-        }
-    }
-}
-
-template<typename BC>
-template<typename WallSpec>
-void QTensorSolver<BC>::HandleQWallZHi(QTensorFields& qf) const {
-    using Q = typename WallSpec::QBC;
-    if constexpr (is_anchoring_v<Q>) {
-        const double cos_phi = std::cos(Q::phi);
-        const double sin_phi = std::sin(Q::phi);
-        const double sin_th_cos_th = 0.5 * std::sin(2.0 * Q::theta);
         const double sin_phi_cos_phi = 0.5 * std::sin(2.0 * Q::phi);
-        const double sin_sq_th = 0.5 * (1.0 - std::cos(2.0 * Q::theta));
-        const double sin_sq_phi   = 0.5 * (1.0 - std::cos(2.0 * Q::phi));
-        const double cos_sq_phi   = 1.0 - sin_sq_phi;
-
-        const double S = Q::s;
-        const double qxx_bc = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qxy_bc = S * (sin_phi_cos_phi * sin_sq_th);
-        const double qxz_bc = S * (cos_phi * sin_th_cos_th);
-        const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qyz_bc = S * (sin_phi * sin_th_cos_th);
-
-        for (int y = 0; y < ny; ++y) {
-            for (int x = 0; x < nx; ++x) {
-                qf.qxx_new[nz-1, y, x] = qxx_bc;
-                qf.qxy_new[nz-1, y, x] = qxy_bc;
-                qf.qxz_new[nz-1, y, x] = qxz_bc;
-                qf.qyy_new[nz-1, y, x] = qyy_bc;
-                qf.qyz_new[nz-1, y, x] = qyz_bc;
-            }
-        }
-    }
-}
-
-
-template<typename BC>
-template<typename WallSpec>
-void QTensorSolver<BC>::HandleQWallYLo(QTensorFields& qf) const {
-    using Q = typename WallSpec::QBC;
-    if constexpr (is_anchoring_v<Q>) {
-        const double cos_phi = std::cos(Q::phi);
-        const double sin_phi = std::sin(Q::phi);
+        const double sin_sq_th    = 0.5 * (1.0 - std::cos(2.0 * Q::theta));
         const double sin_th_cos_th = 0.5 * std::sin(2.0 * Q::theta);
-        const double sin_phi_cos_phi = 0.5 * std::sin(2.0 * Q::phi);
-        const double sin_sq_th = 0.5 * (1.0 - std::cos(2.0 * Q::theta));
-        const double sin_sq_phi   = 0.5 * (1.0 - std::cos(2.0 * Q::phi));
-        const double cos_sq_phi   = 1.0 - sin_sq_phi;
 
         const double S = Q::s;
-        const double qxx_bc = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qxy_bc = S * (sin_phi_cos_phi * sin_sq_th);
-        const double qxz_bc = S * (cos_phi * sin_th_cos_th);
-        const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qyz_bc = S * (sin_phi * sin_th_cos_th);
-
-        for (int z = 0; z < nz; ++z) {
-            for (int x = 0; x < nx; ++x) {
-                qf.qxx_new[z, 0, x] = qxx_bc;
-                qf.qxy_new[z, 0, x] = qxy_bc;
-                qf.qxz_new[z, 0, x] = qxz_bc;
-                qf.qyy_new[z, 0, x] = qyy_bc;
-                qf.qyz_new[z, 0, x] = qyz_bc;
-            }
-        }
+        qf.qxx_new[z, y, x] = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
+        qf.qxy_new[z, y, x] = S * (sin_phi_cos_phi * sin_sq_th);
+        qf.qxz_new[z, y, x] = S * (std::cos(Q::phi) * sin_th_cos_th);
+        qf.qyy_new[z, y, x] = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
+        qf.qyz_new[z, y, x] = S * (std::sin(Q::phi) * sin_th_cos_th);
     }
-}
-
-template<typename BC>
-template<typename WallSpec>
-void QTensorSolver<BC>::HandleQWallYHi(QTensorFields& qf) const {
-    using Q = typename WallSpec::QBC;
-    if constexpr (is_anchoring_v<Q>) {
-        const double cos_phi = std::cos(Q::phi);
-        const double sin_phi = std::sin(Q::phi);
-        const double sin_th_cos_th = 0.5 * std::sin(2.0 * Q::theta);
-        const double sin_phi_cos_phi = 0.5 * std::sin(2.0 * Q::phi);
-        const double sin_sq_th = 0.5 * (1.0 - std::cos(2.0 * Q::theta));
-        const double sin_sq_phi   = 0.5 * (1.0 - std::cos(2.0 * Q::phi));
-        const double cos_sq_phi   = 1.0 - sin_sq_phi;
-
-        const double S = Q::s;
-        const double qxx_bc = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qxy_bc = S * (sin_phi_cos_phi * sin_sq_th);
-        const double qxz_bc = S * (cos_phi * sin_th_cos_th);
-        const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qyz_bc = S * (sin_phi * sin_th_cos_th);
-
-        for (int z = 0; z < nz; ++z) {
-            for (int x = 0; x < nx; ++x) {
-                qf.qxx_new[z, ny-1, x] = qxx_bc;
-                qf.qxy_new[z, ny-1, x] = qxy_bc;
-                qf.qxz_new[z, ny-1, x] = qxz_bc;
-                qf.qyy_new[z, ny-1, x] = qyy_bc;
-                qf.qyz_new[z, ny-1, x] = qyz_bc;
-            }
-        }
-    }
-}
-
-
-template<typename BC>
-template<typename WallSpec>
-void QTensorSolver<BC>::HandleQWallXLo(QTensorFields& qf) const {
-    using Q = typename WallSpec::QBC;
-    if constexpr (is_anchoring_v<Q>) {
-        const double cos_phi = std::cos(Q::phi);
-        const double sin_phi = std::sin(Q::phi);
-        const double sin_th_cos_th = 0.5 * std::sin(2.0 * Q::theta);
-        const double sin_phi_cos_phi = 0.5 * std::sin(2.0 * Q::phi);
-        const double sin_sq_th = 0.5 * (1.0 - std::cos(2.0 * Q::theta));
-        const double sin_sq_phi   = 0.5 * (1.0 - std::cos(2.0 * Q::phi));
-        const double cos_sq_phi   = 1.0 - sin_sq_phi;
-
-        const double S = Q::s;
-        const double qxx_bc = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qxy_bc = S * (sin_phi_cos_phi * sin_sq_th);
-        const double qxz_bc = S * (cos_phi * sin_th_cos_th);
-        const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qyz_bc = S * (sin_phi * sin_th_cos_th);
-
-        for (int z = 0; z < nz; ++z) {
-            for (int y = 0; y < ny; ++y) {
-                qf.qxx_new[z, y, 0] = qxx_bc;
-                qf.qxy_new[z, y, 0] = qxy_bc;
-                qf.qxz_new[z, y, 0] = qxz_bc;
-                qf.qyy_new[z, y, 0] = qyy_bc;
-                qf.qyz_new[z, y, 0] = qyz_bc;
-            }
-        }
-    }
-}
-
-template<typename BC>
-template<typename WallSpec>
-void QTensorSolver<BC>::HandleQWallXHi(QTensorFields& qf) const {
-    using Q = typename WallSpec::QBC;
-    if constexpr (is_anchoring_v<Q>) {
-        const double cos_phi = std::cos(Q::phi);
-        const double sin_phi = std::sin(Q::phi);
-        const double sin_th_cos_th = 0.5 * std::sin(2.0 * Q::theta);
-        const double sin_phi_cos_phi = 0.5 * std::sin(2.0 * Q::phi);
-        const double sin_sq_th = 0.5 * (1.0 - std::cos(2.0 * Q::theta));
-        const double sin_sq_phi   = 0.5 * (1.0 - std::cos(2.0 * Q::phi));
-        const double cos_sq_phi   = 1.0 - sin_sq_phi;
-
-        const double S = Q::s;
-        const double qxx_bc = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qxy_bc = S * (sin_phi_cos_phi * sin_sq_th);
-        const double qxz_bc = S * (cos_phi * sin_th_cos_th);
-        const double qyy_bc = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
-        const double qyz_bc = S * (sin_phi * sin_th_cos_th);
-
-        for (int z = 0; z < nz; ++z) {
-            for (int y = 0; y < ny; ++y) {
-                qf.qxx_new[z, y, nx-1] = qxx_bc;
-                qf.qxy_new[z, y, nx-1] = qxy_bc;
-                qf.qxz_new[z, y, nx-1] = qxz_bc;
-                qf.qyy_new[z, y, nx-1] = qyy_bc;
-                qf.qyz_new[z, y, nx-1] = qyz_bc;
-            }
-        }
-    }
-}
-
-
-template<typename BC>
-void QTensorSolver<BC>::HandleQBoundary(QTensorFields& qf) const {
-    HandleQWallXLo<typename BC::XLo>(qf);
-    HandleQWallXHi<typename BC::XHi>(qf);
-    HandleQWallYLo<typename BC::YLo>(qf);
-    HandleQWallYHi<typename BC::YHi>(qf);
-    HandleQWallZLo<typename BC::ZLo>(qf);
-    HandleQWallZHi<typename BC::ZHi>(qf);
 }
 
 template<typename BC>
@@ -567,61 +350,51 @@ void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, cons
     };
 
     #pragma omp parallel for default(shared) num_threads(numprocs) schedule(static)
-    for (int z = 1; z < nz - 1; ++z)
-        for (int y = 1; y < ny - 1; ++y)
-            for (int x = 1; x < nx - 1; ++x)
-                compute_cell(x, y, z, x-1, x+1, y-1, y+1, z-1, z+1);
-
-        // Boundary rows/columns: resolve ghost nodes through Q-stencil offsets.
-
-    // First, the 6 faces
-    for (int z : {0, nz-1}) {
-        for (int y = 1; y < ny - 1; ++y) {
-            for (int x = 1; x < nx-1; ++x) {
-                compute_cell(x, y, z, x-1, x+1, y-1, y+1, QZoff(z,-1), QZoff(z,1));
-            }
-        }
-    }
-
-    for (int z = 1; z < nz - 1; ++z) {
-        for (int y : {0, ny-1}) {
-            for (int x = 1; x < nx-1; ++x) {
-                compute_cell(x, y, z, x-1, x+1, QYoff(y,-1), QYoff(y,1), z-1, z+1);
-            }
-        }
-    }
-
-    for (int x : {0, nx-1}) {
-        for (int z = 1; z < nz - 1; ++z) {
-            for (int y = 1; y < ny - 1; ++y) {
-                compute_cell(x, y, z, QXoff(x,-1), QXoff(x,1), y-1, y+1, z-1, z+1);
-            }
-        }
-    }
-    // Now, the 12 edges and 8 corners together
-    for (int x = 0; x < nx; ++x) {
-        compute_cell(x, 0,       0, QXoff(x,-1), QXoff(x,1), QYoff(0,-1),             1, QZoff(0, -1),              1);
-        compute_cell(x, ny-1,    0, QXoff(x,-1), QXoff(x,1),        ny-2, QYoff(ny-1,1), QZoff(0, -1),              1);
-        compute_cell(x, 0,    nz-1, QXoff(x,-1), QXoff(x,1), QYoff(0,-1),             1,         nz-2, QZoff(nz-1, 1));
-        compute_cell(x, ny-1, nz-1, QXoff(x,-1), QXoff(x,1),        ny-2, QYoff(ny-1,1),         nz-2, QZoff(nz-1, 1));
-    }
-
-    for (int y = 0; y < ny; ++y) {
-        compute_cell(   0, y,    0, QXoff(0,-1),             1, QYoff(y,-1), QYoff(y,1), QZoff(0, -1),              1);
-        compute_cell(nx-1, y,    0,        nx-2, QXoff(nx-1,1), QYoff(y,-1), QYoff(y,1), QZoff(0, -1),              1);
-        compute_cell(   0, y, nz-1, QXoff(0,-1),             1, QYoff(y,-1), QYoff(y,1),         nz-2, QZoff(nz-1, 1));
-        compute_cell(nx-1, y, nz-1,        nx-2, QXoff(nx-1,1), QYoff(y,-1), QYoff(y,1),         nz-2, QZoff(nz-1, 1));
-    }
-
     for (int z = 0; z < nz; ++z) {
-        compute_cell(   0,    0, z, QXoff(0,-1),             1, QYoff(0, -1),              1, QZoff(z,-1), QZoff(z,1));
-        compute_cell(nx-1,    0, z,        nx-2, QXoff(nx-1,1), QYoff(0, -1),              1, QZoff(z,-1), QZoff(z,1));
-        compute_cell(   0, ny-1, z, QXoff(0,-1),             1,         ny-2, QYoff(ny-1, 1), QZoff(z,-1), QZoff(z,1));
-        compute_cell(nx-1, ny-1, z,        nx-2, QXoff(nx-1,1),         ny-2, QYoff(ny-1, 1), QZoff(z,-1), QZoff(z,1));
+        for (int y = 0; y < ny; ++y) {
+            for (int x = 0; x < nx; ++x) {
+                const int xm = (x == 0)    ? QXoff(0, -1)   : x - 1;
+                const int xp = (x == nx-1) ? QXoff(nx-1, 1) : x + 1;
+                const int ym = (y == 0)    ? QYoff(0, -1)   : y - 1;
+                const int yp = (y == ny-1) ? QYoff(ny-1, 1) : y + 1;
+                const int zm = (z == 0)    ? QZoff(0, -1)   : z - 1;
+                const int zp = (z == nz-1) ? QZoff(nz-1, 1) : z + 1;
+                compute_cell(x, y, z, xm, xp, ym, yp, zm, zp);
+            }
+        }
     }
-
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Step drives three OMP parallel loops per timestep (one inside each of the
+// two methods below, one inside LbmSolver::LatticeBoltzmannStep).
+//
+// Loop 1 (StepAndSetupBodyForce) and Loop 2 (SetActiveStressAndComputeBodyForce)
+// cannot be merged: Loop 2 reads ∇·P at neighbor nodes, which Loop 1 writes,
+// so a full barrier between them is load-bearing.
+//
+// Loop 2 and Loop 3 (LbmSolver::LatticeBoltzmannStep) CAN be merged.
+// Loop 2 writes ff.fx/fy/fz; Loop 3 reads them. Both loops read qf.qxx/Pxx at
+// neighbor nodes (written only by Loop 1, untouched after that). The per-node
+// ordering "compute force, then collide/stream" is correct since ff.ux used for
+// friction is the previous step's velocity — still present when Loop 2 runs.
+//
+// The bandwidth saving scales with grid size. At 512³, ff.fx/fy/fz total ~3.2 GB;
+// in separate loops they are written then re-read, wasting ~6.4 GB of memory
+// traffic per step. Merging avoids this entirely.
+//
+// To merge without coupling LbmSolver to QTensorFields, template
+// LatticeBoltzmannStep with a zero-cost force functor:
+//
+//   template<typename ForceSetup = NoExtraForce>
+//   void LatticeBoltzmannStep(FluidFields& ff, ForceSetup setup = {}) const;
+//
+// and call setup(ff, z, y, x) at the top of the inner loop before the forcing
+// term. ActiveNematicSim::Step() passes a lambda capturing qtensor_ that calls
+// QTensorSolver::ApplyForceAtNode (the per-node body of compute_cell in
+// SetActiveStressAndComputeBodyForce). At 128×64×64 the benefit is small
+// (ff.fx/fy/fz fit in L3 cache). At 512³ it is worth pursuing.
+// ─────────────────────────────────────────────────────────────────────────────
 template<typename BC>
 void QTensorSolver<BC>::Step(QTensorFields& qf, FluidFields& ff) const {
     StepAndSetupBodyForce(qf, ff);

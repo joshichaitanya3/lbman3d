@@ -39,32 +39,23 @@ endif()
 # message("mdspan_INCLUDE_DIRS is set to ${mdspan_INCLUDE_DIR}")
 find_package(HDF5 REQUIRED COMPONENTS C)
 
-add_executable(main)
-
-# Set include directories.
-target_include_directories(main PUBLIC
-        ${HDF5_INCLUDE_DIRS}
-)
-
-target_link_libraries(main PRIVATE
-    ${HDF5_C_LIBRARIES})
-
-# Set include directories.
-target_include_directories(main PUBLIC
-        ${mdspan_SOURCE_DIR}
-)
-
-target_link_libraries(main PRIVATE mdspan)
-
-# Set main include directory
-target_include_directories(main PUBLIC src/)
-
-# Wire up std::format detection result into the build
-if(HAVE_STD_FORMAT)
-    target_compile_definitions(main PRIVATE HAVE_STD_FORMAT)
-else()
-    target_link_libraries(main PRIVATE fmt::fmt)
-endif()
+foreach(target main benchmark)
+    add_executable(${target})
+    target_include_directories(${target} PUBLIC
+            ${HDF5_INCLUDE_DIRS}
+            ${mdspan_SOURCE_DIR}
+            src/
+    )
+    target_link_libraries(${target} PRIVATE
+        ${HDF5_C_LIBRARIES}
+        mdspan
+    )
+    if(HAVE_STD_FORMAT)
+        target_compile_definitions(${target} PRIVATE HAVE_STD_FORMAT)
+    else()
+        target_link_libraries(${target} PRIVATE fmt::fmt)
+    endif()
+endforeach()
 
 add_subdirectory(src)
 

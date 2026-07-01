@@ -86,7 +86,7 @@ struct FluidFields {
     static constexpr std::array<int, 5> missingXLo = {1,  7, 10, 11, 14};
 
      // Owned storage — all mdspan views below point into these
-    std::vector<double> f_data, f_new_data, f_eq_data, forcing_data;
+    std::vector<double> f_data, f_new_data;
     std::vector<double> fx_data, fy_data, fz_data;
     std::vector<double> rho_data, ux_data, uy_data, uz_data;
 
@@ -95,9 +95,22 @@ struct FluidFields {
     using ext4_t = Kokkos::extents<int, Params::nz, Params::ny, Params::nx, Params::ndir>;
     Kokkos::mdspan<double, ext3_t>  rho, ux, uy, uz;
     Kokkos::mdspan<double, ext3_t>  fx, fy, fz;
-    Kokkos::mdspan<double, ext4_t> f, f_new, f_eq, forcing;
+    Kokkos::mdspan<double, ext4_t> f, f_new;
 
     FluidFields();
+
+    void SwapFandFnew() {
+        SwapF(f_data, f_new_data, f, f_new);
+    }
+
+private:
+    static void SwapF(std::vector<double>& a_data, std::vector<double>& b_data,
+                      Kokkos::mdspan<double, ext4_t>& a_view,
+                      Kokkos::mdspan<double, ext4_t>& b_view) {
+        std::swap(a_data, b_data);
+        a_view = Kokkos::mdspan<double, ext4_t>(a_data.data(), Params::nz, Params::ny, Params::nx, Params::ndir);
+        b_view = Kokkos::mdspan<double, ext4_t>(b_data.data(), Params::nz, Params::ny, Params::nx, Params::ndir);
+    }
 };
 
 #endif // LBM_AN_FLUID_FIELDS_H_
