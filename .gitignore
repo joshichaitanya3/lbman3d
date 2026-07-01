@@ -52,6 +52,9 @@ Makefile
 install_manifest.txt
 compile_commands.json
 
+# CMake local files
+CMakePresets.json
+
 # Temporary files
 *.tmp
 *.log
