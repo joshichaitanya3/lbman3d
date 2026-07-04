@@ -2,14 +2,27 @@ cmake_minimum_required(VERSION 3.23)
 
 project(LBM)
 
-set(CMAKE_CXX_STANDARD 23)
+# Probe for CUDA before committing to a C++ standard: nvcc does not support C++23.
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+    enable_language(CUDA)
+    message(STATUS "CUDA found — using C++20 (nvcc does not support C++23)")
+    set(CMAKE_CXX_STANDARD 20)
+    set(CMAKE_CUDA_STANDARD 20)
+else()
+    message(STATUS "CUDA not found — using C++23")
+    set(CMAKE_CXX_STANDARD 23)
+endif()
+
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "-fopenmp -g -Ofast")
 
 # Detect whether this toolchain's standard library supports <format> and <print>.
 # GCC 13's libstdc++ ships incomplete C++23 headers; GCC 15 is fine.
+# Under C++20, <print> is unavailable and the fmt fallback is used automatically.
 include(CheckSourceCompiles)
-set(CMAKE_REQUIRED_FLAGS "-std=c++23")
+set(CMAKE_REQUIRED_FLAGS "-std=c++${CMAKE_CXX_STANDARD}")
 check_source_compiles(CXX
     "#include <format>\n#include <print>\nint main(){std::println(\"{}\",42);}"
     HAVE_STD_FORMAT
