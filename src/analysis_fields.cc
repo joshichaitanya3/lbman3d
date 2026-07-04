@@ -43,11 +43,11 @@ void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
-                const double Qxx = qf.qxx[z, y, x];
-                const double Qxy = qf.qxy[z, y, x];
-                const double Qxz = qf.qxz[z, y, x];
-                const double Qyy = qf.qyy[z, y, x];
-                const double Qyz = qf.qyz[z, y, x];
+                const double Qxx = qf.qxx(z, y, x);
+                const double Qxy = qf.qxy(z, y, x);
+                const double Qxz = qf.qxz(z, y, x);
+                const double Qyy = qf.qyy(z, y, x);
+                const double Qyz = qf.qyz(z, y, x);
                 const double p = HalfTrQ2(Qxx, Qxy, Qxz, Qyy, Qyz);
                 const double q = DetQ(Qxx, Qxy, Qxz, Qyy, Qyz);
 
@@ -63,10 +63,10 @@ void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
                 nhaty *= norm_inv;
                 nhatz *= norm_inv;
 
-                af.director_[z, y, x, 0] = nhatx;
-                af.director_[z, y, x, 1] = nhaty;
-                af.director_[z, y, x, 2] = nhatz;
-                af.order_[z, y, x] = S;
+                af.director_(z, y, x, 0) = nhatx;
+                af.director_(z, y, x, 1) = nhaty;
+                af.director_(z, y, x, 2) = nhatz;
+                af.order_(z, y, x) = S;
             }
         }
     }

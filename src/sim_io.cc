@@ -70,22 +70,22 @@ bool SimIO::Log(const FluidFields& ff, QTensorFields& qf, AnalysisFields& af, co
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
-                mass += ff.rho[z, y, x];
-                px   += ff.rho[z, y, x] * ff.ux[z, y, x];
-                py   += ff.rho[z, y, x] * ff.uy[z, y, x];
-                pz   += ff.rho[z, y, x] * ff.uz[z, y, x];
-                ke   += 0.5 * ff.rho[z, y, x] * (ff.ux[z, y, x]*ff.ux[z, y, x] + 
-                                                 ff.uy[z, y, x]*ff.uy[z, y, x] + 
-                                                 ff.uz[z, y, x]*ff.uz[z, y, x]);
+                mass += ff.rho(z, y, x);
+                px   += ff.rho(z, y, x) * ff.ux(z, y, x);
+                py   += ff.rho(z, y, x) * ff.uy(z, y, x);
+                pz   += ff.rho(z, y, x) * ff.uz(z, y, x);
+                ke   += 0.5 * ff.rho(z, y, x) * (ff.ux(z, y, x)*ff.ux(z, y, x) + 
+                                                 ff.uy(z, y, x)*ff.uy(z, y, x) + 
+                                                 ff.uz(z, y, x)*ff.uz(z, y, x));
 
-                e1   += (ff.ux[z,y,x]-af.ux_past_[z,y,x])*(ff.ux[z,y,x]-af.ux_past_[z,y,x])
-                        + (ff.uy[z,y,x]-af.uy_past_[z,y,x])*(ff.uy[z,y,x]-af.uy_past_[z,y,x])
-                        + (ff.uz[z,y,x]-af.uz_past_[z,y,x])*(ff.uz[z,y,x]-af.uz_past_[z,y,x]);
+                e1   += (ff.ux(z,y,x)-af.ux_past_(z,y,x))*(ff.ux(z,y,x)-af.ux_past_(z,y,x))
+                        + (ff.uy(z,y,x)-af.uy_past_(z,y,x))*(ff.uy(z,y,x)-af.uy_past_(z,y,x))
+                        + (ff.uz(z,y,x)-af.uz_past_(z,y,x))*(ff.uz(z,y,x)-af.uz_past_(z,y,x));
 
-                e2   += ff.ux[z,y,x]*ff.ux[z,y,x] + ff.uy[z,y,x]*ff.uy[z,y,x]  + ff.uz[z,y,x]*ff.uz[z,y,x];
-                af.ux_past_[z, y, x] = ff.ux[z, y, x];
-                af.uy_past_[z, y, x] = ff.uy[z, y, x];
-                af.uz_past_[z, y, x] = ff.uz[z, y, x];
+                e2   += ff.ux(z,y,x)*ff.ux(z,y,x) + ff.uy(z,y,x)*ff.uy(z,y,x)  + ff.uz(z,y,x)*ff.uz(z,y,x);
+                af.ux_past_(z, y, x) = ff.ux(z, y, x);
+                af.uy_past_(z, y, x) = ff.uy(z, y, x);
+                af.uz_past_(z, y, x) = ff.uz(z, y, x);
             }
         }
     }
@@ -123,25 +123,25 @@ void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx-1; ++x) {
-                compat::print(rho_file,  "{},", ff.rho[z, y, x]);
-                compat::print(ux_file,   "{},", ff.ux[z, y, x]);
-                compat::print(uy_file,   "{},", ff.uy[z, y, x]);
-                compat::print(uz_file,   "{},", ff.uz[z, y, x]);
-                compat::print(qxx_file,  "{},", qf.qxx[z, y, x]);
-                compat::print(qxy_file,  "{},", qf.qxy[z, y, x]);
-                compat::print(qxz_file,  "{},", qf.qxz[z, y, x]);
-                compat::print(qyy_file,  "{},", qf.qyy[z, y, x]);
-                compat::print(qyz_file,  "{},", qf.qyz[z, y, x]);                
+                compat::print(rho_file,  "{},", ff.rho(z, y, x));
+                compat::print(ux_file,   "{},", ff.ux(z, y, x));
+                compat::print(uy_file,   "{},", ff.uy(z, y, x));
+                compat::print(uz_file,   "{},", ff.uz(z, y, x));
+                compat::print(qxx_file,  "{},", qf.qxx(z, y, x));
+                compat::print(qxy_file,  "{},", qf.qxy(z, y, x));
+                compat::print(qxz_file,  "{},", qf.qxz(z, y, x));
+                compat::print(qyy_file,  "{},", qf.qyy(z, y, x));
+                compat::print(qyz_file,  "{},", qf.qyz(z, y, x));                
             }
-            compat::print(rho_file,  "{}\n", ff.rho[z, y, nx-1]);
-            compat::print(ux_file,   "{}\n", ff.ux[z, y, nx-1]);
-            compat::print(uy_file,   "{}\n", ff.uy[z, y, nx-1]);
-            compat::print(uz_file,   "{}\n", ff.uz[z, y, nx-1]);
-            compat::print(qxx_file,  "{}\n", qf.qxx[z, y, nx-1]);
-            compat::print(qxy_file,  "{}\n", qf.qxy[z, y, nx-1]);
-            compat::print(qxz_file,  "{}\n", qf.qxz[z, y, nx-1]);
-            compat::print(qyy_file,  "{}\n", qf.qyy[z, y, nx-1]);
-            compat::print(qyz_file,  "{}\n", qf.qyz[z, y, nx-1]);
+            compat::print(rho_file,  "{}\n", ff.rho(z, y, nx-1));
+            compat::print(ux_file,   "{}\n", ff.ux(z, y, nx-1));
+            compat::print(uy_file,   "{}\n", ff.uy(z, y, nx-1));
+            compat::print(uz_file,   "{}\n", ff.uz(z, y, nx-1));
+            compat::print(qxx_file,  "{}\n", qf.qxx(z, y, nx-1));
+            compat::print(qxy_file,  "{}\n", qf.qxy(z, y, nx-1));
+            compat::print(qxz_file,  "{}\n", qf.qxz(z, y, nx-1));
+            compat::print(qyy_file,  "{}\n", qf.qyy(z, y, nx-1));
+            compat::print(qyz_file,  "{}\n", qf.qyz(z, y, nx-1));
         }
     }
 
@@ -161,9 +161,9 @@ void SimIO::ExportDistributionCSV(const FluidFields& ff,
         for (int z = 0; z < nz; ++z) {
             for (int y = 0; y < ny; ++y) {
                 for (int x = 0; x < nx-1; ++x) {
-                    compat::print(f_file, "{},", ff.f[z, y, x, i]);
+                    compat::print(f_file, "{},", ff.f(z, y, x, i));
                 }
-                compat::print(f_file, "{}\n", ff.f[z, y, nx-1, i]);
+                compat::print(f_file, "{}\n", ff.f(z, y, nx-1, i));
             }
         }
         f_file.close();
@@ -187,13 +187,13 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, Analysi
     writer.WriteScalarField("rho", ff.rho_data.data());
 
     if constexpr (Params::kDebugLogging) {
-        // f[z,y,x,i] is interleaved, so we still need a scratch buffer per direction.
+        // f(z,y,x,i) is interleaved, so we still need a scratch buffer per direction.
         std::vector<double> buf(nx * ny * nz);
         for (int i = 0; i < ndir; i++) {
             for (int z = 0; z < nz; ++z)
                 for (int y = 0; y < ny; ++y)
                     for (int x = 0; x < nx; ++x)
-                        buf[z * ny * nx + y * nx + x] = ff.f[z, y, x, i];
+                        buf[z * ny * nx + y * nx + x] = ff.f(z, y, x, i);
             writer.WriteScalarField(std::format("f{}", i).c_str(), buf.data());
         }
     }

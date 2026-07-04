@@ -18,11 +18,11 @@ void QTensorSolver<BC>::Initialize(QTensorFields& qf) const {
     for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
             for (int x : std::views::iota(0, nx)) {
-                qf.qxx[z, y, x] = 0.66 + noise_dist(gen);
-                qf.qxy[z, y, x] = noise_dist(gen);
-                qf.qxz[z, y, x] = noise_dist(gen);
-                qf.qyy[z, y, x] = -0.33 + noise_dist(gen);
-                qf.qyz[z, y, x] = noise_dist(gen);
+                qf.qxx(z, y, x) = 0.66 + noise_dist(gen);
+                qf.qxy(z, y, x) = noise_dist(gen);
+                qf.qxz(z, y, x) = noise_dist(gen);
+                qf.qyy(z, y, x) = -0.33 + noise_dist(gen);
+                qf.qyz(z, y, x) = noise_dist(gen);
             }
         }
     }
@@ -36,15 +36,15 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, const FluidFiel
 
         // Fields
 
-        const double Qxx = qf.qxx[z, y, x];
-        const double Qxy = qf.qxy[z, y, x];
-        const double Qxz = qf.qxz[z, y, x];
-        const double Qyy = qf.qyy[z, y, x];
-        const double Qyz = qf.qyz[z, y, x];
+        const double Qxx = qf.qxx(z, y, x);
+        const double Qxy = qf.qxy(z, y, x);
+        const double Qxz = qf.qxz(z, y, x);
+        const double Qyy = qf.qyy(z, y, x);
+        const double Qyz = qf.qyz(z, y, x);
 
-        const double ux = ff.ux[z, y, x];
-        const double uy = ff.uy[z, y, x];
-        const double uz = ff.uz[z, y, x];
+        const double ux = ff.ux(z, y, x);
+        const double uy = ff.uy(z, y, x);
+        const double uz = ff.uz(z, y, x);
 
         // Polynomials
         const double TrQ2 = 2.0*(Qxx*Qxx + Qyy*Qyy+ Qxx*Qyy + Qxy*Qxy +Qxz*Qxz +Qyz*Qyz);
@@ -62,16 +62,16 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, const FluidFiel
         // Velocity gradient tensor (central differences; uses the same Q stencil offsets
         // since HandleBoundaries has already set correct wall velocities from the
         // previous LBM step before StepAndSetupBodyForce is called)
-        const double uxx = (ff.ux[z,y,xp] - ff.ux[z,y,xm]) / 2.0;
-        const double uxy = (ff.ux[z,yp,x] - ff.ux[z,ym,x]) / 2.0;
-        const double uxz = (ff.ux[zp,y,x] - ff.ux[zm,y,x]) / 2.0;
+        const double uxx = (ff.ux(z,y,xp) - ff.ux(z,y,xm)) / 2.0;
+        const double uxy = (ff.ux(z,yp,x) - ff.ux(z,ym,x)) / 2.0;
+        const double uxz = (ff.ux(zp,y,x) - ff.ux(zm,y,x)) / 2.0;
 
-        const double uyx = (ff.uy[z,y,xp] - ff.uy[z,y,xm]) / 2.0;
-        const double uyy = (ff.uy[z,yp,x] - ff.uy[z,ym,x]) / 2.0;
-        const double uyz = (ff.uy[zp,y,x] - ff.uy[zm,y,x]) / 2.0;
+        const double uyx = (ff.uy(z,y,xp) - ff.uy(z,y,xm)) / 2.0;
+        const double uyy = (ff.uy(z,yp,x) - ff.uy(z,ym,x)) / 2.0;
+        const double uyz = (ff.uy(zp,y,x) - ff.uy(zm,y,x)) / 2.0;
 
-        const double uzx = (ff.uz[z,y,xp] - ff.uz[z,y,xm]) / 2.0;
-        const double uzy = (ff.uz[z,yp,x] - ff.uz[z,ym,x]) / 2.0;
+        const double uzx = (ff.uz(z,y,xp) - ff.uz(z,y,xm)) / 2.0;
+        const double uzy = (ff.uz(z,yp,x) - ff.uz(z,ym,x)) / 2.0;
         const double uzz = - (uxx + uyy); // from incompressibility
         
         /*
@@ -104,30 +104,30 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, const FluidFiel
         const double Wzy = -Wyz;
 
         // Q-tensor
-        const double Qxxx = (qf.qxx[z, y, xp] - qf.qxx[z, y, xm]) / 2.0;
-        const double Qxyx = (qf.qxy[z, y, xp] - qf.qxy[z, y, xm]) / 2.0;
-        const double Qxzx = (qf.qxz[z, y, xp] - qf.qxz[z, y, xm]) / 2.0;
-        const double Qyyx = (qf.qyy[z, y, xp] - qf.qyy[z, y, xm]) / 2.0;
-        const double Qyzx = (qf.qyz[z, y, xp] - qf.qyz[z, y, xm]) / 2.0;
+        const double Qxxx = (qf.qxx(z, y, xp) - qf.qxx(z, y, xm)) / 2.0;
+        const double Qxyx = (qf.qxy(z, y, xp) - qf.qxy(z, y, xm)) / 2.0;
+        const double Qxzx = (qf.qxz(z, y, xp) - qf.qxz(z, y, xm)) / 2.0;
+        const double Qyyx = (qf.qyy(z, y, xp) - qf.qyy(z, y, xm)) / 2.0;
+        const double Qyzx = (qf.qyz(z, y, xp) - qf.qyz(z, y, xm)) / 2.0;
 
-        const double Qxxy = (qf.qxx[z, yp, x] - qf.qxx[z, ym, x]) / 2.0;
-        const double Qxyy = (qf.qxy[z, yp, x] - qf.qxy[z, ym, x]) / 2.0;
-        const double Qxzy = (qf.qxz[z, yp, x] - qf.qxz[z, ym, x]) / 2.0;
-        const double Qyyy = (qf.qyy[z, yp, x] - qf.qyy[z, ym, x]) / 2.0;
-        const double Qyzy = (qf.qyz[z, yp, x] - qf.qyz[z, ym, x]) / 2.0;
+        const double Qxxy = (qf.qxx(z, yp, x) - qf.qxx(z, ym, x)) / 2.0;
+        const double Qxyy = (qf.qxy(z, yp, x) - qf.qxy(z, ym, x)) / 2.0;
+        const double Qxzy = (qf.qxz(z, yp, x) - qf.qxz(z, ym, x)) / 2.0;
+        const double Qyyy = (qf.qyy(z, yp, x) - qf.qyy(z, ym, x)) / 2.0;
+        const double Qyzy = (qf.qyz(z, yp, x) - qf.qyz(z, ym, x)) / 2.0;
 
-        const double Qxxz = (qf.qxx[zp, y, x] - qf.qxx[zm, y, x]) / 2.0;
-        const double Qxyz = (qf.qxy[zp, y, x] - qf.qxy[zm, y, x]) / 2.0;
-        const double Qxzz = (qf.qxz[zp, y, x] - qf.qxz[zm, y, x]) / 2.0;
-        const double Qyyz = (qf.qyy[zp, y, x] - qf.qyy[zm, y, x]) / 2.0;
-        const double Qyzz = (qf.qyz[zp, y, x] - qf.qyz[zm, y, x]) / 2.0;
+        const double Qxxz = (qf.qxx(zp, y, x) - qf.qxx(zm, y, x)) / 2.0;
+        const double Qxyz = (qf.qxy(zp, y, x) - qf.qxy(zm, y, x)) / 2.0;
+        const double Qxzz = (qf.qxz(zp, y, x) - qf.qxz(zm, y, x)) / 2.0;
+        const double Qyyz = (qf.qyy(zp, y, x) - qf.qyy(zm, y, x)) / 2.0;
+        const double Qyzz = (qf.qyz(zp, y, x) - qf.qyz(zm, y, x)) / 2.0;
 
         // Laplacian (seven-point stencil)
-        const double lap_Qxx = qf.qxx[z,y,xp] + qf.qxx[z,y,xm] + qf.qxx[z,yp,x] + qf.qxx[z,ym,x] + qf.qxx[zp,y,x] + qf.qxx[zm,y,x] - 6.0*Qxx;
-        const double lap_Qxy = qf.qxy[z,y,xp] + qf.qxy[z,y,xm] + qf.qxy[z,yp,x] + qf.qxy[z,ym,x] + qf.qxy[zp,y,x] + qf.qxy[zm,y,x] - 6.0*Qxy;
-        const double lap_Qxz = qf.qxz[z,y,xp] + qf.qxz[z,y,xm] + qf.qxz[z,yp,x] + qf.qxz[z,ym,x] + qf.qxz[zp,y,x] + qf.qxz[zm,y,x] - 6.0*Qxz;
-        const double lap_Qyy = qf.qyy[z,y,xp] + qf.qyy[z,y,xm] + qf.qyy[z,yp,x] + qf.qyy[z,ym,x] + qf.qyy[zp,y,x] + qf.qyy[zm,y,x] - 6.0*Qyy;
-        const double lap_Qyz = qf.qyz[z,y,xp] + qf.qyz[z,y,xm] + qf.qyz[z,yp,x] + qf.qyz[z,ym,x] + qf.qyz[zp,y,x] + qf.qyz[zm,y,x] - 6.0*Qyz;
+        const double lap_Qxx = qf.qxx(z,y,xp) + qf.qxx(z,y,xm) + qf.qxx(z,yp,x) + qf.qxx(z,ym,x) + qf.qxx(zp,y,x) + qf.qxx(zm,y,x) - 6.0*Qxx;
+        const double lap_Qxy = qf.qxy(z,y,xp) + qf.qxy(z,y,xm) + qf.qxy(z,yp,x) + qf.qxy(z,ym,x) + qf.qxy(zp,y,x) + qf.qxy(zm,y,x) - 6.0*Qxy;
+        const double lap_Qxz = qf.qxz(z,y,xp) + qf.qxz(z,y,xm) + qf.qxz(z,yp,x) + qf.qxz(z,ym,x) + qf.qxz(zp,y,x) + qf.qxz(zm,y,x) - 6.0*Qxz;
+        const double lap_Qyy = qf.qyy(z,y,xp) + qf.qyy(z,y,xm) + qf.qyy(z,yp,x) + qf.qyy(z,ym,x) + qf.qyy(zp,y,x) + qf.qyy(zm,y,x) - 6.0*Qyy;
+        const double lap_Qyz = qf.qyz(z,y,xp) + qf.qyz(z,y,xm) + qf.qyz(z,yp,x) + qf.qyz(z,ym,x) + qf.qyz(zp,y,x) + qf.qyz(zm,y,x) - 6.0*Qyz;
         
         // Advection: -u · ∇Q
         const double adv_xx = -(ux * Qxxx + uy * Qxxy + uz * Qxxz);
@@ -183,9 +183,9 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, const FluidFiel
         // since this does not come from the divergence of the stress tensor.
         // The backflow from the divergence will be added to this by SetActiveStressAndComputeBodyForce
 
-        ff.fx[z, y, x] = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) + Hxx*Qyyx + Hyy*Qxxx;
-        ff.fy[z, y, x] = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) + Hxx*Qyyy + Hyy*Qxxy;
-        ff.fz[z, y, x] = -2.0 * (Hxx*Qxxz + Hxy*Qxyz + Hxz*Qxzz + Hyy*Qyyz + Hyz*Qyzz) + Hxx*Qyyz + Hyy*Qxxz;
+        ff.fx(z, y, x) = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) + Hxx*Qyyx + Hyy*Qxxx;
+        ff.fy(z, y, x) = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) + Hxx*Qyyy + Hyy*Qxxy;
+        ff.fz(z, y, x) = -2.0 * (Hxx*Qxxz + Hxy*Qxyz + Hxz*Qxzz + Hyy*Qyyz + Hyz*Qyzz) + Hxx*Qyyz + Hyy*Qxxz;
 
         // Now, update the nematic stress tensor
 
@@ -219,19 +219,19 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, const FluidFiel
         const double Tauyz = (Hxz*Qxy + Hyz*Qyy + (-Hxx - Hyy)*Qyz) - (Qxz*Hxy + Qyz*Hyy + (-Qxx - Qyy)*Hyz);
 
         // Update nematic stress (passive + active)
-        qf.Pxx[z, y, x] = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx + Tauxx;
-        qf.Pxy[z, y, x] = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy + Tauxy;
-        qf.Pxz[z, y, x] = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz + Tauxz;
-        qf.Pyy[z, y, x] = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy + Tauyy;
-        qf.Pyz[z, y, x] = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz + Tauyz;
+        qf.Pxx(z, y, x) = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx + Tauxx;
+        qf.Pxy(z, y, x) = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy + Tauxy;
+        qf.Pxz(z, y, x) = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz + Tauxz;
+        qf.Pyy(z, y, x) = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy + Tauyy;
+        qf.Pyz(z, y, x) = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz + Tauyz;
 
         // Now, we perform the timestep
 
-        qf.qxx_new[z, y, x] = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * Hxx);
-        qf.qxy_new[z, y, x] = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * Hxy);
-        qf.qxz_new[z, y, x] = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * Hxz);
-        qf.qyy_new[z, y, x] = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * Hyy);
-        qf.qyz_new[z, y, x] = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * Hyz);
+        qf.qxx_new(z, y, x) = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * Hxx);
+        qf.qxy_new(z, y, x) = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * Hxy);
+        qf.qxz_new(z, y, x) = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * Hxz);
+        qf.qyy_new(z, y, x) = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * Hyy);
+        qf.qyz_new(z, y, x) = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * Hyz);
 
         // Nematic free energy density: A/2 TrQ² + B/3 TrQ³ + C/4 (TrQ²)² + elastic
         // Elastic uses IBP form -L/2 Q:∇²Q, equal to L/2 (∇Q)² up to surface terms.
@@ -297,11 +297,11 @@ void QTensorSolver<BC>::HandleQBoundaryPoint(QTensorFields& qf, int x, int y, in
         const double sin_th_cos_th = 0.5 * std::sin(2.0 * Q::theta);
 
         const double S = Q::s;
-        qf.qxx_new[z, y, x] = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
-        qf.qxy_new[z, y, x] = S * (sin_phi_cos_phi * sin_sq_th);
-        qf.qxz_new[z, y, x] = S * (std::cos(Q::phi) * sin_th_cos_th);
-        qf.qyy_new[z, y, x] = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
-        qf.qyz_new[z, y, x] = S * (std::sin(Q::phi) * sin_th_cos_th);
+        qf.qxx_new(z, y, x) = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
+        qf.qxy_new(z, y, x) = S * (sin_phi_cos_phi * sin_sq_th);
+        qf.qxz_new(z, y, x) = S * (std::cos(Q::phi) * sin_th_cos_th);
+        qf.qyy_new(z, y, x) = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
+        qf.qyz_new(z, y, x) = S * (std::sin(Q::phi) * sin_th_cos_th);
     }
 }
 
@@ -315,38 +315,38 @@ void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, cons
     auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
         
         // First, add the active force.
-        ff.fx[z, y, x] += -ALPHA * (
-                           (qf.qxx[z, y, xp] - qf.qxx[z, y, xm])/2.0
-                         + (qf.qxy[z, yp, x] - qf.qxy[z, ym, x])/2.0
-                         + (qf.qxz[zp, y, x] - qf.qxz[zm, y, x])/2.0);
+        ff.fx(z, y, x) += -ALPHA * (
+                           (qf.qxx(z, y, xp) - qf.qxx(z, y, xm))/2.0
+                         + (qf.qxy(z, yp, x) - qf.qxy(z, ym, x))/2.0
+                         + (qf.qxz(zp, y, x) - qf.qxz(zm, y, x))/2.0);
 
-        ff.fy[z, y, x] += -ALPHA * (
-                           (qf.qxy[z, y, xp] - qf.qxy[z, y, xm])/2.0
-                         + (qf.qyy[z, yp, x] - qf.qyy[z, ym, x])/2.0
-                         + (qf.qyz[zp, y, x] - qf.qyz[zm, y, x])/2.0);
+        ff.fy(z, y, x) += -ALPHA * (
+                           (qf.qxy(z, y, xp) - qf.qxy(z, y, xm))/2.0
+                         + (qf.qyy(z, yp, x) - qf.qyy(z, ym, x))/2.0
+                         + (qf.qyz(zp, y, x) - qf.qyz(zm, y, x))/2.0);
 
-        ff.fz[z, y, x] += -ALPHA * (
-                           (qf.qxz[z, y, xp] - qf.qxz[z, y, xm])/2.0
-                         + (qf.qyz[z, yp, x] - qf.qyz[z, ym, x])/2.0
-                         - (qf.qxx[zp, y, x] - qf.qxx[zm, y, x])/2.0
-                         - (qf.qyy[zp, y, x] - qf.qyy[zm, y, x])/2.0); // Since Pzz = -(Pxx + Pyy)
+        ff.fz(z, y, x) += -ALPHA * (
+                           (qf.qxz(z, y, xp) - qf.qxz(z, y, xm))/2.0
+                         + (qf.qyz(z, yp, x) - qf.qyz(z, ym, x))/2.0
+                         - (qf.qxx(zp, y, x) - qf.qxx(zm, y, x))/2.0
+                         - (qf.qyy(zp, y, x) - qf.qyy(zm, y, x))/2.0); // Since Pzz = -(Pxx + Pyy)
         
         // Now, add the passive stress and friction
-        ff.fx[z, y, x] += ((qf.Pxx[z, y, xp] - qf.Pxx[z, y, xm])/2.0
-                         + (qf.Pxy[z, yp, x] - qf.Pxy[z, ym, x])/2.0
-                         + (qf.Pxz[zp, y, x] - qf.Pxz[zm, y, x])/2.0)
-                         -MU * ff.ux[z, y, x];
+        ff.fx(z, y, x) += ((qf.Pxx(z, y, xp) - qf.Pxx(z, y, xm))/2.0
+                         + (qf.Pxy(z, yp, x) - qf.Pxy(z, ym, x))/2.0
+                         + (qf.Pxz(zp, y, x) - qf.Pxz(zm, y, x))/2.0)
+                         -MU * ff.ux(z, y, x);
 
-        ff.fy[z, y, x] += ((qf.Pxy[z, y, xp] - qf.Pxy[z, y, xm])/2.0
-                         + (qf.Pyy[z, yp, x] - qf.Pyy[z, ym, x])/2.0
-                         + (qf.Pyz[zp, y, x] - qf.Pyz[zm, y, x])/2.0)
-                         -MU * ff.uy[z, y, x];
+        ff.fy(z, y, x) += ((qf.Pxy(z, y, xp) - qf.Pxy(z, y, xm))/2.0
+                         + (qf.Pyy(z, yp, x) - qf.Pyy(z, ym, x))/2.0
+                         + (qf.Pyz(zp, y, x) - qf.Pyz(zm, y, x))/2.0)
+                         -MU * ff.uy(z, y, x);
 
-        ff.fz[z, y, x] += ((qf.Pxz[z, y, xp] - qf.Pxz[z, y, xm])/2.0
-                         + (qf.Pyz[z, yp, x] - qf.Pyz[z, ym, x])/2.0
-                         - (qf.Pxx[zp, y, x] - qf.Pxx[zm, y, x])/2.0
-                         - (qf.Pyy[zp, y, x] - qf.Pyy[zm, y, x])/2.0) // Since Pzz = -(Pxx + Pyy)
-                         -MU * ff.uz[z, y, x];
+        ff.fz(z, y, x) += ((qf.Pxz(z, y, xp) - qf.Pxz(z, y, xm))/2.0
+                         + (qf.Pyz(z, yp, x) - qf.Pyz(z, ym, x))/2.0
+                         - (qf.Pxx(zp, y, x) - qf.Pxx(zm, y, x))/2.0
+                         - (qf.Pyy(zp, y, x) - qf.Pyy(zm, y, x))/2.0) // Since Pzz = -(Pxx + Pyy)
+                         -MU * ff.uz(z, y, x);
     };
 
     #pragma omp parallel for default(shared) num_threads(numprocs) schedule(static)
