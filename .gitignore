@@ -76,3 +76,6 @@ data/
 
 # Profiling output
 perf*
+
+# VS-code-specific
+.vscode/
