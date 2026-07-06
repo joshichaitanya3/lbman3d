@@ -1,14 +1,21 @@
 #ifndef LBM_AN_DEVICE_FIELDS_H_
 #define LBM_AN_DEVICE_FIELDS_H_
 
+#include <string>
+#include "params.h"
+
 #ifdef SIM_WITH_CUDA
 
 #include <array>
 #include <vector>
-#include "params.h"
 #include "qtensor_fields.h"
 #include "fluid_fields.h"
 #include <thrust/device_vector.h>
+
+// Selects the CUDA device to use (device 0) and returns a human-readable,
+// multi-line description of it (name, compute capability, memory, ...) for
+// logging. Call once, before touching any other CUDA API.
+std::string InitializeComputeBackend();
 
 struct DeviceFields {
     // int gpu_id;
@@ -34,6 +41,12 @@ struct DeviceFields {
 };
 
 #else
+#include "format_compat.h"
+
+inline std::string InitializeComputeBackend() {
+    return compat::format("CPU (OpenMP, numprocs = {})", Params::numprocs);
+}
+
 struct DeviceFields {};   // zero-size, optimized away entirely
 
 #endif

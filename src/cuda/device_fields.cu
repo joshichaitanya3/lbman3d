@@ -3,6 +3,36 @@
 #include "cuda_utils.h"
 #include "kernels.cu"
 
+std::string InitializeComputeBackend() {
+    checkCudaErrors(cudaSetDevice(0));
+
+    int device_id = 0;
+    checkCudaErrors(cudaGetDevice(&device_id));
+
+    cudaDeviceProp props;
+    checkCudaErrors(cudaGetDeviceProperties(&props, device_id));
+
+    size_t free_mem, total_mem;
+    checkCudaErrors(cudaMemGetInfo(&free_mem, &total_mem));
+
+    constexpr double bytesPerMiB = 1024.0 * 1024.0;
+
+    return std::format(
+        "GPU\n"
+        "       using device: {}\n"
+        "               name: {}\n"
+        "    multiprocessors: {}\n"
+        " compute capability: {}.{}\n"
+        "      global memory: {:.1f} MiB\n"
+        "        free memory: {:.1f} MiB\n"
+        "   asyncEngineCount: {}\n"
+        "   canMapHostMemory: {}",
+        device_id, props.name, props.multiProcessorCount,
+        props.major, props.minor,
+        props.totalGlobalMem / bytesPerMiB, free_mem / bytesPerMiB,
+        props.asyncEngineCount, props.canMapHostMemory);
+}
+
 DeviceFields::DeviceFields() :
     d_f       (Params::nx * Params::ny * Params::nz * Params::ndir, 0.0),
     d_f_new   (Params::nx * Params::ny * Params::nz * Params::ndir, 0.0),
