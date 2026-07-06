@@ -57,7 +57,7 @@ public:
           finder_(grid)
     {
         Initialize();
-        io_.LogSetupSummary(Grid<BC>::GridType());
+        io_.LogSetupSummary(Grid<BC>::GridType(), InitializeComputeBackend());
     }
 
     void QTensorStep() {
