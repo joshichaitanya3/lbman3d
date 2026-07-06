@@ -22,11 +22,14 @@ SimIO::~SimIO() {
         compat::println(log_file_, "LBM program exited.");
 }
 
-void SimIO::LogSetupSummary(std::string_view bc_name) {
+void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_info) {
     compat::println(log_file_, "Hybrid Lattice Boltzmann simulation for 3D active nematics\n");
     compat::println(log_file_, "##########################################################");
     compat::println(log_file_, "#####################   Parameters   #####################");
     compat::println(log_file_, "##########################################################");
+    compat::println(log_file_, "");
+    compat::println(log_file_, "--- Compute backend ---");
+    compat::println(log_file_, "  {}", backend_info);
     compat::println(log_file_, "");
     compat::println(log_file_, "--- Grid ---");
     compat::println(log_file_, "  nx = {}, ny = {}, nz = {}", nx, ny, nz);

@@ -24,8 +24,9 @@ public:
     SimIO();
     ~SimIO();
 
-    // Print all Params values and BC name to the log.  Call once after construction.
-    void LogSetupSummary(std::string_view bc_name);
+    // Print all Params values, BC name, and compute backend (CPU/GPU) info to
+    // the log.  Call once after construction.
+    void LogSetupSummary(std::string_view bc_name, std::string_view backend_info);
 
     // Log mass, momentum, velocity error; update internal past-velocity state.
     // Returns false (and logs a message) if any quantity is NaN.
