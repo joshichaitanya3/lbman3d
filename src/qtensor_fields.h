@@ -15,6 +15,18 @@ struct QTensorFields {
 
     double nematic_energy = 0.0;
 
+    // The mdspan views below MUST stay declared after every std::vector member
+    // above: DeviceFields::Initialize/CopyToHost (device_fields.cu, compiled by
+    // nvcc) take a QTensorFields& and read only these vectors, never the
+    // mdspan views. nvcc does not apply the empty-base/no-unique-address
+    // compression g++ applies to mdspan's (stateless) mapping/accessor
+    // members, so nvcc and g++ compute different sizeof(QTensorFields) — but a
+    // member's offset only depends on what's declared BEFORE it, so the
+    // vectors' offsets still agree across both compilers as long as nothing
+    // that could disagree in size is declared earlier. Moving a vector below
+    // an mdspan member, or having nvcc-compiled code touch an mdspan member
+    // directly, would silently reintroduce the cross-compiler memory
+    // corruption this ordering exists to avoid (see device_fields.h).
     using ext3_t  = Kokkos::extents<int, Params::nz, Params::ny, Params::nx>;
     Kokkos::mdspan<double, ext3_t> qxx, qxy, qxz, qyy, qyz;
     Kokkos::mdspan<double, ext3_t> qxx_new, qxy_new, qxz_new, qyy_new, qyz_new;

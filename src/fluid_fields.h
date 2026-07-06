@@ -90,7 +90,18 @@ struct FluidFields {
     std::vector<double> fx_data, fy_data, fz_data;
     std::vector<double> rho_data, ux_data, uy_data, uz_data;
 
-    // Non-owning views (declared after _data so initializer-list order is safe)
+    // Non-owning views. MUST stay declared after every std::vector member
+    // above: DeviceFields::Initialize/CopyToHost (device_fields.cu, compiled
+    // by nvcc) take a FluidFields& and read only these vectors, never the
+    // mdspan views. nvcc does not apply the empty-base/no-unique-address
+    // compression g++ applies to mdspan's (stateless) mapping/accessor
+    // members, so nvcc and g++ compute different sizeof(FluidFields) — but a
+    // member's offset only depends on what's declared BEFORE it, so the
+    // vectors' offsets still agree across both compilers as long as nothing
+    // that could disagree in size is declared earlier. Moving a vector below
+    // an mdspan member, or having nvcc-compiled code touch an mdspan member
+    // directly, would silently reintroduce the cross-compiler memory
+    // corruption this ordering exists to avoid (see device_fields.h).
     using ext3_t  = Kokkos::extents<int, Params::nz, Params::ny, Params::nx>;
     using ext4_t = Kokkos::extents<int, Params::nz, Params::ny, Params::nx, Params::ndir>;
     Kokkos::mdspan<double, ext3_t>  rho, ux, uy, uz;
