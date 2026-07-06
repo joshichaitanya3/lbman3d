@@ -18,7 +18,7 @@
 
 enum ExportFormat { CSV, VTKHDF };
 
-// Orchestrates LbmSolver + QTensorSolver + SimIO for 2D active nematics.
+// Orchestrates LbmSolver + QTensorSolver + SimIO for 3D active nematics.
 //
 // To use a custom activity model, inject a QTensorSolver subclass:
 //
