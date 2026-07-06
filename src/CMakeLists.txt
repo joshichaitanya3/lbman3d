@@ -17,3 +17,4 @@ target_sources(benchmark
 )
 
 add_subdirectory(analysis)
+add_subdirectory(cuda)

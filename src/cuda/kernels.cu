@@ -1,0 +1,495 @@
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <format>
+#include "params.h"
+#include "device_fields.h"
+
+constexpr int kHalo = 1;
+constexpr int kBlockX = 32;
+constexpr int kBlockY = 4;
+constexpr int kBlockZ = 4;
+
+__constant__ double a2;
+__constant__ double a3;
+__constant__ double a4;
+__constant__ double K;
+__constant__ double dt;
+__constant__ double LAMBDA;
+__constant__ double GAMMA;
+__constant__ double ALPHA;
+__constant__ double MU;
+__constant__ double tau;
+__constant__ double omega;
+__constant__ double omega_prime;
+__constant__ double omega_forcing;
+
+static constexpr double kCs2Inv = 3; // 1/c_s^2
+static constexpr double kCs2InvTimes2 = 6; // 2/c_s^2
+static constexpr double kCs4Inv = 9; // 1/c_s^4
+static constexpr double khalfCs4Inv = 4.5; // 1/2 * 1/c_s^4
+static constexpr double khalfCs2Inv = 1.5; // 1/2 * 1/c_s^2
+
+// static constexpr int nx = 64, ny = 64, nz = 64, ndir = 15;
+static constexpr int nx = Params::nx;
+static constexpr int ny = Params::ny;
+static constexpr int nz = Params::nz;
+static constexpr int ndir = Params::ndir;
+
+static constexpr size_t kQstepSmem =
+        8 * (kBlockZ+2*kHalo) * (kBlockY+2*kHalo) * (kBlockX+2*kHalo) * sizeof(double);
+dim3 block_{kBlockX, kBlockY, kBlockZ};
+dim3 grid_{(nx + kBlockX - 1) / kBlockX, (ny + kBlockY - 1) / kBlockY, (nz + kBlockZ - 1) / kBlockZ};
+
+
+// __device__ inline int idx(int x, int y)         { return y*nx + ((x+nx)%nx); }
+// __device__ inline int idx(int x, int y, int i)  { return i*nx*ny + y*nx + ((x+nx)%nx); }
+// // __device__ inline int idx(int x, int y, int i)  { return ndir * (y * nx + ((x+nx) % nx)) + i;}
+// __device__ inline bool InDomain(int x, int y) {return (y >= 0) && (y < ny); } // Periodic in x
+
+// Fully periodic 3D — layout: i slowest, z, y, x fastest
+__host__ __device__ inline int idx(int x, int y, int z)            { return ((z+nz)%nz)*ny*nx + ((y+ny)%ny)*nx + ((x+nx)%nx); }
+__host__ __device__ inline int idx(int x, int y, int z, int i)     { return i*nz*ny*nx + ((z+nz)%nz)*ny*nx + ((y+ny)%ny)*nx + ((x+nx)%nx); }
+__device__ inline bool InDomain(int x, int y, int z) { return true; }
+__device__ inline int wrap(int i, int n) { return (i + n) % n; }
+
+
+__constant__ int d_ex[ndir] = {0, 1, 0, -1,  0,  0,  0, 1, -1, -1,  1,  1, -1, -1,  1};
+__constant__ int d_ey[ndir] = {0, 0, 1,  0, -1,  0,  0, 1,  1, -1, -1,  1,  1, -1, -1};
+__constant__ int d_ez[ndir] = {0, 0, 0,  0,  0,  1, -1, 1,  1,  1,  1, -1, -1, -1, -1};
+__constant__ double d_w[ndir] = {
+    2.0/9, // 0
+    1.0/9, 1.0/9, 1.0/9, 1.0/9, 1.0/9, 1.0/9, // 1-6
+    1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72  // 7-14
+};
+
+// Full reversal: opp[i] is the direction opposite to i (used in bounce-back).
+//   0↔0  1↔3  2↔4  5↔6  7↔13  8↔14  9↔11  10↔12
+//                                                     0  1  2  3  4  5  6   7   8   9  10 11  12 13 14
+
+__constant__ int d_opp[ndir] = {0, 3, 4, 1, 2, 6, 5, 13, 14, 11, 12, 9, 10, 7, 8};
+
+// Specular reflection partner for Z-walls (reflect ez, keep ey, ex):
+//   specZ[i] = direction with (ex[i], ey[i], -ez[i])
+//   0↔0  1↔1  2↔2  3↔3  4↔4  5↔6  7↔11  8↔12  9↔13  10↔14
+//                                                      0  1  2  3  4  5  6   7   8   9  10 11 12 13  14
+
+__constant__ int specZ[ndir] = {0, 1, 2, 3, 4, 6, 5, 11, 12, 13, 14, 7, 8, 9, 10};
+
+// Specular reflection partner for Y-walls (reflect ey, keep ez, ex):
+//   specY[i] = direction with (ex[i], -ey[i], ez[i])
+//   0↔0  1↔1  2↔4  3↔3  5↔5  6↔6  7↔10  8↔9  11↔14  12↔13
+//                                              0  1  2  3  4  5  6   7  8  9 10  11  12  13  14
+
+__constant__ int specY[ndir] = {0, 1, 4, 3, 2, 5, 6, 10, 9, 8, 7, 14, 13, 12, 11};
+
+// Specular reflection partner for X-walls (reflect ey, keep ez, ex):
+//   specX[i] = direction with (-ex[i], ey[i], ez[i])
+//   0↔0  1↔3  2↔2  4↔4  5↔5  6↔6  7↔8  9↔10  11↔12  13↔14
+//                                              0  1  2  3  4  5  6  7  8   9 10  11  12  13  14
+
+__constant__ int specX[ndir] = {0, 3, 2, 1, 4, 5, 6, 8, 7, 10, 9, 12, 11, 14, 13};
+    
+struct Vec3 {
+    double x, y, z;
+};
+
+__host__ __device__ double Dot(Vec3 v1, Vec3 v2) {
+    return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+}
+
+
+struct FeqForcing {
+    double feq, forcing;
+};
+
+struct Moments {
+    double rho;
+    Vec3 u;
+};
+
+__device__ double Feq(Moments m, double u2, int i) {
+    
+    Vec3 e{
+        static_cast<double>(d_ex[i]),
+        static_cast<double>(d_ey[i]),
+        static_cast<double>(d_ez[i])
+    };
+    double u_dot_e = Dot(m.u, e);
+    return (d_w[i] * m.rho * (1.0 + kCs2Inv * u_dot_e + khalfCs4Inv * u_dot_e * u_dot_e - khalfCs2Inv * u2));
+}
+
+
+__device__ FeqForcing ComputeFeqAndForcing(
+    Moments m,
+    double u2, // u-squared
+    double uF, // Product of force and velocity
+    Vec3 force,
+    int i 
+) {
+    Vec3 e{
+        static_cast<double>(d_ex[i]),
+        static_cast<double>(d_ey[i]),
+        static_cast<double>(d_ez[i])
+    };
+    double ue = Dot(m.u, e);
+    double eF  = Dot(force, e);
+
+    double feq = (d_w[i] * m.rho * (1.0 + 3.0 * ue + 4.5 * ue * ue - 1.5 * u2));
+    double forcing_term = dt * omega_forcing * d_w[i]
+        * (3.0 * eF - 3.0 * uF + 9.0 * ue * eF);
+    
+    return {feq, forcing_term};
+}
+
+__device__ Moments ComputeMoments(
+    double* f,
+    int3 point,
+    Vec3 force
+) {
+    double rhop = 0.0;
+    double uxp = 0.0;
+    double uyp = 0.0;
+    double uzp = 0.0;
+    for (int i = 0; i < ndir; ++i) {
+        
+        double fi = f[idx(point.x, point.y, point.z, i)];
+        rhop += fi;
+        uxp += d_ex[i] * fi;
+        uyp += d_ey[i] * fi;
+        uzp += d_ez[i] * fi;
+    }
+    uxp += 0.5 * force.x * dt;
+    uyp += 0.5 * force.y * dt;
+    uzp += 0.5 * force.z * dt;
+    uxp /= rhop;
+    uyp /= rhop;
+    uzp /= rhop;
+    Vec3 up{uxp, uyp, uzp};
+    return {rhop, up};
+}
+
+__global__ void GpuInitialize(
+    double* f, 
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz) {
+    
+    double rhop, uxp, uyp, uzp;
+    unsigned int z = blockIdx.z * blockDim.z + threadIdx.z;
+    unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
+    if (x >= nx || y >= ny || z >= nz) return;  // bounds guard
+
+    rhop = rho[idx(x, y, z)]; // rho at current point
+    uxp =   ux[idx(x, y, z)]; // ux at current point
+    uyp =   uy[idx(x, y, z)]; // uy at current point
+    uzp =   uz[idx(x, y, z)]; // uz at current point
+    Vec3 up{uxp, uyp, uzp};
+    double u2 = Dot(up, up);	//Velocity squared
+    for (int i = 0; i < ndir; ++i) {
+        // f[idx(x, y, z, i)] = Feq({rhop, up}, u2, i);
+        f[idx(x, y, z, i)] = Feq({rhop, up}, u2, i);
+    }
+}
+
+// ---- Future work: compile-time-switchable boundary conditions ----------------
+// To support multiple BC types without runtime branching, template this kernel
+// on top/bottom wall BC types using an enum and if constexpr:
+//
+//   enum class WallBC { BounceBack, SpecularReflect, MovingWall };
+//
+//   template<WallBC BC>
+//   __device__ void ApplyWallBC(double* f_new, int x, int y, int i,
+//                                double f_star, double rho) {
+//       if constexpr (BC == WallBC::BounceBack) {
+//           f_new[idx(x, y, d_opp[i])] = f_star;
+//       } else if constexpr (BC == WallBC::SpecularReflect) {
+//           f_new[idx(x, y, d_spec[i])] = f_star;
+//       } else if constexpr (BC == WallBC::MovingWall) {
+//           // Ladd correction: f_opp = f*_i - 6 * w_i * rho * (e_i . u_wall)
+//           // For a wall moving at kWallVelocity in x:
+//           double correction = 6.0 * d_w[i] * rho * d_ex[i] * kWallVelocity;
+//           f_new[idx(x, y, d_opp[i])] = f_star - correction;
+//       }
+//   }
+//
+//   template<WallBC TopBC, WallBC BottomBC>
+//   __global__ void GpuCollideAndStream(...) {
+//       ...
+//       } else if (yd >= ny) {
+//           ApplyWallBC<TopBC>(f_new, x, y, i, f_star, rhop);
+//       } else {  // yd < 0
+//           ApplyWallBC<BottomBC>(f_new, x, y, i, f_star, rhop);
+//       }
+//   }
+//
+// Instantiate whichever combo is needed, e.g.:
+//   GpuCollideAndStream<WallBC::BounceBack,  WallBC::BounceBack><<<...>>>();  // Poiseuille
+//   GpuCollideAndStream<WallBC::MovingWall,  WallBC::BounceBack><<<...>>>();  // Couette
+//   GpuCollideAndStream<WallBC::SpecularReflect, WallBC::BounceBack><<<...>>>();  // free-slip top
+// ------------------------------------------------------------------------------
+__global__ void GpuCollideAndStream(
+    double* f,
+    double* f_new,
+    double* force_x,
+    double* force_y,
+    double* force_z,
+    double* rho,
+    double* ux,
+    double* uy,
+    double* uz
+) {
+
+    unsigned int z = blockIdx.z * blockDim.z + threadIdx.z;
+    unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
+    if (x >= nx || y >= ny || z >= nz) return;  // bounds guard
+
+    const int gid = idx(x, y, z);
+    Vec3 force{force_x[gid], force_y[gid], force_z[gid]};
+
+    Moments m = ComputeMoments(f, {static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)}, force);
+    rho[idx(x, y, z)] = m.rho;
+    ux[idx(x, y, z)]  = m.u.x;
+    uy[idx(x, y, z)]  = m.u.y;
+    uz[idx(x, y, z)]  = m.u.z;
+
+    double uF = Dot(m.u, force);
+    double u2 = Dot(m.u, m.u);
+
+    for (int i = 0; i < ndir; ++i) {
+        auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, i);
+        double f_star = omega * f[idx(x, y, z, i)] + omega_prime * feq + forcing_term;
+        int xd = wrap(static_cast<int>(x) + d_ex[i], nx);
+        int yd = wrap(static_cast<int>(y) + d_ey[i], ny);
+        int zd = wrap(static_cast<int>(z) + d_ez[i], nz);
+        if (InDomain(xd, yd, zd)) {
+            f_new[idx(xd, yd, zd, i)] = f_star;
+        } else {
+            f_new[idx(x, y, z, d_opp[i])] = f_star;
+        }
+    }
+}
+
+// Fills face halos in a 3D shared tile. Fully periodic — wrap() handles wrapping.
+__device__ void set_halo(
+    double* d_arr,
+    double s_arr[][kBlockY+2*kHalo][kBlockX+2*kHalo],
+    int tx, int ty, int tz,
+    int sx, int sy, int sz,
+    int gx, int gy, int gz)
+{
+    if (tx < kHalo)
+        s_arr[sz][sy][sx - kHalo] = d_arr[idx(gx - kHalo, gy, gz)];
+    if (tx >= (kBlockX - kHalo))
+        s_arr[sz][sy][sx + kHalo] = d_arr[idx(gx + kHalo, gy, gz)];
+    if (ty < kHalo)
+        s_arr[sz][sy - kHalo][sx] = d_arr[idx(gx, gy - kHalo, gz)];
+    if (ty >= (kBlockY - kHalo))
+        s_arr[sz][sy + kHalo][sx] = d_arr[idx(gx, gy + kHalo, gz)];
+    if (tz < kHalo)
+        s_arr[sz - kHalo][sy][sx] = d_arr[idx(gx, gy, gz - kHalo)];
+    if (tz >= (kBlockZ - kHalo))
+        s_arr[sz + kHalo][sy][sx] = d_arr[idx(gx, gy, gz + kHalo)];
+}
+
+
+// ------------------------------------------------------------------------------
+
+struct GradTensor {
+    double ux_x, ux_y, ux_z;
+    double uy_x, uy_y, uy_z;
+    double uz_x, uz_y;  // uz_z = -(ux_x + uy_y) by incompressibility
+};
+
+__device__ Vec3 Gradient(double s_arr[][kBlockY+2*kHalo][kBlockX+2*kHalo], int sx, int sy, int sz) {
+    return {
+        0.5*(s_arr[sz][sy][sx+1] - s_arr[sz][sy][sx-1]),
+        0.5*(s_arr[sz][sy+1][sx] - s_arr[sz][sy-1][sx]),
+        0.5*(s_arr[sz+1][sy][sx] - s_arr[sz-1][sy][sx])
+    };
+}
+
+__device__ GradTensor VelGradient(
+    double ux_arr[][kBlockY+2*kHalo][kBlockX+2*kHalo],
+    double uy_arr[][kBlockY+2*kHalo][kBlockX+2*kHalo],
+    double uz_arr[][kBlockY+2*kHalo][kBlockX+2*kHalo],
+    int sx, int sy, int sz)
+{
+    return {
+        0.5*(ux_arr[sz][sy][sx+1] - ux_arr[sz][sy][sx-1]),
+        0.5*(ux_arr[sz][sy+1][sx] - ux_arr[sz][sy-1][sx]),
+        0.5*(ux_arr[sz+1][sy][sx] - ux_arr[sz-1][sy][sx]),
+        0.5*(uy_arr[sz][sy][sx+1] - uy_arr[sz][sy][sx-1]),
+        0.5*(uy_arr[sz][sy+1][sx] - uy_arr[sz][sy-1][sx]),
+        0.5*(uy_arr[sz+1][sy][sx] - uy_arr[sz-1][sy][sx]),
+        0.5*(uz_arr[sz][sy][sx+1] - uz_arr[sz][sy][sx-1]),
+        0.5*(uz_arr[sz][sy+1][sx] - uz_arr[sz][sy-1][sx])
+    };
+}
+
+__device__ double Laplacian(double s_arr[][kBlockY+2*kHalo][kBlockX+2*kHalo], int sx, int sy, int sz) {
+    return s_arr[sz][sy][sx+1] + s_arr[sz][sy][sx-1]
+         + s_arr[sz][sy+1][sx] + s_arr[sz][sy-1][sx]
+         + s_arr[sz+1][sy][sx] + s_arr[sz-1][sy][sx]
+         - 6.0 * s_arr[sz][sy][sx];
+}
+
+// 3D Q-tensor step: evolves all 5 independent components qxx, qxy, qxz, qyy, qyz
+// (qzz = -qxx - qyy by tracelessness)
+__global__ void GpuQTensorStep(
+    double* qxx,
+    double* qxy,
+    double* qxz,
+    double* qyy,
+    double* qyz,
+    double* qxx_new,
+    double* qxy_new,
+    double* qxz_new,
+    double* qyy_new,
+    double* qyz_new,
+    double* ux,
+    double* uy,
+    double* uz,
+    double* force_x,
+    double* force_y,
+    double* force_z
+) {
+    extern __shared__ double smem[];
+    constexpr int kTile = (kBlockZ+2*kHalo) * (kBlockY+2*kHalo) * (kBlockX+2*kHalo);
+    using Tile = double(*)[kBlockY+2*kHalo][kBlockX+2*kHalo];
+    auto s_qxx = Tile(smem + 0*kTile);
+    auto s_qxy = Tile(smem + 1*kTile);
+    auto s_qxz = Tile(smem + 2*kTile);
+    auto s_qyy = Tile(smem + 3*kTile);
+    auto s_qyz = Tile(smem + 4*kTile);
+    auto s_ux  = Tile(smem + 5*kTile);
+    auto s_uy  = Tile(smem + 6*kTile);
+    auto s_uz  = Tile(smem + 7*kTile);
+
+    const int tx = threadIdx.x, ty = threadIdx.y, tz = threadIdx.z;
+
+    unsigned int z = blockIdx.z * blockDim.z + tz;
+    unsigned int y = blockIdx.y * blockDim.y + ty;
+    unsigned int x = blockIdx.x * blockDim.x + tx;
+    if (x >= nx || y >= ny || z >= nz) return;
+
+    const int sx = tx + kHalo, sy = ty + kHalo, sz = tz + kHalo;
+    const int gid = idx(x, y, z);
+
+    s_qxx[sz][sy][sx] = qxx[gid];  s_qxy[sz][sy][sx] = qxy[gid];
+    s_qxz[sz][sy][sx] = qxz[gid];  s_qyy[sz][sy][sx] = qyy[gid];
+    s_qyz[sz][sy][sx] = qyz[gid];
+    s_ux[sz][sy][sx]  = ux[gid];   s_uy[sz][sy][sx]  = uy[gid];
+    s_uz[sz][sy][sx]  = uz[gid];
+
+    __syncthreads();
+
+    set_halo(qxx, s_qxx, tx, ty, tz, sx, sy, sz, x, y, z);
+    set_halo(qxy, s_qxy, tx, ty, tz, sx, sy, sz, x, y, z);
+    set_halo(qxz, s_qxz, tx, ty, tz, sx, sy, sz, x, y, z);
+    set_halo(qyy, s_qyy, tx, ty, tz, sx, sy, sz, x, y, z);
+    set_halo(qyz, s_qyz, tx, ty, tz, sx, sy, sz, x, y, z);
+    set_halo(ux,  s_ux,  tx, ty, tz, sx, sy, sz, x, y, z);
+    set_halo(uy,  s_uy,  tx, ty, tz, sx, sy, sz, x, y, z);
+    set_halo(uz,  s_uz,  tx, ty, tz, sx, sy, sz, x, y, z);
+
+    __syncthreads();
+
+    const double qxxp = s_qxx[sz][sy][sx], qxyp = s_qxy[sz][sy][sx];
+    const double qxzp = s_qxz[sz][sy][sx], qyyp = s_qyy[sz][sy][sx];
+    const double qyzp = s_qyz[sz][sy][sx];
+    // qzzp = -qxxp - qyyp
+
+    // tr(Q²) = 2*(qxx² + qyy² + qxx·qyy + qxy² + qxz² + qyz²)
+    const double trq2 = 2.0*(qxxp*qxxp + qyyp*qyyp + qxxp*qyyp
+                            + qxyp*qxyp + qxzp*qxzp + qyzp*qyzp);
+
+    const double kone_thirds = 1.0/3.0;
+    const double Q2_xx = qxxp*qxxp + qxyp*qxyp + qxzp*qxzp - kone_thirds * trq2;
+    const double Q2_xy = qxxp*qxyp + qxyp*qyyp + qxzp*qyzp;
+    const double Q2_xz = qxyp*qyzp - qxzp*qyyp;
+    const double Q2_yy = qxyp*qxyp + qyyp*qyyp + qyzp*qyzp - kone_thirds * trq2;
+    const double Q2_yz = qxyp*qxzp - qyzp*qxxp;
+
+    const double ld = a2 + a4*trq2;
+
+    // Molecular field H = K·∇²Q - ld·Q
+    const double H_xx = K*Laplacian(s_qxx, sx, sy, sz) - ld*qxxp - a3 * Q2_xx;
+    const double H_xy = K*Laplacian(s_qxy, sx, sy, sz) - ld*qxyp - a3 * Q2_xy;
+    const double H_xz = K*Laplacian(s_qxz, sx, sy, sz) - ld*qxzp - a3 * Q2_xz;
+    const double H_yy = K*Laplacian(s_qyy, sx, sy, sz) - ld*qyyp - a3 * Q2_yy;
+    const double H_yz = K*Laplacian(s_qyz, sx, sy, sz) - ld*qyzp - a3 * Q2_yz;
+
+    // Q gradients (for advection and active force)
+    const Vec3 gqxx = Gradient(s_qxx, sx, sy, sz);
+    const Vec3 gqxy = Gradient(s_qxy, sx, sy, sz);
+    const Vec3 gqxz = Gradient(s_qxz, sx, sy, sz);
+    const Vec3 gqyy = Gradient(s_qyy, sx, sy, sz);
+    const Vec3 gqyz = Gradient(s_qyz, sx, sy, sz);
+
+    // Velocity gradient tensor: vA_B = ∂(u_A)/∂B
+    auto [ux_x, ux_y, ux_z, uy_x, uy_y, uy_z, uz_x, uz_y] =
+        VelGradient(s_ux, s_uy, s_uz, sx, sy, sz);
+
+    const double W_xy = 0.5*(ux_y - uy_x);
+    const double W_xz = 0.5*(ux_z - uz_x);
+    const double W_yz = 0.5*(uy_z - uz_y);
+
+    // Symmetric strain D_AB = (∂u_A/∂B + ∂u_B/∂A) / 2
+    const double D_xx = ux_x;
+    const double D_xy = 0.5*(ux_y + uy_x);
+    const double D_xz = 0.5*(ux_z + uz_x);
+    const double D_yy = uy_y;
+    const double D_yz = 0.5*(uy_z + uz_y);
+
+    // Co-rotation S = (W·Q - Q·W)
+    const double S_xx =  2.0*(W_xy*qxyp + W_xz*qxzp);
+    const double S_xy =  W_xy*(qyyp - qxxp) + W_xz*qyzp + W_yz*qxzp;
+    const double S_xz =  W_xy*qyzp - W_xz*(2.0*qxxp + qyyp) - W_yz*qxyp;
+    const double S_yy = -2.0*W_xy*qxyp + 2.0*W_yz*qyzp;
+    const double S_yz = -W_xy*qxzp - W_yz*(qxxp + 2.0*qyyp) - W_xz*qxyp;
+
+        
+    /* ##############################################################################
+    // #   higher order order flow alignment   lambda [(E Q + Q E)_ij]
+    1->xx, 2->xy, 3->xz, 4->yy, 5->yz
+    QE_xx = e_1 Q_1 + e_2 Q_2 + e_3 Q_3
+    QE_xy = e_2 Q_1 + e_4 Q_2 + e_5 Q_3
+    QE_xz = e_3 Q_1 + e_5 Q_2 + (-e_1 - e_4) Q_3
+    QE_yy = e_2 Q_2 + e_4 Q_4 + e_5 Q_5
+    QE_yz = e_3 Q_2 + e_5 Q_4 + (-e_1 - e_4) Q_5
+    
+    Q:E (trace): (2 e_1 + e_4) Q_1 + 2 e_2 Q_2 + 2 e_3 Q_3 + e_1 Q_4 + 2 e_4 Q_4 + 2 e_5 Q_5
+    // ##############################################################################
+    */
+    const double ktwo_thirds = 2.0/3.0;
+    
+    const double tr_QE = (2.0 * D_xx + D_yy) * qxxp + (2.0 * D_xy) * qxyp + (2.0 * D_xz) * qxzp + (D_xx + 2.0 * D_yy) * qyyp + 2.0 * D_yz * qyzp;
+
+    const double aln2_xx = 2.0 * (D_xx * qxxp + D_xy * qxyp + D_xz * qxzp) - ktwo_thirds * tr_QE;
+    const double aln2_xy = D_xy * qxxp + D_yy * qxyp + D_yz * qxzp
+                            + qxyp * D_xx + qyyp * D_xy + qyzp * D_xz;
+    const double aln2_xz = D_xz * qxxp + D_yz * qxyp + (-D_xx - D_yy) * qxzp
+                            + qxzp * D_xx + qyzp * D_xy + (-qxxp - qyyp) * D_xz;
+    
+    const double aln2_yy = 2.0 * (D_xy * qxyp + D_yy * qyyp + D_yz * qyzp) - ktwo_thirds * tr_QE;
+    const double aln2_yz = D_xz * qxyp + D_yz * qyyp + (-D_xx - D_yy) * qyzp
+                            + qxzp * D_xy + qyzp * D_yy + (-qxxp - qyyp) * D_yz;
+
+    const Vec3 u{s_ux[sz][sy][sx], s_uy[sz][sy][sx], s_uz[sz][sy][sx]};
+
+    qxx_new[gid] = qxxp + dt*(GAMMA*H_xx + S_xx + LAMBDA * (ktwo_thirds * D_xx + aln2_xx) - Dot(u, gqxx));
+    qxy_new[gid] = qxyp + dt*(GAMMA*H_xy + S_xy + LAMBDA * (ktwo_thirds * D_xy + aln2_xy) - Dot(u, gqxy));
+    qxz_new[gid] = qxzp + dt*(GAMMA*H_xz + S_xz + LAMBDA * (ktwo_thirds * D_xz + aln2_xz) - Dot(u, gqxz));
+    qyy_new[gid] = qyyp + dt*(GAMMA*H_yy + S_yy + LAMBDA * (ktwo_thirds * D_yy + aln2_yy) - Dot(u, gqyy));
+    qyz_new[gid] = qyzp + dt*(GAMMA*H_yz + S_yz + LAMBDA * (ktwo_thirds * D_yz + aln2_yz) - Dot(u, gqyz));
+
+    // Active force: f_a = -ALPHA*(div Q)_a - MU*u_a
+    // qzz = -qxx - qyy, so ∂z(qzz) = -gqxx.z - gqyy.z
+    force_x[gid] = -ALPHA*(gqxx.x + gqxy.y + gqxz.z) - MU*u.x;
+    force_y[gid] = -ALPHA*(gqxy.x + gqyy.y + gqyz.z) - MU*u.y;
+    force_z[gid] = -ALPHA*(gqxz.x + gqyz.y - gqxx.z - gqyy.z) - MU*u.z;
+}
