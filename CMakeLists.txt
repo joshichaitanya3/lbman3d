@@ -2,10 +2,25 @@ cmake_minimum_required(VERSION 3.23)
 
 project(LBM)
 
+option(LBM_FORCE_CPU "Build CPU-only, even if a CUDA compiler is available" OFF)
+
 # Probe for CUDA before committing to a C++ standard: nvcc does not support C++23.
 include(CheckLanguage)
-check_language(CUDA)
-if(CMAKE_CUDA_COMPILER)
+if(NOT LBM_FORCE_CPU)
+    check_language(CUDA)
+endif()
+
+# Derived once here so every later check (this file and subdirectories) agrees,
+# rather than each re-checking CMAKE_CUDA_COMPILER (which stays cached across
+# configures — re-checking it directly would ignore LBM_FORCE_CPU on a build
+# directory that was previously configured with CUDA enabled).
+if(CMAKE_CUDA_COMPILER AND NOT LBM_FORCE_CPU)
+    set(LBM_USE_CUDA ON)
+else()
+    set(LBM_USE_CUDA OFF)
+endif()
+
+if(LBM_USE_CUDA)
     # Must be set before enable_language(CUDA) — that call writes the default (52)
     # into the cache, after which CACHE STRING without FORCE has no effect.
     set(CMAKE_CUDA_ARCHITECTURES "native" CACHE STRING "CUDA architectures to compile for")
@@ -16,6 +31,9 @@ if(CMAKE_CUDA_COMPILER)
     set(CMAKE_CUDA_STANDARD 20)
     message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 else()
+    if(LBM_FORCE_CPU)
+        message(STATUS "LBM_FORCE_CPU=ON — building CPU-only even though CUDA may be available")
+    endif()
     message(STATUS "CUDA not found — using C++23")
     set(CMAKE_CXX_STANDARD 23)
 endif()
@@ -73,7 +91,7 @@ foreach(target main benchmark)
     else()
         target_link_libraries(${target} PRIVATE fmt::fmt)
     endif()
-    if(CMAKE_CUDA_COMPILER)
+    if(LBM_USE_CUDA)
         target_compile_definitions(${target} PRIVATE SIM_WITH_CUDA)
         target_link_libraries(${target} PRIVATE CUDA::toolkit)
         target_compile_options(${target} PRIVATE
