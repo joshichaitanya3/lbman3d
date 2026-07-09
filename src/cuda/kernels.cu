@@ -5,11 +5,6 @@
 #include "params.h"
 #include "device_fields.h"
 
-// Params:: physics constants (A, B, C, L, DT, LAMBDA, GAMMA, ALPHA, MU,
-// omega, omega_prime, omega_forcing, kCs2Inv, ...) are all constexpr on the
-// host, so nvcc folds them directly into device code at compile time —
-// no __constant__ memory or cudaMemcpyToSymbol needed. Changing any of them
-// requires a rebuild, same as changing nx/ny/nz already did.
 using namespace Params;
 
 constexpr int kHalo = 1;
@@ -21,12 +16,6 @@ static constexpr size_t kQstepSmem =
         8 * (kBlockZ+2*kHalo) * (kBlockY+2*kHalo) * (kBlockX+2*kHalo) * sizeof(double);
 dim3 block_{kBlockX, kBlockY, kBlockZ};
 dim3 grid_{(nx + kBlockX - 1) / kBlockX, (ny + kBlockY - 1) / kBlockY, (nz + kBlockZ - 1) / kBlockZ};
-
-
-// __device__ inline int idx(int x, int y)         { return y*nx + ((x+nx)%nx); }
-// __device__ inline int idx(int x, int y, int i)  { return i*nx*ny + y*nx + ((x+nx)%nx); }
-// // __device__ inline int idx(int x, int y, int i)  { return ndir * (y * nx + ((x+nx) % nx)) + i;}
-// __device__ inline bool InDomain(int x, int y) {return (y >= 0) && (y < ny); } // Periodic in x
 
 // Fully periodic 3D — layout: i slowest, z, y, x fastest
 __host__ __device__ inline int idx(int x, int y, int z)            { return ((z+nz)%nz)*ny*nx + ((y+ny)%ny)*nx + ((x+nx)%nx); }
