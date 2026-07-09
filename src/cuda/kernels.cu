@@ -5,36 +5,17 @@
 #include "params.h"
 #include "device_fields.h"
 
+// Params:: physics constants (A, B, C, L, DT, LAMBDA, GAMMA, ALPHA, MU,
+// omega, omega_prime, omega_forcing, kCs2Inv, ...) are all constexpr on the
+// host, so nvcc folds them directly into device code at compile time —
+// no __constant__ memory or cudaMemcpyToSymbol needed. Changing any of them
+// requires a rebuild, same as changing nx/ny/nz already did.
+using namespace Params;
+
 constexpr int kHalo = 1;
 constexpr int kBlockX = 32;
 constexpr int kBlockY = 4;
 constexpr int kBlockZ = 4;
-
-__constant__ double a2;
-__constant__ double a3;
-__constant__ double a4;
-__constant__ double K;
-__constant__ double dt;
-__constant__ double LAMBDA;
-__constant__ double GAMMA;
-__constant__ double ALPHA;
-__constant__ double MU;
-__constant__ double tau;
-__constant__ double omega;
-__constant__ double omega_prime;
-__constant__ double omega_forcing;
-
-static constexpr double kCs2Inv = 3; // 1/c_s^2
-static constexpr double kCs2InvTimes2 = 6; // 2/c_s^2
-static constexpr double kCs4Inv = 9; // 1/c_s^4
-static constexpr double khalfCs4Inv = 4.5; // 1/2 * 1/c_s^4
-static constexpr double khalfCs2Inv = 1.5; // 1/2 * 1/c_s^2
-
-// static constexpr int nx = 64, ny = 64, nz = 64, ndir = 15;
-static constexpr int nx = Params::nx;
-static constexpr int ny = Params::ny;
-static constexpr int nz = Params::nz;
-static constexpr int ndir = Params::ndir;
 
 static constexpr size_t kQstepSmem =
         8 * (kBlockZ+2*kHalo) * (kBlockY+2*kHalo) * (kBlockX+2*kHalo) * sizeof(double);
@@ -136,7 +117,7 @@ __device__ FeqForcing ComputeFeqAndForcing(
     double eF  = Dot(force, e);
 
     double feq = (d_w[i] * m.rho * (1.0 + 3.0 * ue + 4.5 * ue * ue - 1.5 * u2));
-    double forcing_term = dt * omega_forcing * d_w[i]
+    double forcing_term = DT * omega_forcing * d_w[i]
         * (3.0 * eF - 3.0 * uF + 9.0 * ue * eF);
     
     return {feq, forcing_term};
@@ -159,9 +140,9 @@ __device__ Moments ComputeMoments(
         uyp += d_ey[i] * fi;
         uzp += d_ez[i] * fi;
     }
-    uxp += 0.5 * force.x * dt;
-    uyp += 0.5 * force.y * dt;
-    uzp += 0.5 * force.z * dt;
+    uxp += 0.5 * force.x * DT;
+    uyp += 0.5 * force.y * DT;
+    uzp += 0.5 * force.z * DT;
     uxp /= rhop;
     uyp /= rhop;
     uzp /= rhop;
@@ -414,14 +395,14 @@ __global__ void GpuQTensorStep(
     const double Q2_yy = qxyp*qxyp + qyyp*qyyp + qyzp*qyzp - kone_thirds * trq2;
     const double Q2_yz = qxyp*qxzp - qyzp*qxxp;
 
-    const double ld = a2 + a4*trq2;
+    const double ld = A + C*trq2;
 
-    // Molecular field H = K·∇²Q - ld·Q
-    const double H_xx = K*Laplacian(s_qxx, sx, sy, sz) - ld*qxxp - a3 * Q2_xx;
-    const double H_xy = K*Laplacian(s_qxy, sx, sy, sz) - ld*qxyp - a3 * Q2_xy;
-    const double H_xz = K*Laplacian(s_qxz, sx, sy, sz) - ld*qxzp - a3 * Q2_xz;
-    const double H_yy = K*Laplacian(s_qyy, sx, sy, sz) - ld*qyyp - a3 * Q2_yy;
-    const double H_yz = K*Laplacian(s_qyz, sx, sy, sz) - ld*qyzp - a3 * Q2_yz;
+    // Molecular field H = L·∇²Q - ld·Q
+    const double H_xx = L*Laplacian(s_qxx, sx, sy, sz) - ld*qxxp - B * Q2_xx;
+    const double H_xy = L*Laplacian(s_qxy, sx, sy, sz) - ld*qxyp - B * Q2_xy;
+    const double H_xz = L*Laplacian(s_qxz, sx, sy, sz) - ld*qxzp - B * Q2_xz;
+    const double H_yy = L*Laplacian(s_qyy, sx, sy, sz) - ld*qyyp - B * Q2_yy;
+    const double H_yz = L*Laplacian(s_qyz, sx, sy, sz) - ld*qyzp - B * Q2_yz;
 
     // Q gradients (for advection and active force)
     const Vec3 gqxx = Gradient(s_qxx, sx, sy, sz);
@@ -481,11 +462,11 @@ __global__ void GpuQTensorStep(
 
     const Vec3 u{s_ux[sz][sy][sx], s_uy[sz][sy][sx], s_uz[sz][sy][sx]};
 
-    qxx_new[gid] = qxxp + dt*(GAMMA*H_xx + S_xx + LAMBDA * (ktwo_thirds * D_xx + aln2_xx) - Dot(u, gqxx));
-    qxy_new[gid] = qxyp + dt*(GAMMA*H_xy + S_xy + LAMBDA * (ktwo_thirds * D_xy + aln2_xy) - Dot(u, gqxy));
-    qxz_new[gid] = qxzp + dt*(GAMMA*H_xz + S_xz + LAMBDA * (ktwo_thirds * D_xz + aln2_xz) - Dot(u, gqxz));
-    qyy_new[gid] = qyyp + dt*(GAMMA*H_yy + S_yy + LAMBDA * (ktwo_thirds * D_yy + aln2_yy) - Dot(u, gqyy));
-    qyz_new[gid] = qyzp + dt*(GAMMA*H_yz + S_yz + LAMBDA * (ktwo_thirds * D_yz + aln2_yz) - Dot(u, gqyz));
+    qxx_new[gid] = qxxp + DT*(GAMMA*H_xx + S_xx + LAMBDA * (ktwo_thirds * D_xx + aln2_xx) - Dot(u, gqxx));
+    qxy_new[gid] = qxyp + DT*(GAMMA*H_xy + S_xy + LAMBDA * (ktwo_thirds * D_xy + aln2_xy) - Dot(u, gqxy));
+    qxz_new[gid] = qxzp + DT*(GAMMA*H_xz + S_xz + LAMBDA * (ktwo_thirds * D_xz + aln2_xz) - Dot(u, gqxz));
+    qyy_new[gid] = qyyp + DT*(GAMMA*H_yy + S_yy + LAMBDA * (ktwo_thirds * D_yy + aln2_yy) - Dot(u, gqyy));
+    qyz_new[gid] = qyzp + DT*(GAMMA*H_yz + S_yz + LAMBDA * (ktwo_thirds * D_yz + aln2_yz) - Dot(u, gqyz));
 
     // Active force: f_a = -ALPHA*(div Q)_a - MU*u_a
     // qzz = -qxx - qyy, so ∂z(qzz) = -gqxx.z - gqyy.z

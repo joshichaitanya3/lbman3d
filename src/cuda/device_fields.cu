@@ -57,21 +57,6 @@ DeviceFields::DeviceFields() :
 
 void DeviceFields::Initialize(const QTensorFields& qf) {
 
-    checkCudaErrors(cudaMemcpyToSymbol(a2, &Params::A, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(a3, &Params::B, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(a4, &Params::C, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(K, &Params::L, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(LAMBDA, &Params::LAMBDA, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(GAMMA, &Params::GAMMA, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(ALPHA, &Params::ALPHA, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(MU, &Params::MU, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(dt, &Params::DT, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(tau, &Params::TAUF, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(omega, &Params::omega, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(omega_prime, &Params::omega_prime, sizeof(double)));
-    checkCudaErrors(cudaMemcpyToSymbol(omega_forcing, &Params::omega_forcing, sizeof(double)));
-    checkCudaErrors(cudaDeviceSynchronize()); // flush any queued work
-    
     checkCudaErrors(cudaFuncSetAttribute(
         GpuQTensorStep,
         cudaFuncAttributeMaxDynamicSharedMemorySize,
