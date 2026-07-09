@@ -1,6 +1,7 @@
 #include "device_fields.h"
 #include "params.h"
 #include "cuda_utils.h"
+#include "lattice_stencil.h"
 #include "kernels.cu"
 
 std::string InitializeComputeBackend() {
@@ -56,6 +57,15 @@ DeviceFields::DeviceFields() :
 {}
 
 void DeviceFields::Initialize(const QTensorFields& qf) {
+
+    checkCudaErrors(cudaMemcpyToSymbol(d_ex, Lattice::ex, sizeof(Lattice::ex)));
+    checkCudaErrors(cudaMemcpyToSymbol(d_ey, Lattice::ey, sizeof(Lattice::ey)));
+    checkCudaErrors(cudaMemcpyToSymbol(d_ez, Lattice::ez, sizeof(Lattice::ez)));
+    checkCudaErrors(cudaMemcpyToSymbol(d_w, Lattice::w, sizeof(Lattice::w)));
+    checkCudaErrors(cudaMemcpyToSymbol(d_opp, Lattice::opp, sizeof(Lattice::opp)));
+    checkCudaErrors(cudaMemcpyToSymbol(d_specX, Lattice::specX, sizeof(Lattice::specX)));
+    checkCudaErrors(cudaMemcpyToSymbol(d_specY, Lattice::specY, sizeof(Lattice::specY)));
+    checkCudaErrors(cudaMemcpyToSymbol(d_specZ, Lattice::specZ, sizeof(Lattice::specZ)));
 
     checkCudaErrors(cudaFuncSetAttribute(
         GpuQTensorStep,

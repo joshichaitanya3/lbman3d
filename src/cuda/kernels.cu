@@ -24,41 +24,19 @@ __device__ inline bool InDomain(int x, int y, int z) { return true; }
 __device__ inline int wrap(int i, int n) { return (i + n) % n; }
 
 
-__constant__ int d_ex[ndir] = {0, 1, 0, -1,  0,  0,  0, 1, -1, -1,  1,  1, -1, -1,  1};
-__constant__ int d_ey[ndir] = {0, 0, 1,  0, -1,  0,  0, 1,  1, -1, -1,  1,  1, -1, -1};
-__constant__ int d_ez[ndir] = {0, 0, 0,  0,  0,  1, -1, 1,  1,  1,  1, -1, -1, -1, -1};
-__constant__ double d_w[ndir] = {
-    2.0/9, // 0
-    1.0/9, 1.0/9, 1.0/9, 1.0/9, 1.0/9, 1.0/9, // 1-6
-    1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72  // 7-14
-};
-
-// Full reversal: opp[i] is the direction opposite to i (used in bounce-back).
-//   0↔0  1↔3  2↔4  5↔6  7↔13  8↔14  9↔11  10↔12
-//                                                     0  1  2  3  4  5  6   7   8   9  10 11  12 13 14
-
-__constant__ int d_opp[ndir] = {0, 3, 4, 1, 2, 6, 5, 13, 14, 11, 12, 9, 10, 7, 8};
-
-// Specular reflection partner for Z-walls (reflect ez, keep ey, ex):
-//   specZ[i] = direction with (ex[i], ey[i], -ez[i])
-//   0↔0  1↔1  2↔2  3↔3  4↔4  5↔6  7↔11  8↔12  9↔13  10↔14
-//                                                      0  1  2  3  4  5  6   7   8   9  10 11 12 13  14
-
-__constant__ int specZ[ndir] = {0, 1, 2, 3, 4, 6, 5, 11, 12, 13, 14, 7, 8, 9, 10};
-
-// Specular reflection partner for Y-walls (reflect ey, keep ez, ex):
-//   specY[i] = direction with (ex[i], -ey[i], ez[i])
-//   0↔0  1↔1  2↔4  3↔3  5↔5  6↔6  7↔10  8↔9  11↔14  12↔13
-//                                              0  1  2  3  4  5  6   7  8  9 10  11  12  13  14
-
-__constant__ int specY[ndir] = {0, 1, 4, 3, 2, 5, 6, 10, 9, 8, 7, 14, 13, 12, 11};
-
-// Specular reflection partner for X-walls (reflect ey, keep ez, ex):
-//   specX[i] = direction with (-ex[i], ey[i], ez[i])
-//   0↔0  1↔3  2↔2  4↔4  5↔5  6↔6  7↔8  9↔10  11↔12  13↔14
-//                                              0  1  2  3  4  5  6  7  8   9 10  11  12  13  14
-
-__constant__ int specX[ndir] = {0, 3, 2, 1, 4, 5, 6, 8, 7, 10, 9, 12, 11, 14, 13};
+// D3Q15 stencil, copied once from Lattice:: (lattice_stencil.h) into
+// __constant__ memory in DeviceFields::Initialize(). CUDA C++ does not allow
+// a raw array of scalar type to be used inside a kernel unless it's used
+// inside a constexpr __device__ or __host__ __device__ function, so a
+// runtime-indexed device array needs its own device-resident storage.
+__constant__ int d_ex[Params::ndir];
+__constant__ int d_ey[Params::ndir];
+__constant__ int d_ez[Params::ndir];
+__constant__ double d_w[Params::ndir];
+__constant__ int d_opp[Params::ndir];
+__constant__ int d_specX[Params::ndir];
+__constant__ int d_specY[Params::ndir];
+__constant__ int d_specZ[Params::ndir];
     
 struct Vec3 {
     double x, y, z;
