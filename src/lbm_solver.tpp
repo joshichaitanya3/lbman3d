@@ -1,5 +1,6 @@
 #include "params.h"
 #include "boundary.h"
+#include "lattice_stencil.h"
 
 #include <iostream>
 #include <ranges>
@@ -36,8 +37,8 @@ bool LbmSolver<BC>::InDomain(int x, int y, int z) const {
 template<typename BC>
 double LbmSolver<BC>::Feq(double rhop, double uxp, double uyp, double uzp, int i) const {
     const double u2 = uxp * uxp + uyp * uyp + uzp * uzp;
-    const double u_dot_e = uxp * FluidFields::ex[i] + uyp * FluidFields::ey[i] + uzp * FluidFields::ez[i];
-    return (FluidFields::w[i] * rhop * (1.0 + kCs2Inv * u_dot_e + khalfCs4Inv * u_dot_e * u_dot_e - khalfCs2Inv * u2));
+    const double u_dot_e = uxp * Lattice::ex[i] + uyp * Lattice::ey[i] + uzp * Lattice::ez[i];
+    return (Lattice::w[i] * rhop * (1.0 + kCs2Inv * u_dot_e + khalfCs4Inv * u_dot_e * u_dot_e - khalfCs2Inv * u2));
 }
 
 template<typename BC>
@@ -92,10 +93,10 @@ void LbmSolver<BC>::HandleBoundaryPoint(
         constexpr double Ux = wallVx<U>();
         constexpr double Uy = wallVy<U>();
         constexpr double Uz = wallVz<U>();
-        const int m = FluidFields::opp[i];
+        const int m = Lattice::opp[i];
         double rhop = ff.rho(z, y, x);
-        ff.f_new(z, y, x, m) = f_star + kCs2InvTimes2 * rhop * FluidFields::w[m]
-                                * (FluidFields::ex[m] * Ux + FluidFields::ey[m] * Uy + FluidFields::ez[m] * Uz);
+        ff.f_new(z, y, x, m) = f_star + kCs2InvTimes2 * rhop * Lattice::w[m]
+                                * (Lattice::ex[m] * Ux + Lattice::ey[m] * Uy + Lattice::ez[m] * Uz);
     }
 }
 
@@ -138,9 +139,9 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                 for (int i = 0; i < ndir; ++i) {
                     const double fi = ff.f(z, y, x, i);
                     arho += fi;
-                    aux  += FluidFields::ex[i] * fi;
-                    auy  += FluidFields::ey[i] * fi;
-                    auz  += FluidFields::ez[i] * fi;
+                    aux  += Lattice::ex[i] * fi;
+                    auy  += Lattice::ey[i] * fi;
+                    auz  += Lattice::ez[i] * fi;
                 }
                 const double inv_r = 1.0 / arho;
                 const double rhop = arho;
@@ -164,9 +165,9 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                     const double feq = Feq(rhop, uxp, uyp, uzp, i);
 
                     // ── Forcing Term (Guo et al.) ─────────────────────────────
-                    const double ue  = uxp * FluidFields::ex[i] + uyp * FluidFields::ey[i] + uzp * FluidFields::ez[i];
-                    const double eF  = FluidFields::ex[i] * forceX + FluidFields::ey[i] * forceY + FluidFields::ez[i] * forceZ;
-                    const double forcing_term = omega_forcing * FluidFields::w[i]
+                    const double ue  = uxp * Lattice::ex[i] + uyp * Lattice::ey[i] + uzp * Lattice::ez[i];
+                    const double eF  = Lattice::ex[i] * forceX + Lattice::ey[i] * forceY + Lattice::ez[i] * forceZ;
+                    const double forcing_term = omega_forcing * Lattice::w[i]
                         * (3.0 * eF - 3.0 * uF + 9.0 * ue * eF);
 
                     // ── Collision (BGK) ───────────────────────────────────────
@@ -175,31 +176,31 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                         + DT * forcing_term;
 
                     // ── Stream + Apply Boundary Conditions ───────────────────
-                    const int dx = UXoff(x, FluidFields::ex[i]);
-                    const int dy = UYoff(y, FluidFields::ey[i]);
-                    const int dz = UZoff(z, FluidFields::ez[i]);
+                    const int dx = UXoff(x, Lattice::ex[i]);
+                    const int dy = UYoff(y, Lattice::ey[i]);
+                    const int dz = UZoff(z, Lattice::ez[i]);
                     if (InDomain(dx, dy, dz)) {
                         ff.f_new(dz, dy, dx, i) = f_star;
                     }
                     else {
 
                         if (dx < 0) {
-                            HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, FluidFields::specX[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, Lattice::specX[i], f_star, ff);
                         }
                         else if (dx >= nx) {
-                            HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, FluidFields::specX[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, Lattice::specX[i], f_star, ff);
                         }
                         if (dy < 0) {
-                            HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, FluidFields::specY[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, Lattice::specY[i], f_star, ff);
                         }
                         else if (dy >= ny) {
-                            HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, FluidFields::specY[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, Lattice::specY[i], f_star, ff);
                         }
                         if (dz < 0) {
-                            HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, FluidFields::specZ[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, Lattice::specZ[i], f_star, ff);
                         }
                         else if (dz >= nz) {
-                            HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, FluidFields::specZ[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, Lattice::specZ[i], f_star, ff);
                         }
                     }
                 }
