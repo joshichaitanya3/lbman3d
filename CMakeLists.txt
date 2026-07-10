@@ -29,6 +29,13 @@ if(LBM_USE_CUDA)
     message(STATUS "CUDA found — using C++20 (nvcc does not support C++23)")
     set(CMAKE_CXX_STANDARD 20)
     set(CMAKE_CUDA_STANDARD 20)
+    # Device assert() is gated on NDEBUG only, same as host — it doesn't need
+    # -G (full device debug info). -G disables device-side register-allocation
+    # optimization almost entirely, which blows the register budget for
+    # GpuQTensorStep's 512-thread blocks ("too many resources requested for
+    # launch"); keep -O3 in both configs and only toggle NDEBUG.
+    set(CMAKE_CUDA_FLAGS_RELEASE "-O3 -DNDEBUG")
+    set(CMAKE_CUDA_FLAGS_DEBUG "-O3")
     message(STATUS "CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
 else()
     if(LBM_FORCE_CPU)
@@ -39,7 +46,13 @@ else()
 endif()
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS "-fopenmp -g -Ofast")
+
+# -DCMAKE_BUILD_TYPE=Release for -Ofast (NDEBUG also disables idx()'s
+# InDomain() bounds-check asserts in physics_helpers.h). Omit, or pass
+# =Debug, to keep those asserts live.
+set(CMAKE_CXX_FLAGS "-fopenmp -g")
+set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -DNDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "-Og")
 
 # Detect whether this toolchain's standard library supports <format> and <print>.
 # GCC 13's libstdc++ ships incomplete C++23 headers; GCC 15 is fine.
@@ -84,7 +97,6 @@ foreach(target main benchmark)
         target_link_libraries(${target} PRIVATE CUDA::toolkit)
         target_compile_options(${target} PRIVATE
             $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --use_fast_math>
-            $<$<COMPILE_LANGUAGE:CUDA>:-O3>
         )
     endif()
 endforeach()

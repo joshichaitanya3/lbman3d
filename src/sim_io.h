@@ -31,7 +31,7 @@ public:
     // Log mass, momentum, velocity error; update internal past-velocity state.
     // nematic_energy is the caller-computed TotalNematicFreeEnergy (see
     // analysis_fields.h) — not recomputed here since it's only meaningful
-    // occasionally, not worth coupling Log() to Grid<BC>.
+    // occasionally, not worth templating Log() on BC.
     // Returns false (and logs a message) if any quantity is NaN.
     bool Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy);
 

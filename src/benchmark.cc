@@ -25,7 +25,7 @@ int main() {
     using clock = std::chrono::high_resolution_clock;
     using ms    = std::chrono::duration<double, std::milli>;
 
-    ActiveNematicSim<SimBC> sim{Grid<SimBC>(Params::nx, Params::ny, Params::nz)};
+    ActiveNematicSim<SimBC> sim{};
 
     for (int t = 0; t < kWarmupSteps; ++t)
         sim.Step();

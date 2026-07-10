@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 
-#include "grid.h"
+#include "offsets.h"
 #include "params.h"
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
@@ -22,12 +22,11 @@ enum ExportFormat { CSV, VTKHDF };
 //
 // To use a custom activity model, inject a QTensorSolver subclass:
 //
-//   ActiveNematicSim<PeriodicBC> sim{grid, std::make_unique<VaryingAlpha>(grid)};
+//   ActiveNematicSim<PeriodicBC> sim{std::make_unique<VaryingAlpha>()};
 //
 // To run without any Q-tensor dynamics use LbmSolver directly.
 template<typename BC>
 class ActiveNematicSim {
-    Grid<BC>       grid_;
     FluidFields    fluid_;
     QTensorFields  qtensor_;
     DeviceFields   d_fields_;
@@ -50,16 +49,12 @@ class ActiveNematicSim {
 public:
     // Default: constant-alpha active nematic.
     // Supply a QTensorSolver subclass to override the activity model.
-    explicit ActiveNematicSim(Grid<BC> grid,
-                              std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
-        : grid_(grid),
-          lbm_(grid),
-          qtensor_solver_(solver ? std::move(solver)
-                                 : std::make_unique<QTensorSolver<BC>>(grid)),
-          finder_(grid)
+    explicit ActiveNematicSim(std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
+        : qtensor_solver_(solver ? std::move(solver)
+                                 : std::make_unique<QTensorSolver<BC>>())
     {
         Initialize();
-        io_.LogSetupSummary(Grid<BC>::GridType(), InitializeComputeBackend());
+        io_.LogSetupSummary(BC::name, InitializeComputeBackend());
     }
 
     void QTensorStep() {
@@ -90,7 +85,7 @@ public:
         #endif
         double nematic_energy = 0.0;
         if constexpr (Params::kTrackNematicEnergy) {
-            nematic_energy = TotalNematicFreeEnergy(qtensor_, grid_);
+            nematic_energy = TotalNematicFreeEnergy<BC>(qtensor_);
         }
         return io_.Log(fluid_, af_, df_, time_step_, nematic_energy);
     }

@@ -9,9 +9,6 @@
 using namespace Params;
 
 template<typename BC>
-QTensorSolver<BC>::QTensorSolver(Grid<BC> grid) : grid_(std::move(grid)) {}
-
-template<typename BC>
 void QTensorSolver<BC>::Initialize(QTensorFields& qf) const {
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -232,6 +229,7 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
         qf.qxz_new[idx(x, y, z)] = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * Hxz);
         qf.qyy_new[idx(x, y, z)] = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * Hyy);
         qf.qyz_new[idx(x, y, z)] = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * Hyz);
+
     };
 
     // Single parallel loop over the full domain. Ghost-node stencil offsets are
@@ -240,12 +238,12 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
-                const int xm = (x == 0)    ? QXoff(0, -1)   : x - 1;
-                const int xp = (x == nx-1) ? QXoff(nx-1, 1) : x + 1;
-                const int ym = (y == 0)    ? QYoff(0, -1)   : y - 1;
-                const int yp = (y == ny-1) ? QYoff(ny-1, 1) : y + 1;
-                const int zm = (z == 0)    ? QZoff(0, -1)   : z - 1;
-                const int zp = (z == nz-1) ? QZoff(nz-1, 1) : z + 1;
+                const int xm = (x == 0)    ? QXoff<BC>(0, -1)   : x - 1;
+                const int xp = (x == nx-1) ? QXoff<BC>(nx-1, 1) : x + 1;
+                const int ym = (y == 0)    ? QYoff<BC>(0, -1)   : y - 1;
+                const int yp = (y == ny-1) ? QYoff<BC>(ny-1, 1) : y + 1;
+                const int zm = (z == 0)    ? QZoff<BC>(0, -1)   : z - 1;
+                const int zp = (z == nz-1) ? QZoff<BC>(nz-1, 1) : z + 1;
 
                 compute_cell(x, y, z, xm, xp, ym, yp, zm, zp);
 
@@ -344,12 +342,12 @@ void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, cons
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
-                const int xm = (x == 0)    ? QXoff(0, -1)   : x - 1;
-                const int xp = (x == nx-1) ? QXoff(nx-1, 1) : x + 1;
-                const int ym = (y == 0)    ? QYoff(0, -1)   : y - 1;
-                const int yp = (y == ny-1) ? QYoff(ny-1, 1) : y + 1;
-                const int zm = (z == 0)    ? QZoff(0, -1)   : z - 1;
-                const int zp = (z == nz-1) ? QZoff(nz-1, 1) : z + 1;
+                const int xm = (x == 0)    ? QXoff<BC>(0, -1)   : x - 1;
+                const int xp = (x == nx-1) ? QXoff<BC>(nx-1, 1) : x + 1;
+                const int ym = (y == 0)    ? QYoff<BC>(0, -1)   : y - 1;
+                const int yp = (y == ny-1) ? QYoff<BC>(ny-1, 1) : y + 1;
+                const int zm = (z == 0)    ? QZoff<BC>(0, -1)   : z - 1;
+                const int zp = (z == nz-1) ? QZoff<BC>(nz-1, 1) : z + 1;
                 compute_cell(x, y, z, xm, xp, ym, yp, zm, zp);
             }
         }

@@ -10,7 +10,7 @@
 using namespace Params;
 
 template<typename BC>
-LbmSolver<BC>::LbmSolver(Grid<BC> grid) : grid_(std::move(grid)) {
+LbmSolver<BC>::LbmSolver() {
     constexpr bool x_sensitive =
         std::is_same_v<typename BC::XLo::UBC, SpecularReflection> || is_moving_wall_v<typename BC::XLo::UBC> ||
         std::is_same_v<typename BC::XHi::UBC, SpecularReflection> || is_moving_wall_v<typename BC::XHi::UBC>;
@@ -168,9 +168,9 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                         + DT * forcing_term;
 
                     // ── Stream + Apply Boundary Conditions ───────────────────
-                    const int dx = UXoff(x, Lattice::ex[i]);
-                    const int dy = UYoff(y, Lattice::ey[i]);
-                    const int dz = UZoff(z, Lattice::ez[i]);
+                    const int dx = UXoff<BC>(x, Lattice::ex[i]);
+                    const int dy = UYoff<BC>(y, Lattice::ey[i]);
+                    const int dz = UZoff<BC>(z, Lattice::ez[i]);
                     if (InDomain(dx, dy, dz)) {
                         ff.f_new[idx(dx, dy, dz, i)] = f_star;
                     }

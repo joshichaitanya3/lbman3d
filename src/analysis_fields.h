@@ -5,7 +5,7 @@
 #include "params.h"
 #include "qtensor_fields.h"
 #include "physics_helpers.h"
-#include "grid.h"
+#include "offsets.h"
 
 double HalfTrQ2(
     double Qxx,
@@ -32,20 +32,20 @@ double NematicFreeEnergyDensity(
     double lap_Qxx, double lap_Qxy, double lap_Qxz, double lap_Qyy, double lap_Qyz);
 
 // Domain-integrated nematic free energy. Recomputes the Laplacian stencil
-// itself (via Grid::QXoff/QYoff/QZoff), since that's only cheap to keep
+// itself (via QXoff/QYoff/QZoff, grid.h), since that's only cheap to keep
 // inline in the solver's hot loop, not worth carrying as per-step state.
 // Call occasionally (e.g. from SimIO::Log), not every step.
 template<typename BC>
-double TotalNematicFreeEnergy(const QTensorFields& qf, const Grid<BC>& grid) {
+double TotalNematicFreeEnergy(const QTensorFields& qf) {
     double total = 0.0;
     #pragma omp parallel for default(shared) num_threads(Params::numprocs) \
         schedule(static) reduction(+:total)
     for (int z = 0; z < Params::nz; ++z) {
         for (int y = 0; y < Params::ny; ++y) {
             for (int x = 0; x < Params::nx; ++x) {
-                const int xm = grid.QXoff(x, -1), xp = grid.QXoff(x, 1);
-                const int ym = grid.QYoff(y, -1), yp = grid.QYoff(y, 1);
-                const int zm = grid.QZoff(z, -1), zp = grid.QZoff(z, 1);
+                const int xm = QXoff<BC>(x, -1), xp = QXoff<BC>(x, 1);
+                const int ym = QYoff<BC>(y, -1), yp = QYoff<BC>(y, 1);
+                const int zm = QZoff<BC>(z, -1), zp = QZoff<BC>(z, 1);
 
                 const double Qxx = qf.qxx[idx(x, y, z)];
                 const double Qxy = qf.qxy[idx(x, y, z)];

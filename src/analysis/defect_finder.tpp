@@ -10,9 +10,6 @@
 using namespace Params;
 
 template<typename BC>
-DefectFinder<BC>::DefectFinder(Grid<BC> grid) : grid_(std::move(grid)) {}
-
-template<typename BC>
 void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const AnalysisFields& af, DefectFields& df) {
 
     // First, we go through all the faces at x = i (faces in the y-z plane)
@@ -350,7 +347,7 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
      for (int z : {0, nz-2}) {
         for (int y : std::views::iota(0, ny-1)) {
             for (int x : std::views::iota(0, nx-1)) {
-                compute_voxel(x, y, z, Xoff(x,-1), Xoff(x,1), Yoff(y,-1), Yoff(y,1), Zoff(z,-1), Zoff(z,1));
+                compute_voxel(x, y, z, QXoff<BC>(x,-1), QXoff<BC>(x,1), QYoff<BC>(y,-1), QYoff<BC>(y,1), QZoff<BC>(z,-1), QZoff<BC>(z,1));
             }
         }
     }
@@ -358,7 +355,7 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
     for (int z : std::views::iota(0, nz-1)) {
         for (int y : {0, ny-2}) {
             for (int x : std::views::iota(0, nx-1)) {
-                compute_voxel(x, y, z, Xoff(x,-1), Xoff(x,1), Yoff(y,-1), Yoff(y,1), Zoff(z,-1), Zoff(z,1));
+                compute_voxel(x, y, z, QXoff<BC>(x,-1), QXoff<BC>(x,1), QYoff<BC>(y,-1), QYoff<BC>(y,1), QZoff<BC>(z,-1), QZoff<BC>(z,1));
 
             }
         }
@@ -367,7 +364,7 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
     for (int z : std::views::iota(0, nz-1)) {
         for (int y : std::views::iota(0, ny-1)) {
             for (int x : {0, nx-2}) {
-                compute_voxel(x, y, z, Xoff(x,-1), Xoff(x,1), Yoff(y,-1), Yoff(y,1), Zoff(z,-1), Zoff(z,1));
+                compute_voxel(x, y, z, QXoff<BC>(x,-1), QXoff<BC>(x,1), QYoff<BC>(y,-1), QYoff<BC>(y,1), QZoff<BC>(z,-1), QZoff<BC>(z,1));
             }
         }
     }

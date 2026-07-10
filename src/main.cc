@@ -6,7 +6,7 @@
 #include "params.h"
 
 int main(int argc, char* argv[]) {
-    ActiveNematicSim<SimBC> sim{Grid<SimBC>(Params::nx, Params::ny, Params::nz)};
+    ActiveNematicSim<SimBC> sim{};
     for (int t : std::views::iota(0, kNumSteps)) {
         if (t % kSaveInterval == 0) {
             std::cout << compat::format("Step {}", t) << "\n";
