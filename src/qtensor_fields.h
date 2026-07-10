@@ -2,56 +2,27 @@
 #define LBM_AN_QTENSOR_FIELDS_H_
 
 #include <vector>
-#include <mdspan/mdspan.hpp>
 #include "params.h"
 
 // Owns Q-tensor state: current and scratch (new) components.
+// Flat, row-major storage indexed via idx(x,y,z) from physics_helpers.h.
 struct QTensorFields {
-    std::vector<double> qxx_data, qxy_data, qxz_data, qyy_data, qyz_data;
-    std::vector<double> qxx_new_data, qxy_new_data, qxz_new_data, qyy_new_data, qyz_new_data;
+    std::vector<double> qxx, qxy, qxz, qyy, qyz;
+    std::vector<double> qxx_new, qxy_new, qxz_new, qyy_new, qyz_new;
 
     // Nematic stress tensor (active + passive)
-    std::vector<double> Pxx_data, Pxy_data, Pxz_data, Pyy_data, Pyz_data;
+    std::vector<double> Pxx, Pxy, Pxz, Pyy, Pyz;
 
     double nematic_energy = 0.0;
 
-    // The mdspan views below MUST stay declared after every std::vector member
-    // above: DeviceFields::Initialize/CopyToHost (device_fields.cu, compiled by
-    // nvcc) take a QTensorFields& and read only these vectors, never the
-    // mdspan views. nvcc does not apply the empty-base/no-unique-address
-    // compression g++ applies to mdspan's (stateless) mapping/accessor
-    // members, so nvcc and g++ compute different sizeof(QTensorFields) — but a
-    // member's offset only depends on what's declared BEFORE it, so the
-    // vectors' offsets still agree across both compilers as long as nothing
-    // that could disagree in size is declared earlier. Moving a vector below
-    // an mdspan member, or having nvcc-compiled code touch an mdspan member
-    // directly, would silently reintroduce the cross-compiler memory
-    // corruption this ordering exists to avoid (see device_fields.h).
-    using ext3_t  = Kokkos::extents<int, Params::nz, Params::ny, Params::nx>;
-    Kokkos::mdspan<double, ext3_t> qxx, qxy, qxz, qyy, qyz;
-    Kokkos::mdspan<double, ext3_t> qxx_new, qxy_new, qxz_new, qyy_new, qyz_new;
-
-    Kokkos::mdspan<double, ext3_t> Pxx, Pxy, Pxz, Pyy, Pyz;
-
     QTensorFields();
 
-    // Atomically swap each component's data and view together so the mdspans
-    // remain consistent with their backing vectors.
     void SwapWithNew() {
-        SwapComponent(qxx_data, qxx_new_data, qxx, qxx_new);
-        SwapComponent(qxy_data, qxy_new_data, qxy, qxy_new);
-        SwapComponent(qxz_data, qxz_new_data, qxz, qxz_new);
-        SwapComponent(qyy_data, qyy_new_data, qyy, qyy_new);
-        SwapComponent(qyz_data, qyz_new_data, qyz, qyz_new);
-    }
-
-private:
-    static void SwapComponent(std::vector<double>& a_data, std::vector<double>& b_data,
-                               Kokkos::mdspan<double, ext3_t>& a_view,
-                               Kokkos::mdspan<double, ext3_t>& b_view) {
-        std::swap(a_data, b_data);
-        a_view = Kokkos::mdspan<double, ext3_t>(a_data.data(), Params::nz, Params::ny, Params::nx);
-        b_view = Kokkos::mdspan<double, ext3_t>(b_data.data(), Params::nz, Params::ny, Params::nx);
+        std::swap(qxx, qxx_new);
+        std::swap(qxy, qxy_new);
+        std::swap(qxz, qxz_new);
+        std::swap(qyy, qyy_new);
+        std::swap(qyz, qyz_new);
     }
 };
 

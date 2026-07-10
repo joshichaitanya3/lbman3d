@@ -33,9 +33,9 @@ public:
 
     explicit DefectFinder(Grid<BC> grid);
     void FindDefects(const QTensorFields& qf, const AnalysisFields& af, DefectFields& df) {
-        std::fill(df.def_x_data.begin(), df.def_x_data.end(), 0);
-        std::fill(df.def_y_data.begin(), df.def_y_data.end(), 0);
-        std::fill(df.def_z_data.begin(), df.def_z_data.end(), 0);
+        std::fill(df.def_x.begin(), df.def_x.end(), 0);
+        std::fill(df.def_y.begin(), df.def_y.end(), 0);
+        std::fill(df.def_z.begin(), df.def_z.end(), 0);
         df.disclinations.clear();
         ComputeWindingNumbers(qf, af, df);
         BuildConnectivityGraph(df);

@@ -82,24 +82,24 @@ void DeviceFields::Initialize(const QTensorFields& qf) {
     );
     checkCudaErrors(cudaGetLastError());
 
-    thrust::copy(qf.qxx_data.begin(),  qf.qxx_data.end(),  d_qxx.begin());
-    thrust::copy(qf.qxy_data.begin(),  qf.qxy_data.end(),  d_qxy.begin());
-    thrust::copy(qf.qxz_data.begin(),  qf.qxz_data.end(),  d_qxz.begin());
-    thrust::copy(qf.qyy_data.begin(),  qf.qyy_data.end(),  d_qyy.begin());
-    thrust::copy(qf.qyz_data.begin(),  qf.qyz_data.end(),  d_qyz.begin());
+    thrust::copy(qf.qxx.begin(),  qf.qxx.end(),  d_qxx.begin());
+    thrust::copy(qf.qxy.begin(),  qf.qxy.end(),  d_qxy.begin());
+    thrust::copy(qf.qxz.begin(),  qf.qxz.end(),  d_qxz.begin());
+    thrust::copy(qf.qyy.begin(),  qf.qyy.end(),  d_qyy.begin());
+    thrust::copy(qf.qyz.begin(),  qf.qyz.end(),  d_qyz.begin());
 
 }
 
 void DeviceFields::CopyToHost(FluidFields& ff, QTensorFields& qf) const {
-    thrust::copy(d_rho.begin(), d_rho.end(), ff.rho_data.begin());
-    thrust::copy(d_ux.begin(),  d_ux.end(),  ff.ux_data.begin());
-    thrust::copy(d_uy.begin(),  d_uy.end(),  ff.uy_data.begin());
-    thrust::copy(d_uz.begin(),  d_uz.end(),  ff.uz_data.begin());
-    thrust::copy(d_qxx.begin(),  d_qxx.end(),  qf.qxx_data.begin());
-    thrust::copy(d_qxy.begin(),  d_qxy.end(),  qf.qxy_data.begin());
-    thrust::copy(d_qxz.begin(),  d_qxz.end(),  qf.qxz_data.begin());
-    thrust::copy(d_qyy.begin(),  d_qyy.end(),  qf.qyy_data.begin());
-    thrust::copy(d_qyz.begin(),  d_qyz.end(),  qf.qyz_data.begin());
+    thrust::copy(d_rho.begin(), d_rho.end(), ff.rho.begin());
+    thrust::copy(d_ux.begin(),  d_ux.end(),  ff.ux.begin());
+    thrust::copy(d_uy.begin(),  d_uy.end(),  ff.uy.begin());
+    thrust::copy(d_uz.begin(),  d_uz.end(),  ff.uz.begin());
+    thrust::copy(d_qxx.begin(),  d_qxx.end(),  qf.qxx.begin());
+    thrust::copy(d_qxy.begin(),  d_qxy.end(),  qf.qxy.begin());
+    thrust::copy(d_qxz.begin(),  d_qxz.end(),  qf.qxz.begin());
+    thrust::copy(d_qyy.begin(),  d_qyy.end(),  qf.qyy.begin());
+    thrust::copy(d_qyz.begin(),  d_qyz.end(),  qf.qyz.begin());
 }
 
 void DeviceFields::QTensorStep() {

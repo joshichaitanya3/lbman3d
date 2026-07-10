@@ -5,6 +5,7 @@
 #include <iostream>
 #include <ranges>
 #include <cmath>
+#include "physics_helpers.h"
 
 using namespace Params;
 
@@ -46,12 +47,12 @@ void LbmSolver<BC>::Initialize(FluidFields& ff) const {
     for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
             for (int x : std::views::iota(0, nx)) {
-                const double rhop = ff.rho(z, y, x);
-                const double uxp  = ff.ux(z, y, x);
-                const double uyp  = ff.uy(z, y, x);
-                const double uzp  = ff.uz(z, y, x);
+                const double rhop = ff.rho[idx(x, y, z)];
+                const double uxp  = ff.ux[idx(x, y, z)];
+                const double uyp  = ff.uy[idx(x, y, z)];
+                const double uzp  = ff.uz[idx(x, y, z)];
                 for (int i : std::views::iota(0, ndir))
-                    ff.f(z, y, x, i) = Feq(rhop, uxp, uyp, uzp, i);
+                    ff.f[idx(x, y, z, i)] = Feq(rhop, uxp, uyp, uzp, i);
             }
         }
     }
@@ -87,15 +88,15 @@ void LbmSolver<BC>::HandleBoundaryPoint(
         return;
     }
     else if constexpr (std::is_same_v<U, SpecularReflection>) {
-        ff.f_new(z, y, x, i_refl) = f_star;
+        ff.f_new[idx(x, y, z, i_refl)] = f_star;
     }
     else {
         constexpr double Ux = wallVx<U>();
         constexpr double Uy = wallVy<U>();
         constexpr double Uz = wallVz<U>();
         const int m = Lattice::opp[i];
-        double rhop = ff.rho(z, y, x);
-        ff.f_new(z, y, x, m) = f_star + kCs2InvTimes2 * rhop * Lattice::w[m]
+        double rhop = ff.rho[idx(x, y, z)];
+        ff.f_new[idx(x, y, z, m)] = f_star + kCs2InvTimes2 * rhop * Lattice::w[m]
                                 * (Lattice::ex[m] * Ux + Lattice::ey[m] * Uy + Lattice::ez[m] * Uz);
     }
 }
@@ -137,7 +138,7 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                 // force correction (Guo forcing scheme).
                 double arho = 0, aux = 0, auy = 0, auz = 0;
                 for (int i = 0; i < ndir; ++i) {
-                    const double fi = ff.f(z, y, x, i);
+                    const double fi = ff.f[idx(x, y, z, i)];
                     arho += fi;
                     aux  += Lattice::ex[i] * fi;
                     auy  += Lattice::ey[i] * fi;
@@ -145,18 +146,18 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                 }
                 const double inv_r = 1.0 / arho;
                 const double rhop = arho;
-                const double uxp  = (aux + 0.5 * ff.fx(z, y, x) * DT) * inv_r;
-                const double uyp  = (auy + 0.5 * ff.fy(z, y, x) * DT) * inv_r;
-                const double uzp  = (auz + 0.5 * ff.fz(z, y, x) * DT) * inv_r;
+                const double uxp  = (aux + 0.5 * ff.fx[idx(x, y, z)] * DT) * inv_r;
+                const double uyp  = (auy + 0.5 * ff.fy[idx(x, y, z)] * DT) * inv_r;
+                const double uzp  = (auz + 0.5 * ff.fz[idx(x, y, z)] * DT) * inv_r;
 
-                ff.rho(z, y, x) = rhop;
-                ff.ux(z, y, x)  = uxp;
-                ff.uy(z, y, x)  = uyp;
-                ff.uz(z, y, x)  = uzp;
+                ff.rho[idx(x, y, z)] = rhop;
+                ff.ux[idx(x, y, z)]  = uxp;
+                ff.uy[idx(x, y, z)]  = uyp;
+                ff.uz[idx(x, y, z)]  = uzp;
 
-                const double forceX = ff.fx(z, y, x);
-                const double forceY = ff.fy(z, y, x);
-                const double forceZ = ff.fz(z, y, x);
+                const double forceX = ff.fx[idx(x, y, z)];
+                const double forceY = ff.fy[idx(x, y, z)];
+                const double forceZ = ff.fz[idx(x, y, z)];
                 const double uF     = uxp * forceX + uyp * forceY + uzp * forceZ;
 
                 for (int i : std::views::iota(0, ndir)) {
@@ -171,7 +172,7 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                         * (3.0 * eF - 3.0 * uF + 9.0 * ue * eF);
 
                     // ── Collision (BGK) ───────────────────────────────────────
-                    const double f_star = omega * ff.f(z, y, x, i)
+                    const double f_star = omega * ff.f[idx(x, y, z, i)]
                         + omega_prime * feq
                         + DT * forcing_term;
 
@@ -180,7 +181,7 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                     const int dy = UYoff(y, Lattice::ey[i]);
                     const int dz = UZoff(z, Lattice::ez[i]);
                     if (InDomain(dx, dy, dz)) {
-                        ff.f_new(dz, dy, dx, i) = f_star;
+                        ff.f_new[idx(dx, dy, dz, i)] = f_star;
                     }
                     else {
 

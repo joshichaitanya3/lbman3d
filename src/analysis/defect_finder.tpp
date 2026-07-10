@@ -24,13 +24,13 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                  Our winding loop will be 
                  (y,z) -> (y+1,z) -> (y+1, z+1) -> (y,z+1)
                 */
-                double n1x = af.director_(z,y,x,0);
-                double n1y = af.director_(z,y,x,1);
-                double n1z = af.director_(z,y,x,2);
+                double n1x = af.director_[dirIdx(x, y, z, 0)];
+                double n1y = af.director_[dirIdx(x, y, z, 1)];
+                double n1z = af.director_[dirIdx(x, y, z, 2)];
 
-                double n2x = af.director_(z,y+1,x,0);
-                double n2y = af.director_(z,y+1,x,1);
-                double n2z = af.director_(z,y+1,x,2);
+                double n2x = af.director_[dirIdx(x, y+1, z, 0)];
+                double n2y = af.director_[dirIdx(x, y+1, z, 1)];
+                double n2z = af.director_[dirIdx(x, y+1, z, 2)];
 
                 if (FlipN(n1x, n1y, n1z, n2x, n2y, n2z)) {
                     n2x = -n2x;
@@ -38,9 +38,9 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                     n2z = -n2z;
                 }
                 
-                double n3x = af.director_(z+1,y+1,x,0);
-                double n3y = af.director_(z+1,y+1,x,1);
-                double n3z = af.director_(z+1,y+1,x,2);
+                double n3x = af.director_[dirIdx(x, y+1, z+1, 0)];
+                double n3y = af.director_[dirIdx(x, y+1, z+1, 1)];
+                double n3z = af.director_[dirIdx(x, y+1, z+1, 2)];
 
                 if (FlipN(n2x, n2y, n2z, n3x, n3y, n3z)) {
                     n3x = -n3x;
@@ -48,9 +48,9 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                     n3z = -n3z;
                 }
 
-                double n4x = af.director_(z+1,y,x,0);
-                double n4y = af.director_(z+1,y,x,1);
-                double n4z = af.director_(z+1,y,x,2);
+                double n4x = af.director_[dirIdx(x, y, z+1, 0)];
+                double n4y = af.director_[dirIdx(x, y, z+1, 1)];
+                double n4z = af.director_[dirIdx(x, y, z+1, 2)];
 
                 if (FlipN(n3x, n3y, n3z, n4x, n4y, n4z)) {
                     n4x = -n4x;
@@ -59,7 +59,7 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                 }
 
                 if (FlipN(n4x, n4y, n4z, n1x, n1y, n1z)) {
-                    df.def_x(z, y, x) = 1;
+                    df.def_x[df.FlatX(x, y, z)] = 1;
                 }
             }
         }
@@ -74,13 +74,13 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                  Our winding loop will be 
                  (x,z) -> (x+1,z) -> (x+1, z+1) -> (x,z+1)
                 */
-                double n1x = af.director_(z,y,x,0);
-                double n1y = af.director_(z,y,x,1);
-                double n1z = af.director_(z,y,x,2);
+                double n1x = af.director_[dirIdx(x, y, z, 0)];
+                double n1y = af.director_[dirIdx(x, y, z, 1)];
+                double n1z = af.director_[dirIdx(x, y, z, 2)];
 
-                double n2x = af.director_(z,y,x+1,0);
-                double n2y = af.director_(z,y,x+1,1);
-                double n2z = af.director_(z,y,x+1,2);
+                double n2x = af.director_[dirIdx(x+1, y, z, 0)];
+                double n2y = af.director_[dirIdx(x+1, y, z, 1)];
+                double n2z = af.director_[dirIdx(x+1, y, z, 2)];
 
                 if (FlipN(n1x, n1y, n1z, n2x, n2y, n2z)) {
                     n2x = -n2x;
@@ -88,9 +88,9 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                     n2z = -n2z;
                 }
                 
-                double n3x = af.director_(z+1,y,x+1,0);
-                double n3y = af.director_(z+1,y,x+1,1);
-                double n3z = af.director_(z+1,y,x+1,2);
+                double n3x = af.director_[dirIdx(x+1, y, z+1, 0)];
+                double n3y = af.director_[dirIdx(x+1, y, z+1, 1)];
+                double n3z = af.director_[dirIdx(x+1, y, z+1, 2)];
 
                 if (FlipN(n2x, n2y, n2z, n3x, n3y, n3z)) {
                     n3x = -n3x;
@@ -98,9 +98,9 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                     n3z = -n3z;
                 }
 
-                double n4x = af.director_(z+1,y,x,0);
-                double n4y = af.director_(z+1,y,x,1);
-                double n4z = af.director_(z+1,y,x,2);
+                double n4x = af.director_[dirIdx(x, y, z+1, 0)];
+                double n4y = af.director_[dirIdx(x, y, z+1, 1)];
+                double n4z = af.director_[dirIdx(x, y, z+1, 2)];
 
                 if (FlipN(n3x, n3y, n3z, n4x, n4y, n4z)) {
                     n4x = -n4x;
@@ -109,7 +109,7 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                 }
 
                 if (FlipN(n4x, n4y, n4z, n1x, n1y, n1z)) {
-                    df.def_y(z, y, x) = 1;
+                    df.def_y[df.FlatY(x, y, z)] = 1;
                 }
             }
         }
@@ -124,13 +124,13 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                  Our winding loop will be 
                  (x,y) -> (x+1,y) -> (x+1, y+1) -> (x,y+1)
                 */
-                double n1x = af.director_(z,y,x,0);
-                double n1y = af.director_(z,y,x,1);
-                double n1z = af.director_(z,y,x,2);
+                double n1x = af.director_[dirIdx(x, y, z, 0)];
+                double n1y = af.director_[dirIdx(x, y, z, 1)];
+                double n1z = af.director_[dirIdx(x, y, z, 2)];
 
-                double n2x = af.director_(z,y,x+1,0);
-                double n2y = af.director_(z,y,x+1,1);
-                double n2z = af.director_(z,y,x+1,2);
+                double n2x = af.director_[dirIdx(x+1, y, z, 0)];
+                double n2y = af.director_[dirIdx(x+1, y, z, 1)];
+                double n2z = af.director_[dirIdx(x+1, y, z, 2)];
 
                 if (FlipN(n1x, n1y, n1z, n2x, n2y, n2z)) {
                     n2x = -n2x;
@@ -138,9 +138,9 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                     n2z = -n2z;
                 }
                 
-                double n3x = af.director_(z,y+1,x+1,0);
-                double n3y = af.director_(z,y+1,x+1,1);
-                double n3z = af.director_(z,y+1,x+1,2);
+                double n3x = af.director_[dirIdx(x+1, y+1, z, 0)];
+                double n3y = af.director_[dirIdx(x+1, y+1, z, 1)];
+                double n3z = af.director_[dirIdx(x+1, y+1, z, 2)];
 
                 if (FlipN(n2x, n2y, n2z, n3x, n3y, n3z)) {
                     n3x = -n3x;
@@ -148,9 +148,9 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                     n3z = -n3z;
                 }
 
-                double n4x = af.director_(z,y+1,x,0);
-                double n4y = af.director_(z,y+1,x,1);
-                double n4z = af.director_(z,y+1,x,2);
+                double n4x = af.director_[dirIdx(x, y+1, z, 0)];
+                double n4y = af.director_[dirIdx(x, y+1, z, 1)];
+                double n4z = af.director_[dirIdx(x, y+1, z, 2)];
 
                 if (FlipN(n3x, n3y, n3z, n4x, n4y, n4z)) {
                     n4x = -n4x;
@@ -159,7 +159,7 @@ void DefectFinder<BC>::ComputeWindingNumbers(const QTensorFields& qf, const Anal
                 }
 
                 if (FlipN(n4x, n4y, n4z, n1x, n1y, n1z)) {
-                    df.def_z(z, y, x) = 1;
+                    df.def_z[df.FlatZ(x, y, z)] = 1;
                 }
             }
         }
@@ -208,33 +208,33 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
      * 
      */
     auto compute_voxel = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
-        if (df.def_x(z, y, x) == 1) {
+        if (df.def_x[df.FlatX(x, y, z)] == 1) {
             FaceId first = df.FidX(x, y, z);
             // Check all the forward neighbors. This makes the `first` point pt `3` in the figure above.
 
             // Checking pt `6`
-            if (df.def_z(z, y, x) == 1) {
+            if (df.def_z[df.FlatZ(x, y, z)] == 1) {
                 FaceId second = df.FidZ(x, y, z);
                 df.conn.AddEdge(first, second); // 3 <-> 6
             }
             // Checking pt `5`
-            if (df.def_z(zp, y, x) == 1) {
+            if (df.def_z[df.FlatZ(x, y, zp)] == 1) {
                 FaceId second = df.FidZ(x, y, zp);
                 df.conn.AddEdge(first, second); // 3 <-> 5
             }
 
             // Checking pt `4`
-            if (df.def_y(z, y, x) == 1) {
+            if (df.def_y[df.FlatY(x, y, z)] == 1) {
                 FaceId second = df.FidY(x, y, z); 
                 df.conn.AddEdge(first, second); // 3 <-> 4
             }
             // Checking pt `2`
-            if (df.def_y(z, yp, x) == 1) {
+            if (df.def_y[df.FlatY(x, yp, z)] == 1) {
                 FaceId second = df.FidY(x, yp, z);
                 df.conn.AddEdge(first, second); // 2 <-> 3
             }
             // Checking pt `1`
-            if (df.def_x(z, y, xp) == 1) {
+            if (df.def_x[df.FlatX(xp, y, z)] == 1) {
                 FaceId second = df.FidX(xp, y, z);
                 df.conn.AddEdge(first, second); // 1 <-> 3
             }
@@ -244,13 +244,13 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
             
             // Checking backward pt `5`
             // xm can be nx-1 under periodic BC, which is out of range for def_z (extent nx-1)
-            if (xm < nx-1 && df.def_z(zp, y, xm) == 1) {
+            if (xm < nx-1 && df.def_z[df.FlatZ(xm, y, zp)] == 1) {
                 FaceId second = df.FidZ(xm, y, zp);
                 df.conn.AddEdge(first, second); // 1 <-> 5
             }
 
             // Checking backward pt `2`
-            if (xm < nx-1 && df.def_y(z, yp, xm) == 1) {
+            if (xm < nx-1 && df.def_y[df.FlatY(xm, yp, z)] == 1) {
                 FaceId second = df.FidY(xm, yp, z);
                 df.conn.AddEdge(first, second); // 1 <-> 2
             }
@@ -259,7 +259,7 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
 
         // Now, we process the def_y
 
-        if (df.def_y(z, y, x) == 1) {
+        if (df.def_y[df.FlatY(x, y, z)] == 1) {
             
             FaceId first = df.FidY(x, y, z);
             // Check all the forward neighbors. 
@@ -267,25 +267,25 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
             // Note that we need not check the point `3` again
 
             // Checking pt `6`
-            if (df.def_z(z, y, x) == 1) {
+            if (df.def_z[df.FlatZ(x, y, z)] == 1) {
                 FaceId second = df.FidZ(x, y, z);
                 df.conn.AddEdge(first, second); // 4 <-> 6
             }
             
             // Checking pt `5`
-            if (df.def_z(zp, y, x) == 1) {
+            if (df.def_z[df.FlatZ(x, y, zp)] == 1) {
                 FaceId second = df.FidZ(x, y, zp);
                 df.conn.AddEdge(first, second); // 4 <-> 5
             }
 
             // Checking pt `1`
-            if (df.def_x(z, y, xp) == 1) {
+            if (df.def_x[df.FlatX(xp, y, z)] == 1) {
                 FaceId second = df.FidX(xp, y, z);
                 df.conn.AddEdge(first, second); // 1 <-> 4
             }
 
             // Checking pt `2`
-            if (df.def_y(z, yp, x) == 1) {
+            if (df.def_y[df.FlatY(x, yp, z)] == 1) {
                 FaceId second = df.FidY(x, yp, z);
                 df.conn.AddEdge(first, second); // 2 <-> 4
             }
@@ -295,7 +295,7 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
             
             // Checking pt `5`
             // ym can be ny-1 under periodic BC, which is out of range for def_z (extent ny-1)
-            if (ym < ny-1 && df.def_z(zp, ym, x) == 1) {
+            if (ym < ny-1 && df.def_z[df.FlatZ(x, ym, zp)] == 1) {
                 FaceId second = df.FidZ(x, ym, zp);
                 df.conn.AddEdge(first, second); // 2 <-> 5
             }
@@ -303,26 +303,26 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
 
         // Finally, we process the def_z
 
-        if (df.def_z(z, y, x) == 1) {
+        if (df.def_z[df.FlatZ(x, y, z)] == 1) {
             
             FaceId first = df.FidZ(x, y, z);
             // Check all the forward neighbors. 
             // This makes the `first` point pt `6` in the figure above.
             // Note that we need not check the points `3` and `4` again
             // Checking pt `1`
-            if (df.def_x(z, y, xp) == 1) {
+            if (df.def_x[df.FlatX(xp, y, z)] == 1) {
                 FaceId second = df.FidX(xp, y, z);
                 df.conn.AddEdge(first, second); // 1 <-> 6
             }
 
             // Checking pt `2`
-            if (df.def_y(z, yp, x) == 1) {
+            if (df.def_y[df.FlatY(x, yp, z)] == 1) {
                 FaceId second = df.FidY(x, yp, z);
                 df.conn.AddEdge(first, second); // 2 <-> 6
             }
 
             // Checking pt `5`
-            if (df.def_z(zp, y, x) == 1) {
+            if (df.def_z[df.FlatZ(x, y, zp)] == 1) {
                 FaceId second = df.FidZ(x, y, zp);
                 df.conn.AddEdge(first, second); // 5 <-> 6
             }
