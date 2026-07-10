@@ -36,13 +36,6 @@ bool LbmSolver<BC>::InDomain(int x, int y, int z) const {
 }
 
 template<typename BC>
-double LbmSolver<BC>::Feq(double rhop, double uxp, double uyp, double uzp, int i) const {
-    const double u2 = uxp * uxp + uyp * uyp + uzp * uzp;
-    const double u_dot_e = uxp * Lattice::ex[i] + uyp * Lattice::ey[i] + uzp * Lattice::ez[i];
-    return (Lattice::w[i] * rhop * (1.0 + kCs2Inv * u_dot_e + khalfCs4Inv * u_dot_e * u_dot_e - khalfCs2Inv * u2));
-}
-
-template<typename BC>
 void LbmSolver<BC>::Initialize(FluidFields& ff) const {
     for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
@@ -51,8 +44,17 @@ void LbmSolver<BC>::Initialize(FluidFields& ff) const {
                 const double uxp  = ff.ux[idx(x, y, z)];
                 const double uyp  = ff.uy[idx(x, y, z)];
                 const double uzp  = ff.uz[idx(x, y, z)];
-                for (int i : std::views::iota(0, ndir))
-                    ff.f[idx(x, y, z, i)] = Feq(rhop, uxp, uyp, uzp, i);
+                Vec3 up{uxp, uyp, uzp};
+                const double u2 = up.Dot(up);
+                for (int i : std::views::iota(0, ndir)) {
+
+                    Vec3 e_i{
+                        static_cast<double>(Lattice::ex[i]),
+                        static_cast<double>(Lattice::ey[i]),
+                        static_cast<double>(Lattice::ez[i])
+                    };
+                    ff.f[idx(x, y, z, i)] = Feq({rhop, up}, e_i, u2, Lattice::w[i]);
+                }
             }
         }
     }
@@ -136,40 +138,34 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                 // ── Compute Moments ──────────────────────────────────────────
                 // Accumulate ρ, ρu from f; velocity uses the half-step
                 // force correction (Guo forcing scheme).
-                double arho = 0, aux = 0, auy = 0, auz = 0;
-                for (int i = 0; i < ndir; ++i) {
-                    const double fi = ff.f[idx(x, y, z, i)];
-                    arho += fi;
-                    aux  += Lattice::ex[i] * fi;
-                    auy  += Lattice::ey[i] * fi;
-                    auz  += Lattice::ez[i] * fi;
-                }
-                const double inv_r = 1.0 / arho;
-                const double rhop = arho;
-                const double uxp  = (aux + 0.5 * ff.fx[idx(x, y, z)] * DT) * inv_r;
-                const double uyp  = (auy + 0.5 * ff.fy[idx(x, y, z)] * DT) * inv_r;
-                const double uzp  = (auz + 0.5 * ff.fz[idx(x, y, z)] * DT) * inv_r;
-
-                ff.rho[idx(x, y, z)] = rhop;
-                ff.ux[idx(x, y, z)]  = uxp;
-                ff.uy[idx(x, y, z)]  = uyp;
-                ff.uz[idx(x, y, z)]  = uzp;
-
-                const double forceX = ff.fx[idx(x, y, z)];
-                const double forceY = ff.fy[idx(x, y, z)];
-                const double forceZ = ff.fz[idx(x, y, z)];
-                const double uF     = uxp * forceX + uyp * forceY + uzp * forceZ;
-
+                Vec3 force{
+                    ff.fx[idx(x, y, z)],
+                    ff.fy[idx(x, y, z)],
+                    ff.fz[idx(x, y, z)]
+                };
+                Moments m = ComputeMoments(
+                    ff.f.data(),
+                    {static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)},
+                    force,
+                    Lattice::ex,
+                    Lattice::ey,
+                    Lattice::ez
+                );
+                
+                
+                ff.rho[idx(x, y, z)] = m.rho;
+                ff.ux[idx(x, y, z)]  = m.u.x;
+                ff.uy[idx(x, y, z)]  = m.u.y;
+                ff.uz[idx(x, y, z)]  = m.u.z;
+                const double uF =  m.u.Dot(force);
+                const double u2 = m.u.Dot(m.u);
                 for (int i : std::views::iota(0, ndir)) {
-
-                    // ── Equilibrium Distribution ──────────────────────────────
-                    const double feq = Feq(rhop, uxp, uyp, uzp, i);
-
-                    // ── Forcing Term (Guo et al.) ─────────────────────────────
-                    const double ue  = uxp * Lattice::ex[i] + uyp * Lattice::ey[i] + uzp * Lattice::ez[i];
-                    const double eF  = Lattice::ex[i] * forceX + Lattice::ey[i] * forceY + Lattice::ez[i] * forceZ;
-                    const double forcing_term = omega_forcing * Lattice::w[i]
-                        * (3.0 * eF - 3.0 * uF + 9.0 * ue * eF);
+                    Vec3 e_i{
+                        static_cast<double>(Lattice::ex[i]),
+                        static_cast<double>(Lattice::ey[i]),
+                        static_cast<double>(Lattice::ez[i])
+                    };
+                    auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, e_i, Lattice::w[i]);
 
                     // ── Collision (BGK) ───────────────────────────────────────
                     const double f_star = omega * ff.f[idx(x, y, z, i)]

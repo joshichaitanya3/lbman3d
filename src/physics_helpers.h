@@ -11,6 +11,10 @@
 
 using namespace Params;
 
+struct Idx3 {
+    int x, y, z;
+};
+
 // Flat, periodic (x,y,z) -> offset for grid-sized fields; same layout on
 // host and device since there's no direction index to complicate things.
 inline CUDA_HOST_DEVICE int idx(int x, int y, int z) {
@@ -34,6 +38,95 @@ inline CUDA_HOST_DEVICE int idx(int x, int y, int z, int i) {
 #else
     return (((z + nz) % nz) * ny * nx + ((y + ny) % ny) * nx + ((x + nx) % nx)) * ndir + i;
 #endif
+}
+
+struct Vec3 {
+    double x, y, z;
+
+    CUDA_HOST_DEVICE Vec3& operator+=(const Vec3& rhs) // compound assignment (does not need to be a member,
+    {                           // but often is, to modify the private members)
+        x += rhs.x;
+        y += rhs.y;
+        z += rhs.z;
+        return *this; // return the result by reference
+    }
+    
+    // friends defined inside class body are inline and are hidden from non-ADL lookup
+    friend CUDA_HOST_DEVICE Vec3 operator+(Vec3 lhs,        // passing lhs by value helps optimize chained a+b+c
+                       const Vec3& rhs) // otherwise, both parameters may be const references
+    {
+        lhs += rhs; // reuse compound assignment
+        return lhs; // return the result by value (uses move constructor)
+    }
+
+    CUDA_HOST_DEVICE double Dot(const Vec3& rhs) const {
+        return x*rhs.x + y*rhs.y + z*rhs.z;
+    }
+};
+
+
+struct FeqForcing {
+    double feq, forcing;
+};
+
+struct Moments {
+    double rho;
+    Vec3 u;
+};
+
+inline CUDA_HOST_DEVICE double Feq(Moments m, Vec3 e, double u2, double w_i) {
+    
+    double u_dot_e = m.u.Dot(e);
+    return (w_i * m.rho * (1.0 + kCs2Inv * u_dot_e + khalfCs4Inv * u_dot_e * u_dot_e - khalfCs2Inv * u2));
+}
+
+inline CUDA_HOST_DEVICE FeqForcing ComputeFeqAndForcing(
+    Moments m,
+    double u2, // u-squared
+    double uF, // Product of force and velocity
+    Vec3 force,
+    Vec3 e,
+    double w_i
+) {
+
+    double ue = m.u.Dot(e);
+    double eF  = e.Dot(force);
+
+    double feq = (w_i * m.rho * (1.0 + 3.0 * ue + 4.5 * ue * ue - 1.5 * u2));
+    double forcing_term = omega_forcing * w_i
+        * (3.0 * eF - 3.0 * uF + 9.0 * ue * eF);
+    
+    return {feq, forcing_term};
+}
+
+inline CUDA_HOST_DEVICE Moments ComputeMoments(
+    double* f,
+    Idx3 point,
+    Vec3 force,
+    const int* ex,
+    const int* ey,
+    const int* ez
+) {
+    double rhop = 0.0;
+    double uxp = 0.0;
+    double uyp = 0.0;
+    double uzp = 0.0;
+    for (int i = 0; i < ndir; ++i) {
+        
+        double fi = f[idx(point.x, point.y, point.z, i)];
+        rhop += fi;
+        uxp += ex[i] * fi;
+        uyp += ey[i] * fi;
+        uzp += ez[i] * fi;
+    }
+    uxp += 0.5 * force.x * DT;
+    uyp += 0.5 * force.y * DT;
+    uzp += 0.5 * force.z * DT;
+    uxp /= rhop;
+    uyp /= rhop;
+    uzp /= rhop;
+    Vec3 up{uxp, uyp, uzp};
+    return {rhop, up};
 }
 
 #endif // LBM_AN_PHYSICS_HELPERS_H_

@@ -4,6 +4,7 @@
 #include <format>
 #include "params.h"
 #include "device_fields.h"
+#include "physics_helpers.h"
 
 using namespace Params;
 
@@ -17,9 +18,7 @@ static constexpr size_t kQstepSmem =
 dim3 block_{kBlockX, kBlockY, kBlockZ};
 dim3 grid_{(nx + kBlockX - 1) / kBlockX, (ny + kBlockY - 1) / kBlockY, (nz + kBlockZ - 1) / kBlockZ};
 
-// Fully periodic 3D — layout: i slowest, z, y, x fastest
-__host__ __device__ inline int idx(int x, int y, int z)            { return ((z+nz)%nz)*ny*nx + ((y+ny)%ny)*nx + ((x+nx)%nx); }
-__host__ __device__ inline int idx(int x, int y, int z, int i)     { return i*nz*ny*nx + ((z+nz)%nz)*ny*nx + ((y+ny)%ny)*nx + ((x+nx)%nx); }
+// idx(x,y,z[,i]) now comes from physics_helpers.h, shared with host code.
 __device__ inline bool InDomain(int x, int y, int z) { return true; }
 __device__ inline int wrap(int i, int n) { return (i + n) % n; }
 
@@ -37,85 +36,6 @@ __constant__ int d_opp[Params::ndir];
 __constant__ int d_specX[Params::ndir];
 __constant__ int d_specY[Params::ndir];
 __constant__ int d_specZ[Params::ndir];
-    
-struct Vec3 {
-    double x, y, z;
-};
-
-__host__ __device__ double Dot(Vec3 v1, Vec3 v2) {
-    return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
-}
-
-
-struct FeqForcing {
-    double feq, forcing;
-};
-
-struct Moments {
-    double rho;
-    Vec3 u;
-};
-
-__device__ double Feq(Moments m, double u2, int i) {
-    
-    Vec3 e{
-        static_cast<double>(d_ex[i]),
-        static_cast<double>(d_ey[i]),
-        static_cast<double>(d_ez[i])
-    };
-    double u_dot_e = Dot(m.u, e);
-    return (d_w[i] * m.rho * (1.0 + kCs2Inv * u_dot_e + khalfCs4Inv * u_dot_e * u_dot_e - khalfCs2Inv * u2));
-}
-
-
-__device__ FeqForcing ComputeFeqAndForcing(
-    Moments m,
-    double u2, // u-squared
-    double uF, // Product of force and velocity
-    Vec3 force,
-    int i 
-) {
-    Vec3 e{
-        static_cast<double>(d_ex[i]),
-        static_cast<double>(d_ey[i]),
-        static_cast<double>(d_ez[i])
-    };
-    double ue = Dot(m.u, e);
-    double eF  = Dot(force, e);
-
-    double feq = (d_w[i] * m.rho * (1.0 + 3.0 * ue + 4.5 * ue * ue - 1.5 * u2));
-    double forcing_term = DT * omega_forcing * d_w[i]
-        * (3.0 * eF - 3.0 * uF + 9.0 * ue * eF);
-    
-    return {feq, forcing_term};
-}
-
-__device__ Moments ComputeMoments(
-    double* f,
-    int3 point,
-    Vec3 force
-) {
-    double rhop = 0.0;
-    double uxp = 0.0;
-    double uyp = 0.0;
-    double uzp = 0.0;
-    for (int i = 0; i < ndir; ++i) {
-        
-        double fi = f[idx(point.x, point.y, point.z, i)];
-        rhop += fi;
-        uxp += d_ex[i] * fi;
-        uyp += d_ey[i] * fi;
-        uzp += d_ez[i] * fi;
-    }
-    uxp += 0.5 * force.x * DT;
-    uyp += 0.5 * force.y * DT;
-    uzp += 0.5 * force.z * DT;
-    uxp /= rhop;
-    uyp /= rhop;
-    uzp /= rhop;
-    Vec3 up{uxp, uyp, uzp};
-    return {rhop, up};
-}
 
 __global__ void GpuInitialize(
     double* f, 
@@ -135,10 +55,15 @@ __global__ void GpuInitialize(
     uyp =   uy[idx(x, y, z)]; // uy at current point
     uzp =   uz[idx(x, y, z)]; // uz at current point
     Vec3 up{uxp, uyp, uzp};
-    double u2 = Dot(up, up);	//Velocity squared
+    double u2 = up.Dot(up);	//Velocity squared
     for (int i = 0; i < ndir; ++i) {
+        Vec3 e{
+            static_cast<double>(d_ex[i]),
+            static_cast<double>(d_ey[i]),
+            static_cast<double>(d_ez[i])
+        };
         // f[idx(x, y, z, i)] = Feq({rhop, up}, u2, i);
-        f[idx(x, y, z, i)] = Feq({rhop, up}, u2, i);
+        f[idx(x, y, z, i)] = Feq({rhop, up}, e, u2, d_w[i]);
     }
 }
 
@@ -198,18 +123,31 @@ __global__ void GpuCollideAndStream(
     const int gid = idx(x, y, z);
     Vec3 force{force_x[gid], force_y[gid], force_z[gid]};
 
-    Moments m = ComputeMoments(f, {static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)}, force);
+    Moments m = ComputeMoments(
+        f,
+        {static_cast<int>(x), static_cast<int>(y), static_cast<int>(z)},
+        force,
+        d_ex,
+        d_ey,
+        d_ez
+    );
     rho[idx(x, y, z)] = m.rho;
     ux[idx(x, y, z)]  = m.u.x;
     uy[idx(x, y, z)]  = m.u.y;
     uz[idx(x, y, z)]  = m.u.z;
 
-    double uF = Dot(m.u, force);
-    double u2 = Dot(m.u, m.u);
+    double uF = m.u.Dot(force);
+    double u2 = m.u.Dot(m.u);
 
     for (int i = 0; i < ndir; ++i) {
-        auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, i);
-        double f_star = omega * f[idx(x, y, z, i)] + omega_prime * feq + forcing_term;
+        Vec3 e{
+            static_cast<double>(d_ex[i]),
+            static_cast<double>(d_ey[i]),
+            static_cast<double>(d_ez[i])
+        };
+
+        auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, e, d_w[i]);
+        double f_star = omega * f[idx(x, y, z, i)] + omega_prime * feq + DT * forcing_term;
         int xd = wrap(static_cast<int>(x) + d_ex[i], nx);
         int yd = wrap(static_cast<int>(y) + d_ey[i], ny);
         int zd = wrap(static_cast<int>(z) + d_ez[i], nz);
@@ -429,11 +367,11 @@ __global__ void GpuQTensorStep(
 
     const Vec3 u{s_ux[sz][sy][sx], s_uy[sz][sy][sx], s_uz[sz][sy][sx]};
 
-    qxx_new[gid] = qxxp + DT*(GAMMA*H_xx + S_xx + LAMBDA * (ktwo_thirds * D_xx + aln2_xx) - Dot(u, gqxx));
-    qxy_new[gid] = qxyp + DT*(GAMMA*H_xy + S_xy + LAMBDA * (ktwo_thirds * D_xy + aln2_xy) - Dot(u, gqxy));
-    qxz_new[gid] = qxzp + DT*(GAMMA*H_xz + S_xz + LAMBDA * (ktwo_thirds * D_xz + aln2_xz) - Dot(u, gqxz));
-    qyy_new[gid] = qyyp + DT*(GAMMA*H_yy + S_yy + LAMBDA * (ktwo_thirds * D_yy + aln2_yy) - Dot(u, gqyy));
-    qyz_new[gid] = qyzp + DT*(GAMMA*H_yz + S_yz + LAMBDA * (ktwo_thirds * D_yz + aln2_yz) - Dot(u, gqyz));
+    qxx_new[gid] = qxxp + DT*(GAMMA*H_xx + S_xx + LAMBDA * (ktwo_thirds * D_xx + aln2_xx) - u.Dot(gqxx));
+    qxy_new[gid] = qxyp + DT*(GAMMA*H_xy + S_xy + LAMBDA * (ktwo_thirds * D_xy + aln2_xy) - u.Dot(gqxy));
+    qxz_new[gid] = qxzp + DT*(GAMMA*H_xz + S_xz + LAMBDA * (ktwo_thirds * D_xz + aln2_xz) - u.Dot(gqxz));
+    qyy_new[gid] = qyyp + DT*(GAMMA*H_yy + S_yy + LAMBDA * (ktwo_thirds * D_yy + aln2_yy) - u.Dot(gqyy));
+    qyz_new[gid] = qyzp + DT*(GAMMA*H_yz + S_yz + LAMBDA * (ktwo_thirds * D_yz + aln2_yz) - u.Dot(gqyz));
 
     // Active force: f_a = -ALPHA*(div Q)_a - MU*u_a
     // qzz = -qxx - qyy, so ∂z(qzz) = -gqxx.z - gqyy.z
