@@ -4,6 +4,8 @@
 #include <vector>
 #include "params.h"
 #include "qtensor_fields.h"
+#include "physics_helpers.h"
+#include "grid.h"
 
 double HalfTrQ2(
     double Qxx,
@@ -18,6 +20,52 @@ double DetQ(
     double Qxz,
     double Qyy,
     double Qyz);
+    
+
+// Landau-de Gennes free energy density at a single point:
+//   A/2 TrQ² + B/3 TrQ³ + C/4 (TrQ²)² + elastic
+// Elastic uses the IBP form -L/2 Q:∇²Q, equal to L/2 (∇Q)² up to surface
+// terms. lap_Q* are the seven-point Laplacians of the corresponding Q
+// component (see StepAndSetupBodyForce for the stencil).
+double NematicFreeEnergyDensity(
+    double Qxx, double Qxy, double Qxz, double Qyy, double Qyz,
+    double lap_Qxx, double lap_Qxy, double lap_Qxz, double lap_Qyy, double lap_Qyz);
+
+// Domain-integrated nematic free energy. Recomputes the Laplacian stencil
+// itself (via Grid::QXoff/QYoff/QZoff), since that's only cheap to keep
+// inline in the solver's hot loop, not worth carrying as per-step state.
+// Call occasionally (e.g. from SimIO::Log), not every step.
+template<typename BC>
+double TotalNematicFreeEnergy(const QTensorFields& qf, const Grid<BC>& grid) {
+    double total = 0.0;
+    #pragma omp parallel for default(shared) num_threads(Params::numprocs) \
+        schedule(static) reduction(+:total)
+    for (int z = 0; z < Params::nz; ++z) {
+        for (int y = 0; y < Params::ny; ++y) {
+            for (int x = 0; x < Params::nx; ++x) {
+                const int xm = grid.QXoff(x, -1), xp = grid.QXoff(x, 1);
+                const int ym = grid.QYoff(y, -1), yp = grid.QYoff(y, 1);
+                const int zm = grid.QZoff(z, -1), zp = grid.QZoff(z, 1);
+
+                const double Qxx = qf.qxx[idx(x, y, z)];
+                const double Qxy = qf.qxy[idx(x, y, z)];
+                const double Qxz = qf.qxz[idx(x, y, z)];
+                const double Qyy = qf.qyy[idx(x, y, z)];
+                const double Qyz = qf.qyz[idx(x, y, z)];
+
+                const double lap_Qxx = qf.qxx[idx(xp,y,z)] + qf.qxx[idx(xm,y,z)] + qf.qxx[idx(x,yp,z)] + qf.qxx[idx(x,ym,z)] + qf.qxx[idx(x,y,zp)] + qf.qxx[idx(x,y,zm)] - 6.0*Qxx;
+                const double lap_Qxy = qf.qxy[idx(xp,y,z)] + qf.qxy[idx(xm,y,z)] + qf.qxy[idx(x,yp,z)] + qf.qxy[idx(x,ym,z)] + qf.qxy[idx(x,y,zp)] + qf.qxy[idx(x,y,zm)] - 6.0*Qxy;
+                const double lap_Qxz = qf.qxz[idx(xp,y,z)] + qf.qxz[idx(xm,y,z)] + qf.qxz[idx(x,yp,z)] + qf.qxz[idx(x,ym,z)] + qf.qxz[idx(x,y,zp)] + qf.qxz[idx(x,y,zm)] - 6.0*Qxz;
+                const double lap_Qyy = qf.qyy[idx(xp,y,z)] + qf.qyy[idx(xm,y,z)] + qf.qyy[idx(x,yp,z)] + qf.qyy[idx(x,ym,z)] + qf.qyy[idx(x,y,zp)] + qf.qyy[idx(x,y,zm)] - 6.0*Qyy;
+                const double lap_Qyz = qf.qyz[idx(xp,y,z)] + qf.qyz[idx(xm,y,z)] + qf.qyz[idx(x,yp,z)] + qf.qyz[idx(x,ym,z)] + qf.qyz[idx(x,y,zp)] + qf.qyz[idx(x,y,zm)] - 6.0*Qyz;
+
+                total += NematicFreeEnergyDensity(Qxx, Qxy, Qxz, Qyy, Qyz,
+                                                   lap_Qxx, lap_Qxy, lap_Qxz, lap_Qyy, lap_Qyz);
+            }
+        }
+    }
+    return total;
+}
 
 // Owns analysis state: director vector, scalar order, and past density+velocity
 // Flat, row-major storage indexed via idx(x,y,z) from physics_helpers.h

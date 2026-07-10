@@ -13,8 +13,6 @@ struct QTensorFields {
     // Nematic stress tensor (active + passive)
     std::vector<double> Pxx, Pxy, Pxz, Pyy, Pyz;
 
-    double nematic_energy = 0.0;
-
     QTensorFields();
 
     void SwapWithNew() {

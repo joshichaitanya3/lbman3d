@@ -55,6 +55,12 @@ namespace Params {
     
     // Logging verbosity
     inline constexpr bool kDebugLogging = false;
+
+    // Tracks TotalNematicFreeEnergy (see analysis_fields.h) in SimIO::Log.
+    // Off by default: it's an O(N) domain pass with its own neighbor stencil,
+    // only meaningful as a solver sanity check — e.g. with ALPHA=0, starting
+    // from random Q and flow, the free energy should monotonically decrease.
+    inline constexpr bool kTrackNematicEnergy = false;
 }
 
 #endif // LBM_AN_PARAMS_H_

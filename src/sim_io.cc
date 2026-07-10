@@ -66,7 +66,7 @@ void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_i
     compat::println(log_file_, "##########################################################");
 }
 
-bool SimIO::Log(const FluidFields& ff, QTensorFields& qf, AnalysisFields& af, const DefectFields& df, int time_step) {
+bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy) {
     double mass = 0.0, px = 0.0, py = 0.0, pz=0, ke=0.0, e1 = 0.0, e2 = 0.0;
 
     #pragma omp parallel for schedule(static) default(shared) \
@@ -96,7 +96,7 @@ bool SimIO::Log(const FluidFields& ff, QTensorFields& qf, AnalysisFields& af, co
     int num_disclinations = df.disclinations.size();
 
     compat::println(log_file_, "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, Kinetic Energy: {}, Total Energy: {}, Relative Error: {}, NumDisclinations: {}",
-                    time_step, mass, px, py, pz, ke, ke + qf.nematic_energy, e1/e2, num_disclinations);
+                    time_step, mass, px, py, pz, ke, ke + nematic_energy, e1/e2, num_disclinations);
     std::flush(log_file_);
     if (std::isnan(mass) || std::isnan(px) || std::isnan(py) || std::isnan(pz)) {
         compat::println(log_file_, "DIVERGED at time step {} — aborting.", time_step);

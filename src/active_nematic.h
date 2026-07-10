@@ -27,6 +27,7 @@ enum ExportFormat { CSV, VTKHDF };
 // To run without any Q-tensor dynamics use LbmSolver directly.
 template<typename BC>
 class ActiveNematicSim {
+    Grid<BC>       grid_;
     FluidFields    fluid_;
     QTensorFields  qtensor_;
     DeviceFields   d_fields_;
@@ -51,7 +52,8 @@ public:
     // Supply a QTensorSolver subclass to override the activity model.
     explicit ActiveNematicSim(Grid<BC> grid,
                               std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
-        : lbm_(grid),
+        : grid_(grid),
+          lbm_(grid),
           qtensor_solver_(solver ? std::move(solver)
                                  : std::make_unique<QTensorSolver<BC>>(grid)),
           finder_(grid)
@@ -86,7 +88,11 @@ public:
         #ifdef SIM_WITH_CUDA
         d_fields_.CopyToHost(fluid_, qtensor_);
         #endif
-        return io_.Log(fluid_, qtensor_, af_, df_, time_step_);
+        double nematic_energy = 0.0;
+        if constexpr (Params::kTrackNematicEnergy) {
+            nematic_energy = TotalNematicFreeEnergy(qtensor_, grid_);
+        }
+        return io_.Log(fluid_, af_, df_, time_step_, nematic_energy);
     }
 
     void Export(const std::string& path, ExportFormat fmt) {

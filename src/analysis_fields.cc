@@ -33,6 +33,27 @@ double DetQ(
     return (-(Qxx + Qyy) * (Qxx*Qyy - Qxy*Qxy) - Qyy*Qxz*Qxz - Qxx*Qyz*Qyz + 2*Qxy*Qxz*Qyz);
 }
 
+double NematicFreeEnergyDensity(
+    double Qxx, double Qxy, double Qxz, double Qyy, double Qyz,
+    double lap_Qxx, double lap_Qxy, double lap_Qxz, double lap_Qyy, double lap_Qyz) {
+
+    const double TrQ2 = 2.0 * HalfTrQ2(Qxx, Qxy, Qxz, Qyy, Qyz);
+
+    const double kone_thirds = 1.0/3.0;
+    const double Q2_xx = Qxx*Qxx + Qxy*Qxy + Qxz*Qxz - kone_thirds * TrQ2;
+    const double Q2_xy = Qxx*Qxy + Qxy*Qyy + Qxz*Qyz;
+    const double Q2_xz = Qxy*Qyz - Qxz*Qyy;
+    const double Q2_yy = Qxy*Qxy + Qyy*Qyy + Qyz*Qyz - kone_thirds * TrQ2;
+    const double Q2_yz = Qxy*Qxz - Qyz*Qxx;
+
+    const double TrQ3 = 2.0*Qxx*Q2_xx + 2.0*Qyy*Q2_yy + Qxx*Q2_yy + Qyy*Q2_xx
+                       + 2.0*(Qxy*Q2_xy + Qxz*Q2_xz + Qyz*Q2_yz);
+    const double Q_lap_Q = 2.0*Qxx*lap_Qxx + 2.0*Qyy*lap_Qyy + Qxx*lap_Qyy + Qyy*lap_Qxx
+                         + 2.0*(Qxy*lap_Qxy + Qxz*lap_Qxz + Qyz*lap_Qyz);
+
+    return 0.5*A*TrQ2 + (B/3.0)*TrQ3 + 0.25*C*TrQ2*TrQ2 - 0.5*L*Q_lap_Q;
+}
+
 void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
 
     // #pragma omp parallel for num_threads(numprocs) schedule(static)
