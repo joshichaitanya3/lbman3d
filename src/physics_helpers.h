@@ -7,6 +7,7 @@
 #define CUDA_HOST_DEVICE
 #endif
 
+#include <cassert>
 #include "params.h"
 
 using namespace Params;
@@ -21,7 +22,14 @@ inline CUDA_HOST_DEVICE bool InDomain(int x, int y, int z) {
 
 // Flat, periodic (x,y,z) -> offset for grid-sized fields; same layout on
 // host and device since there's no direction index to complicate things.
+// Every current caller already guarantees (x,y,z) is in-domain (via
+// Grid::QXoff/QYoff/QZoff, which always clamp/wrap, or an InDomain guard
+// before streaming destinations reach here) — the modulo below is at this
+// point just insurance. The assert catches a caller that stops holding that
+// invariant; it's compiled out under -DNDEBUG (see CMakeLists.txt's Release
+// flags), so it costs nothing in a normal run.
 inline CUDA_HOST_DEVICE int idx(int x, int y, int z) {
+    assert(InDomain(x, y, z) && "idx(x,y,z): coordinates out of domain");
     return ((z + nz) % nz) * ny * nx + ((y + ny) % ny) * nx + ((x + nx) % nx);
 }
 
@@ -37,6 +45,8 @@ inline CUDA_HOST_DEVICE int idx(int x, int y, int z) {
 // nvcc treats __host__-tagged and __device__-tagged free functions with the
 // same name/signature as a redefinition, not as distinct overloads.
 inline CUDA_HOST_DEVICE int idx(int x, int y, int z, int i) {
+    assert(InDomain(x, y, z) && "idx(x,y,z,i): coordinates out of domain");
+    assert(i >= 0 && i < ndir && "idx(x,y,z,i): direction index out of range");
 #ifdef __CUDA_ARCH__
     return i * nz * ny * nx + ((z + nz) % nz) * ny * nx + ((y + ny) % ny) * nx + ((x + nx) % nx);
 #else
