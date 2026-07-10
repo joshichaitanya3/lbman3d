@@ -30,9 +30,8 @@ void QTensorSolver<BC>::Initialize(QTensorFields& qf) const {
 
 template<typename BC>
 void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff) const {
-    double total_nematic_energy = 0.0;
 
-    auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) -> double {
+    auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
 
         // Fields
 
@@ -233,18 +232,11 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
         qf.qyy_new(z, y, x) = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * Hyy);
         qf.qyz_new(z, y, x) = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * Hyz);
 
-        // Nematic free energy density: A/2 TrQ² + B/3 TrQ³ + C/4 (TrQ²)² + elastic
-        // Elastic uses IBP form -L/2 Q:∇²Q, equal to L/2 (∇Q)² up to surface terms.
-        const double TrQ3 = 2.0*Qxx*Q2_xx + 2.0*Qyy*Q2_yy + Qxx*Q2_yy + Qyy*Q2_xx
-                          + 2.0*(Qxy*Q2_xy + Qxz*Q2_xz + Qyz*Q2_yz);
-        const double Q_lap_Q = 2.0*Qxx*lap_Qxx + 2.0*Qyy*lap_Qyy + Qxx*lap_Qyy + Qyy*lap_Qxx
-                             + 2.0*(Qxy*lap_Qxy + Qxz*lap_Qxz + Qyz*lap_Qyz);
-        return 0.5*A*TrQ2 + (B/3.0)*TrQ3 + 0.25*C*TrQ2*TrQ2 - 0.5*L*Q_lap_Q;
     };
     
     // Single parallel loop over the full domain. Ghost-node stencil offsets are
     // resolved inline; anchoring BCs are applied per-point after the FD step.
-    #pragma omp parallel for num_threads(numprocs) schedule(static) reduction(+:total_nematic_energy)
+    #pragma omp parallel for num_threads(numprocs) schedule(static)
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
@@ -269,7 +261,6 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
         }
     }
 
-    qf.nematic_energy = total_nematic_energy;
     UpdateQnewWithQ(qf);
 }
 
