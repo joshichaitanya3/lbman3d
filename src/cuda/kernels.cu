@@ -158,7 +158,10 @@ __global__ void GpuCollideAndStream(
     }
 }
 
-// Fills face halos in a 3D shared tile. Fully periodic — wrap() handles wrapping.
+// Fills face halos in a 3D shared tile. Fully periodic: the GPU Q-tensor step
+// doesn't have per-axis BC-aware neighbor offsets yet (unlike the host's
+// QXoff/QYoff/QZoff), so wrap() is applied explicitly here rather than relying
+// on idx()'s own bounds — idx() now asserts its (x,y,z) is already in-domain.
 __device__ void set_halo(
     double* d_arr,
     double s_arr[][kBlockY+2*kHalo][kBlockX+2*kHalo],
@@ -167,17 +170,17 @@ __device__ void set_halo(
     int gx, int gy, int gz)
 {
     if (tx < kHalo)
-        s_arr[sz][sy][sx - kHalo] = d_arr[idx(gx - kHalo, gy, gz)];
+        s_arr[sz][sy][sx - kHalo] = d_arr[idx(wrap(gx - kHalo, nx), gy, gz)];
     if (tx >= (kBlockX - kHalo))
-        s_arr[sz][sy][sx + kHalo] = d_arr[idx(gx + kHalo, gy, gz)];
+        s_arr[sz][sy][sx + kHalo] = d_arr[idx(wrap(gx + kHalo, nx), gy, gz)];
     if (ty < kHalo)
-        s_arr[sz][sy - kHalo][sx] = d_arr[idx(gx, gy - kHalo, gz)];
+        s_arr[sz][sy - kHalo][sx] = d_arr[idx(gx, wrap(gy - kHalo, ny), gz)];
     if (ty >= (kBlockY - kHalo))
-        s_arr[sz][sy + kHalo][sx] = d_arr[idx(gx, gy + kHalo, gz)];
+        s_arr[sz][sy + kHalo][sx] = d_arr[idx(gx, wrap(gy + kHalo, ny), gz)];
     if (tz < kHalo)
-        s_arr[sz - kHalo][sy][sx] = d_arr[idx(gx, gy, gz - kHalo)];
+        s_arr[sz - kHalo][sy][sx] = d_arr[idx(gx, gy, wrap(gz - kHalo, nz))];
     if (tz >= (kBlockZ - kHalo))
-        s_arr[sz + kHalo][sy][sx] = d_arr[idx(gx, gy, gz + kHalo)];
+        s_arr[sz + kHalo][sy][sx] = d_arr[idx(gx, gy, wrap(gz + kHalo, nz))];
 }
 
 
