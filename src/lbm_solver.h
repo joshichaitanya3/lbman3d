@@ -14,7 +14,6 @@ class LbmSolver {
     int  UXoff(int x, int s) const { return grid_.UXoff(x, s); }
     int  UYoff(int y, int s) const { return grid_.UYoff(y, s); }
     int  UZoff(int z, int s) const { return grid_.UZoff(z, s); }
-    bool InDomain(int x, int y, int z) const;
 
     // Apply the boundary condition for WallSpec to a single out-of-domain stream.
     // Called when direction i at node (x,y,z) streams outside the domain.

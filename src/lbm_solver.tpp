@@ -31,11 +31,6 @@ LbmSolver<BC>::LbmSolver(Grid<BC> grid) : grid_(std::move(grid)) {
 }
 
 template<typename BC>
-bool LbmSolver<BC>::InDomain(int x, int y, int z) const {
-    return (x >= 0) && (x < nx) && (y >= 0) && (y < ny) && (z >= 0) && (z < nz);
-}
-
-template<typename BC>
 void LbmSolver<BC>::Initialize(FluidFields& ff) const {
     for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {

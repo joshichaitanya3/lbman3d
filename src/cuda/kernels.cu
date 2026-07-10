@@ -19,7 +19,6 @@ dim3 block_{kBlockX, kBlockY, kBlockZ};
 dim3 grid_{(nx + kBlockX - 1) / kBlockX, (ny + kBlockY - 1) / kBlockY, (nz + kBlockZ - 1) / kBlockZ};
 
 // idx(x,y,z[,i]) now comes from physics_helpers.h, shared with host code.
-__device__ inline bool InDomain(int x, int y, int z) { return true; }
 __device__ inline int wrap(int i, int n) { return (i + n) % n; }
 
 

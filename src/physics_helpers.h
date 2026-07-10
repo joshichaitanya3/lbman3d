@@ -15,6 +15,10 @@ struct Idx3 {
     int x, y, z;
 };
 
+inline CUDA_HOST_DEVICE bool InDomain(int x, int y, int z) {
+    return (x >= 0) && (x < nx) && (y >= 0) && (y < ny) && (z >= 0) && (z < nz);
+}
+
 // Flat, periodic (x,y,z) -> offset for grid-sized fields; same layout on
 // host and device since there's no direction index to complicate things.
 inline CUDA_HOST_DEVICE int idx(int x, int y, int z) {
