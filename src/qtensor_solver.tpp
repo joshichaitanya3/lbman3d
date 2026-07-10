@@ -29,7 +29,7 @@ void QTensorSolver<BC>::Initialize(QTensorFields& qf) const {
 }
 
 template<typename BC>
-void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, const FluidFields& ff) const {
+void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff) const {
     double total_nematic_energy = 0.0;
 
     auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) -> double {

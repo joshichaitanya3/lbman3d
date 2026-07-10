@@ -59,7 +59,7 @@ public:
      * body force `ff.fx/fy/fz`. The divergence of the stress will be added 
      * to the body force separately.
      */
-    void StepAndSetupBodyForce(QTensorFields& qf, const FluidFields& ff) const;
+    void StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff) const;
 
     // Compute active body force from Q gradients → writes ff.fx, ff.fy.
     // Then add passive stresses and friction.
