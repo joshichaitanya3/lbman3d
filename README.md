@@ -8,10 +8,10 @@ The flow equation is solved using a D3Q15 scheme. The Q-tensor equation is solve
 | Dependency | Version | Notes |
 |---|---|---|
 | CMake | ≥ 3.23 | Build system |
-| C++ compiler | C++23 | GCC 13+ or Clang 17+ recommended |
+| C++ compiler | C++23 (CPU) / C++20 (CUDA) | GCC 13+ or Clang 17+ recommended; nvcc does not support C++23, so the standard drops to C++20 automatically when building with CUDA |
 | OpenMP | — | Usually bundled with the compiler |
 | HDF5 | any recent | C library only |
-| [kokkos/mdspan](https://github.com/kokkos/mdspan) | `stable` | Fetched automatically by CMake |
+| CUDA Toolkit | optional | Enables the GPU-accelerated path; auto-detected by CMake if present (see `-DLBM_FORCE_CPU` under [Building](#building)) |
 
 ### Installing HDF5
 
@@ -107,7 +107,14 @@ cmake -B build
 cmake --build build -j$(nproc)
 ```
 
-The `mdspan` library is fetched from GitHub automatically on the first configure step — no manual download needed.
+If CMake finds a CUDA compiler, it automatically builds the GPU-accelerated path. Pass `-DLBM_FORCE_CPU=ON` to force a CPU-only build even when CUDA is available:
+
+```bash
+cmake -B build -DLBM_FORCE_CPU=ON
+cmake --build build -j$(nproc)
+```
+
+**If you have a CUDA-capable machine but want a production run right now, use `-DLBM_FORCE_CPU=ON`.** The GPU path is currently a proof of concept: it only supports fully periodic boundary conditions (regardless of what's configured in `sim_config.h`) and does not yet compute the passive (elastic) stress contribution to the body force. Only the CPU path has the full physics and all boundary condition types. Running the GPU build prints a warning to this effect at startup and logs it to `lbm.log`.
 
 ## Running
 
