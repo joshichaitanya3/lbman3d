@@ -8,6 +8,8 @@
 #include <stdexcept>
 #include "vtkhdf_writer.h"
 #include "analysis/defect_fields.h"
+#include "physics_helpers.h"
+#include "lattice_stencil.h"
 
 #include "analysis/disclination.h"
 using namespace Params;
@@ -22,11 +24,14 @@ SimIO::~SimIO() {
         compat::println(log_file_, "LBM program exited.");
 }
 
-void SimIO::LogSetupSummary(std::string_view bc_name) {
+void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_info) {
     compat::println(log_file_, "Hybrid Lattice Boltzmann simulation for 3D active nematics\n");
     compat::println(log_file_, "##########################################################");
     compat::println(log_file_, "#####################   Parameters   #####################");
     compat::println(log_file_, "##########################################################");
+    compat::println(log_file_, "");
+    compat::println(log_file_, "--- Compute backend ---");
+    compat::println(log_file_, "  {}", backend_info);
     compat::println(log_file_, "");
     compat::println(log_file_, "--- Grid ---");
     compat::println(log_file_, "  nx = {}, ny = {}, nz = {}", nx, ny, nz);
@@ -62,7 +67,7 @@ void SimIO::LogSetupSummary(std::string_view bc_name) {
     compat::println(log_file_, "##########################################################");
 }
 
-bool SimIO::Log(const FluidFields& ff, QTensorFields& qf, AnalysisFields& af, const DefectFields& df, int time_step) {
+bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy) {
     double mass = 0.0, px = 0.0, py = 0.0, pz=0, ke=0.0, e1 = 0.0, e2 = 0.0;
 
     #pragma omp parallel for schedule(static) default(shared) \
@@ -70,29 +75,29 @@ bool SimIO::Log(const FluidFields& ff, QTensorFields& qf, AnalysisFields& af, co
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
-                mass += ff.rho[z, y, x];
-                px   += ff.rho[z, y, x] * ff.ux[z, y, x];
-                py   += ff.rho[z, y, x] * ff.uy[z, y, x];
-                pz   += ff.rho[z, y, x] * ff.uz[z, y, x];
-                ke   += 0.5 * ff.rho[z, y, x] * (ff.ux[z, y, x]*ff.ux[z, y, x] + 
-                                                 ff.uy[z, y, x]*ff.uy[z, y, x] + 
-                                                 ff.uz[z, y, x]*ff.uz[z, y, x]);
+                mass += ff.rho[idx(x, y, z)];
+                px   += ff.rho[idx(x, y, z)] * ff.ux[idx(x, y, z)];
+                py   += ff.rho[idx(x, y, z)] * ff.uy[idx(x, y, z)];
+                pz   += ff.rho[idx(x, y, z)] * ff.uz[idx(x, y, z)];
+                ke   += 0.5 * ff.rho[idx(x, y, z)] * (ff.ux[idx(x, y, z)]*ff.ux[idx(x, y, z)] + 
+                                                 ff.uy[idx(x, y, z)]*ff.uy[idx(x, y, z)] + 
+                                                 ff.uz[idx(x, y, z)]*ff.uz[idx(x, y, z)]);
 
-                e1   += (ff.ux[z,y,x]-af.ux_past_[z,y,x])*(ff.ux[z,y,x]-af.ux_past_[z,y,x])
-                        + (ff.uy[z,y,x]-af.uy_past_[z,y,x])*(ff.uy[z,y,x]-af.uy_past_[z,y,x])
-                        + (ff.uz[z,y,x]-af.uz_past_[z,y,x])*(ff.uz[z,y,x]-af.uz_past_[z,y,x]);
+                e1   += (ff.ux[idx(x, y, z)]-af.ux_past_[idx(x, y, z)])*(ff.ux[idx(x, y, z)]-af.ux_past_[idx(x, y, z)])
+                        + (ff.uy[idx(x, y, z)]-af.uy_past_[idx(x, y, z)])*(ff.uy[idx(x, y, z)]-af.uy_past_[idx(x, y, z)])
+                        + (ff.uz[idx(x, y, z)]-af.uz_past_[idx(x, y, z)])*(ff.uz[idx(x, y, z)]-af.uz_past_[idx(x, y, z)]);
 
-                e2   += ff.ux[z,y,x]*ff.ux[z,y,x] + ff.uy[z,y,x]*ff.uy[z,y,x]  + ff.uz[z,y,x]*ff.uz[z,y,x];
-                af.ux_past_[z, y, x] = ff.ux[z, y, x];
-                af.uy_past_[z, y, x] = ff.uy[z, y, x];
-                af.uz_past_[z, y, x] = ff.uz[z, y, x];
+                e2   += ff.ux[idx(x, y, z)]*ff.ux[idx(x, y, z)] + ff.uy[idx(x, y, z)]*ff.uy[idx(x, y, z)]  + ff.uz[idx(x, y, z)]*ff.uz[idx(x, y, z)];
+                af.ux_past_[idx(x, y, z)] = ff.ux[idx(x, y, z)];
+                af.uy_past_[idx(x, y, z)] = ff.uy[idx(x, y, z)];
+                af.uz_past_[idx(x, y, z)] = ff.uz[idx(x, y, z)];
             }
         }
     }
     int num_disclinations = df.disclinations.size();
 
     compat::println(log_file_, "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, Kinetic Energy: {}, Total Energy: {}, Relative Error: {}, NumDisclinations: {}",
-                    time_step, mass, px, py, pz, ke, ke + qf.nematic_energy, e1/e2, num_disclinations);
+                    time_step, mass, px, py, pz, ke, ke + nematic_energy, e1/e2, num_disclinations);
     std::flush(log_file_);
     if (std::isnan(mass) || std::isnan(px) || std::isnan(py) || std::isnan(pz)) {
         compat::println(log_file_, "DIVERGED at time step {} — aborting.", time_step);
@@ -123,25 +128,25 @@ void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx-1; ++x) {
-                compat::print(rho_file,  "{},", ff.rho[z, y, x]);
-                compat::print(ux_file,   "{},", ff.ux[z, y, x]);
-                compat::print(uy_file,   "{},", ff.uy[z, y, x]);
-                compat::print(uz_file,   "{},", ff.uz[z, y, x]);
-                compat::print(qxx_file,  "{},", qf.qxx[z, y, x]);
-                compat::print(qxy_file,  "{},", qf.qxy[z, y, x]);
-                compat::print(qxz_file,  "{},", qf.qxz[z, y, x]);
-                compat::print(qyy_file,  "{},", qf.qyy[z, y, x]);
-                compat::print(qyz_file,  "{},", qf.qyz[z, y, x]);                
+                compat::print(rho_file,  "{},", ff.rho[idx(x, y, z)]);
+                compat::print(ux_file,   "{},", ff.ux[idx(x, y, z)]);
+                compat::print(uy_file,   "{},", ff.uy[idx(x, y, z)]);
+                compat::print(uz_file,   "{},", ff.uz[idx(x, y, z)]);
+                compat::print(qxx_file,  "{},", qf.qxx[idx(x, y, z)]);
+                compat::print(qxy_file,  "{},", qf.qxy[idx(x, y, z)]);
+                compat::print(qxz_file,  "{},", qf.qxz[idx(x, y, z)]);
+                compat::print(qyy_file,  "{},", qf.qyy[idx(x, y, z)]);
+                compat::print(qyz_file,  "{},", qf.qyz[idx(x, y, z)]);                
             }
-            compat::print(rho_file,  "{}\n", ff.rho[z, y, nx-1]);
-            compat::print(ux_file,   "{}\n", ff.ux[z, y, nx-1]);
-            compat::print(uy_file,   "{}\n", ff.uy[z, y, nx-1]);
-            compat::print(uz_file,   "{}\n", ff.uz[z, y, nx-1]);
-            compat::print(qxx_file,  "{}\n", qf.qxx[z, y, nx-1]);
-            compat::print(qxy_file,  "{}\n", qf.qxy[z, y, nx-1]);
-            compat::print(qxz_file,  "{}\n", qf.qxz[z, y, nx-1]);
-            compat::print(qyy_file,  "{}\n", qf.qyy[z, y, nx-1]);
-            compat::print(qyz_file,  "{}\n", qf.qyz[z, y, nx-1]);
+            compat::print(rho_file,  "{}\n", ff.rho[idx(nx-1, y, z)]);
+            compat::print(ux_file,   "{}\n", ff.ux[idx(nx-1, y, z)]);
+            compat::print(uy_file,   "{}\n", ff.uy[idx(nx-1, y, z)]);
+            compat::print(uz_file,   "{}\n", ff.uz[idx(nx-1, y, z)]);
+            compat::print(qxx_file,  "{}\n", qf.qxx[idx(nx-1, y, z)]);
+            compat::print(qxy_file,  "{}\n", qf.qxy[idx(nx-1, y, z)]);
+            compat::print(qxz_file,  "{}\n", qf.qxz[idx(nx-1, y, z)]);
+            compat::print(qyy_file,  "{}\n", qf.qyy[idx(nx-1, y, z)]);
+            compat::print(qyz_file,  "{}\n", qf.qyz[idx(nx-1, y, z)]);
         }
     }
 
@@ -153,7 +158,7 @@ void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
 void SimIO::ExportDistributionCSV(const FluidFields& ff,
                                 const std::string& path, int step) {
     std::ofstream f_file;
-    for (int i : std::views::iota(0, ndir)) {
+    for (int i : std::views::iota(0, Lattice::ndir)) {
         f_file.open(compat::format("{}/f_{}_{}.csv", path, i, step), std::ios::out);
         if (!f_file.is_open())
             throw std::runtime_error("Failed to open data file");
@@ -161,9 +166,9 @@ void SimIO::ExportDistributionCSV(const FluidFields& ff,
         for (int z = 0; z < nz; ++z) {
             for (int y = 0; y < ny; ++y) {
                 for (int x = 0; x < nx-1; ++x) {
-                    compat::print(f_file, "{},", ff.f[z, y, x, i]);
+                    compat::print(f_file, "{},", ff.f[idx(x, y, z, i)]);
                 }
-                compat::print(f_file, "{}\n", ff.f[z, y, nx-1, i]);
+                compat::print(f_file, "{}\n", ff.f[idx(nx-1, y, z, i)]);
             }
         }
         f_file.close();
@@ -184,29 +189,31 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, Analysi
 
     // --- PointData datasets, shape [nz, ny, nx] (z slowest, x fastest) ---
 
-    writer.WriteScalarField("rho", ff.rho_data.data());
+    writer.WriteScalarField("rho", ff.rho.data());
 
     if constexpr (Params::kDebugLogging) {
-        // f[z,y,x,i] is interleaved, so we still need a scratch buffer per direction.
+        // ff.f is laid out with i fastest-varying (host idx() layout), so we still
+        // need a scratch buffer per direction with the export's [z,y,x] layout.
         std::vector<double> buf(nx * ny * nz);
-        for (int i = 0; i < ndir; i++) {
+        for (int i = 0; i < Lattice::ndir; i++) {
             for (int z = 0; z < nz; ++z)
                 for (int y = 0; y < ny; ++y)
                     for (int x = 0; x < nx; ++x)
-                        buf[z * ny * nx + y * nx + x] = ff.f[z, y, x, i];
+                        buf[z * ny * nx + y * nx + x] = ff.f[idx(x, y, z, i)];
             writer.WriteScalarField(std::format("f{}", i).c_str(), buf.data());
         }
     }
 
-    writer.WriteScalarField("order", af.order_data_.data());
+    writer.WriteScalarField("order", af.order_.data());
 
     // Velocity: three independent scalar fields, written directly from backing stores.
-    writer.WriteScalarField("ux", ff.ux_data.data());
-    writer.WriteScalarField("uy", ff.uy_data.data());
-    writer.WriteScalarField("uz", ff.uz_data.data());
+    writer.WriteScalarField("ux", ff.ux.data());
+    writer.WriteScalarField("uy", ff.uy.data());
+    writer.WriteScalarField("uz", ff.uz.data());
 
-    // Director: AoS layout [nz, ny, nx, 3] matches the mdspan backing store directly.
-    writer.WriteVectorField("director", af.director_data_.data());
+    // Director: AoS layout [nz, ny, nx, 3] (see dirIdx in analysis_fields.h) passes
+    // straight through to WriteVectorField without repacking.
+    writer.WriteVectorField("director", af.director_.data());
 
     // --- FieldData: simulation time ---
     // {

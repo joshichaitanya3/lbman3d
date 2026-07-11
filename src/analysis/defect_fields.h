@@ -4,25 +4,19 @@
 #include <stdint.h>
 #include <vector>
 #include "params.h"
-#include <mdspan/mdspan.hpp>
 #include "defect_connectivity_graph.h"
 #include "disclination.h"
 
 using namespace Params;
 
-// Owns defect fields
+// Owns defect fields. Face-centered, each with its own (non-uniform) extent,
+// so each is indexed via its own FlatX/FlatY/FlatZ (below) rather than the
+// shared idx(x,y,z): def_x is (NX, NY-1, NZ-1)-shaped, def_y is
+// (NX-1, NY, NZ-1), def_z is (NX-1, NY-1, NZ).
 struct DefectFields {
-    std::vector<uint8_t> def_x_data;  // size NX     * (NY-1) * (NZ-1)
-    std::vector<uint8_t> def_y_data;  // size (NX-1) *  NY    * (NZ-1)
-    std::vector<uint8_t> def_z_data;  // size (NX-1) * (NY-1) *  NZ
-
-    using ext3x_t  = Kokkos::extents<int, nz-1, ny-1, nx  >;
-    using ext3y_t  = Kokkos::extents<int, nz-1, ny  , nx-1>;
-    using ext3z_t  = Kokkos::extents<int, nz  , ny-1, nx-1>;
-
-    Kokkos::mdspan<uint8_t, ext3x_t>  def_x;
-    Kokkos::mdspan<uint8_t, ext3y_t>  def_y;
-    Kokkos::mdspan<uint8_t, ext3z_t>  def_z;
+    std::vector<uint8_t> def_x;  // size NX     * (NY-1) * (NZ-1)
+    std::vector<uint8_t> def_y;  // size (NX-1) *  NY    * (NZ-1)
+    std::vector<uint8_t> def_z;  // size (NX-1) * (NY-1) *  NZ
 
     FaceId n_def_x = static_cast<FaceId>(nx)   * static_cast<FaceId>(ny-1) * static_cast<FaceId>(nz-1);
     FaceId n_def_y = static_cast<FaceId>(nx-1) * static_cast<FaceId>(ny)   * static_cast<FaceId>(nz-1);

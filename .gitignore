@@ -52,6 +52,9 @@ Makefile
 install_manifest.txt
 compile_commands.json
 
+# CMake local files
+CMakePresets.json
+
 # Temporary files
 *.tmp
 *.log
@@ -73,3 +76,6 @@ data/
 
 # Profiling output
 perf*
+
+# VS-code-specific
+.vscode/

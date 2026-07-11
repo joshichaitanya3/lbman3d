@@ -5,12 +5,9 @@ using namespace Params;
 
 
 DefectFields::DefectFields() :
-    def_x_data(nx     * (ny - 1) * (nz - 1), 0),
-    def_y_data((nx-1) * ny       * (nz - 1), 0),
-    def_z_data((nx-1) * (ny - 1) * nz      , 0),
-    def_x(def_x_data.data(), nz-1, ny-1, nx  ),
-    def_y(def_y_data.data(), nz-1, ny  , nx-1),
-    def_z(def_z_data.data(), nz  , ny-1, nx-1)
+    def_x(nx     * (ny - 1) * (nz - 1), 0),
+    def_y((nx-1) * ny       * (nz - 1), 0),
+    def_z((nx-1) * (ny - 1) * nz      , 0)
 {}
 
 

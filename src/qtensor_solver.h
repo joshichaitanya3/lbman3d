@@ -1,7 +1,7 @@
 #ifndef LBM_AN_QTENSOR_SOLVER_H_
 #define LBM_AN_QTENSOR_SOLVER_H_
 
-#include "grid.h"
+#include "offsets.h"
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 
@@ -15,13 +15,11 @@
 //       void SetActiveStressAndComputeBodyForce(FluidFields&, const QTensorFields&) const override;
 //   };
 //
-//   ActiveNematicSim<PeriodicBC> sim{grid, std::make_unique<VaryingAlpha>(grid)};
+//   ActiveNematicSim<PeriodicBC> sim{std::make_unique<VaryingAlpha>()};
 //
 // For pure relaxation (zero activity), override SetActiveStressAndComputeBodyForce with an empty body.
 template<typename BC>
 class QTensorSolver {
-    Grid<BC> grid_;
-
     void UpdateQnewWithQ(QTensorFields& qf) const;
 
     // Apply the Q-tensor anchoring BC for WallSpec at a single node (x,y,z).
@@ -37,14 +35,8 @@ class QTensorSolver {
     //   computed from S and the director angles (θ,φ).
     template<typename WallSpec> void HandleQBoundaryPoint(QTensorFields& qf, int x, int y, int z) const;
 
-protected:
-    // Exposed to subclasses for BC-aware stencil access in overrides.
-    int QXoff(int x, int s) const { return grid_.QXoff(x, s); }
-    int QYoff(int y, int s) const { return grid_.QYoff(y, s); }
-    int QZoff(int z, int s) const { return grid_.QZoff(z, s); }
-
 public:
-    explicit QTensorSolver(Grid<BC> grid);
+    QTensorSolver() = default;
     virtual ~QTensorSolver() = default;
 
     // Set initial Q field with uniform noise (qxx ≈ 0.5, qxy ≈ 0).
@@ -59,7 +51,7 @@ public:
      * body force `ff.fx/fy/fz`. The divergence of the stress will be added 
      * to the body force separately.
      */
-    void StepAndSetupBodyForce(QTensorFields& qf, const FluidFields& ff) const;
+    void StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff) const;
 
     // Compute active body force from Q gradients → writes ff.fx, ff.fy.
     // Then add passive stresses and friction.

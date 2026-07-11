@@ -24,12 +24,16 @@ public:
     SimIO();
     ~SimIO();
 
-    // Print all Params values and BC name to the log.  Call once after construction.
-    void LogSetupSummary(std::string_view bc_name);
+    // Print all Params values, BC name, and compute backend (CPU/GPU) info to
+    // the log.  Call once after construction.
+    void LogSetupSummary(std::string_view bc_name, std::string_view backend_info);
 
     // Log mass, momentum, velocity error; update internal past-velocity state.
+    // nematic_energy is the caller-computed TotalNematicFreeEnergy (see
+    // analysis_fields.h) — not recomputed here since it's only meaningful
+    // occasionally, not worth templating Log() on BC.
     // Returns false (and logs a message) if any quantity is NaN.
-    bool Log(const FluidFields& ff, QTensorFields& qf, AnalysisFields& af, const DefectFields& df, int time_step);
+    bool Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy);
 
     // Write per-field CSV files to `path/`.  Updates internal rho_past state.
     void ExportCSV(const FluidFields& ff, const QTensorFields& qf,
