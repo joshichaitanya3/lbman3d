@@ -2,7 +2,8 @@
 #include "params.h"
 #include "cuda_utils.h"
 #include "lattice_stencil.h"
-#include "kernels.cu"
+#include "physics_helpers.h"
+#include <algorithm>
 
 std::string InitializeComputeBackend() {
     checkCudaErrors(cudaSetDevice(0));
@@ -60,32 +61,28 @@ DeviceFields::DeviceFields() :
     d_qyz_new (Params::nx * Params::ny * Params::nz, 0.0)
 {}
 
-void DeviceFields::Initialize(const QTensorFields& qf) {
+void DeviceFields::Initialize(FluidFields& ff, const QTensorFields& qf) {
 
-    checkCudaErrors(cudaMemcpyToSymbol(d_ex, Lattice::ex, sizeof(Lattice::ex)));
-    checkCudaErrors(cudaMemcpyToSymbol(d_ey, Lattice::ey, sizeof(Lattice::ey)));
-    checkCudaErrors(cudaMemcpyToSymbol(d_ez, Lattice::ez, sizeof(Lattice::ez)));
-    checkCudaErrors(cudaMemcpyToSymbol(d_w, Lattice::w, sizeof(Lattice::w)));
-    checkCudaErrors(cudaMemcpyToSymbol(d_opp, Lattice::opp, sizeof(Lattice::opp)));
-    checkCudaErrors(cudaMemcpyToSymbol(d_specX, Lattice::specX, sizeof(Lattice::specX)));
-    checkCudaErrors(cudaMemcpyToSymbol(d_specY, Lattice::specY, sizeof(Lattice::specY)));
-    checkCudaErrors(cudaMemcpyToSymbol(d_specZ, Lattice::specZ, sizeof(Lattice::specZ)));
+    // Device idx(x,y,z,i) has i slowest-varying (host has i fastest), so
+    // ff.f can't be copied to d_f directly — transpose it first. ff.f_new is
+    // reused as scratch for the transposed layout rather than allocating a
+    // new buffer: it's only ever meaningful as LbmSolver::LatticeBoltzmannStep's
+    // double-buffer swap target, and that never runs under SIM_WITH_CUDA
+    // (Step() calls d_solver_ instead of lbm_) — so it's safe to clobber
+    // here regardless of whether ff.f itself is ever synced from d_f for
+    // debugging later. Restored to ff.f's contents afterward purely so it
+    // doesn't look like corrupted data to anything that inspects it later.
+    const int n = Params::nx * Params::ny * Params::nz;
+    for (int z = 0; z < Params::nz; ++z)
+        for (int y = 0; y < Params::ny; ++y)
+            for (int x = 0; x < Params::nx; ++x)
+                for (int i = 0; i < Lattice::ndir; ++i)
+                    ff.f_new[i * n + idx(x, y, z)] = ff.f[idx(x, y, z, i)];
 
-    checkCudaErrors(cudaFuncSetAttribute(
-        GpuQTensorStep,
-        cudaFuncAttributeMaxDynamicSharedMemorySize,
-        kQstepSmem
-    ));
-    std::cout << std::format("Requested {} bytes of shared memory\n", kQstepSmem) << std::endl; 
-    GpuInitialize<<<grid_, block_>>>(
-        d_f.data().get(),
-        d_rho.data().get(),
-        d_ux.data().get(),
-        d_uy.data().get(),
-        d_uz.data().get()
-    );
-    checkCudaErrors(cudaGetLastError());
+    thrust::copy(ff.f_new.begin(), ff.f_new.end(), d_f.begin());
+    std::copy(ff.f.begin(), ff.f.end(), ff.f_new.begin());
 
+    // Copy QTensor fields initialized on the host to the device
     thrust::copy(qf.qxx.begin(),  qf.qxx.end(),  d_qxx.begin());
     thrust::copy(qf.qxy.begin(),  qf.qxy.end(),  d_qxy.begin());
     thrust::copy(qf.qxz.begin(),  qf.qxz.end(),  d_qxz.begin());
@@ -104,50 +101,4 @@ void DeviceFields::CopyToHost(FluidFields& ff, QTensorFields& qf) const {
     thrust::copy(d_qxz.begin(),  d_qxz.end(),  qf.qxz.begin());
     thrust::copy(d_qyy.begin(),  d_qyy.end(),  qf.qyy.begin());
     thrust::copy(d_qyz.begin(),  d_qyz.end(),  qf.qyz.begin());
-}
-
-void DeviceFields::QTensorStep() {
-
-    GpuQTensorStep<<<grid_, block_, kQstepSmem>>>(
-        d_qxx.data().get(),
-        d_qxy.data().get(),
-        d_qxz.data().get(),
-        d_qyy.data().get(),
-        d_qyz.data().get(),
-        d_qxx_new.data().get(),
-        d_qxy_new.data().get(),
-        d_qxz_new.data().get(),
-        d_qyy_new.data().get(),
-        d_qyz_new.data().get(),
-        d_ux.data().get(),
-        d_uy.data().get(),
-        d_uz.data().get(),
-        d_force_x.data().get(),
-        d_force_y.data().get(),
-        d_force_z.data().get()
-    );
-    checkCudaErrors(cudaGetLastError());
-
-    d_qxx.swap(d_qxx_new);
-    d_qxy.swap(d_qxy_new);
-    d_qxz.swap(d_qxz_new);
-    d_qyy.swap(d_qyy_new);
-    d_qyz.swap(d_qyz_new);
-}
-
-void DeviceFields::LBMStep() {
-    GpuCollideAndStream<<<grid_, block_>>>(
-        d_f.data().get(),
-        d_f_new.data().get(),
-        d_force_x.data().get(),
-        d_force_y.data().get(),
-        d_force_z.data().get(),
-        d_rho.data().get(),
-        d_ux.data().get(),
-        d_uy.data().get(),
-        d_uz.data().get()
-    );
-    checkCudaErrors(cudaGetLastError());
-
-    d_f.swap(d_f_new);
 }

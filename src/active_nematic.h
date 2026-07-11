@@ -15,6 +15,7 @@
 #include "analysis/defect_fields.h"
 #include "analysis/defect_finder.h"
 #include "device_fields.h"
+#include "device_solver.h"
 
 enum ExportFormat { CSV, VTKHDF };
 
@@ -30,6 +31,7 @@ class ActiveNematicSim {
     FluidFields    fluid_;
     QTensorFields  qtensor_;
     DeviceFields   d_fields_;
+    DeviceSolver   d_solver_;
     AnalysisFields af_;
     DefectFields   df_;
     DefectFinder<BC> finder_;
@@ -42,7 +44,8 @@ class ActiveNematicSim {
         lbm_.Initialize(fluid_);
         qtensor_solver_->Initialize(qtensor_);
         #ifdef SIM_WITH_CUDA
-        d_fields_.Initialize(qtensor_);
+        d_fields_.Initialize(fluid_, qtensor_);
+        d_solver_.Initialize(d_fields_);
         #endif // SIM_WITH_CUDA
     }
     int num_files_exported = 0;
@@ -59,14 +62,14 @@ public:
 
     void QTensorStep() {
         #ifdef SIM_WITH_CUDA
-        d_fields_.QTensorStep();
+        d_solver_.QTensorStep(d_fields_);
         #else
         qtensor_solver_->Step(qtensor_, fluid_);
         #endif
     }
     void LBMStep() {
         #ifdef SIM_WITH_CUDA
-        d_fields_.LBMStep();
+        d_solver_.LBMStep(d_fields_);
         #else
         lbm_.LatticeBoltzmannStep(fluid_);
         #endif
