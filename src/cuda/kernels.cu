@@ -37,36 +37,6 @@ __constant__ int d_specX[Lattice::ndir];
 __constant__ int d_specY[Lattice::ndir];
 __constant__ int d_specZ[Lattice::ndir];
 
-__global__ void GpuInitialize(
-    double* f, 
-    double* rho,
-    double* ux,
-    double* uy,
-    double* uz) {
-    
-    double rhop, uxp, uyp, uzp;
-    unsigned int z = blockIdx.z * blockDim.z + threadIdx.z;
-    unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
-    unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
-    if (x >= nx || y >= ny || z >= nz) return;  // bounds guard
-
-    rhop = rho[idx(x, y, z)]; // rho at current point
-    uxp =   ux[idx(x, y, z)]; // ux at current point
-    uyp =   uy[idx(x, y, z)]; // uy at current point
-    uzp =   uz[idx(x, y, z)]; // uz at current point
-    Vec3 up{uxp, uyp, uzp};
-    double u2 = up.Dot(up);	//Velocity squared
-    for (int i = 0; i < Lattice::ndir; ++i) {
-        Vec3 e{
-            static_cast<double>(d_ex[i]),
-            static_cast<double>(d_ey[i]),
-            static_cast<double>(d_ez[i])
-        };
-        // f[idx(x, y, z, i)] = Feq({rhop, up}, u2, i);
-        f[idx(x, y, z, i)] = Feq({rhop, up}, e, u2, d_w[i]);
-    }
-}
-
 // ---- Future work: compile-time-switchable boundary conditions ----------------
 // To support multiple BC types without runtime branching, template this kernel
 // on top/bottom wall BC types using an enum and if constexpr:
