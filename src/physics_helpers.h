@@ -9,6 +9,7 @@
 
 #include <cassert>
 #include "params.h"
+#include "lattice_stencil.h"
 
 using namespace Params;
 
@@ -46,11 +47,11 @@ inline CUDA_HOST_DEVICE int idx(int x, int y, int z) {
 // same name/signature as a redefinition, not as distinct overloads.
 inline CUDA_HOST_DEVICE int idx(int x, int y, int z, int i) {
     assert(InDomain(x, y, z) && "idx(x,y,z,i): coordinates out of domain");
-    assert(i >= 0 && i < ndir && "idx(x,y,z,i): direction index out of range");
+    assert(i >= 0 && i < Lattice::ndir && "idx(x,y,z,i): direction index out of range");
 #ifdef __CUDA_ARCH__
     return i * nz * ny * nx + ((z + nz) % nz) * ny * nx + ((y + ny) % ny) * nx + ((x + nx) % nx);
 #else
-    return (((z + nz) % nz) * ny * nx + ((y + ny) % ny) * nx + ((x + nx) % nx)) * ndir + i;
+    return (((z + nz) % nz) * ny * nx + ((y + ny) % ny) * nx + ((x + nx) % nx)) * Lattice::ndir + i;
 #endif
 }
 
@@ -125,8 +126,8 @@ inline CUDA_HOST_DEVICE Moments ComputeMoments(
     double uxp = 0.0;
     double uyp = 0.0;
     double uzp = 0.0;
-    for (int i = 0; i < ndir; ++i) {
-        
+    for (int i = 0; i < Lattice::ndir; ++i) {
+
         double fi = f[idx(point.x, point.y, point.z, i)];
         rhop += fi;
         uxp += ex[i] * fi;

@@ -14,6 +14,8 @@
 // cudaMemcpyToSymbol in DeviceFields::Initialize().
 namespace Lattice {
 
+inline constexpr int ndir = 15;
+
 /*!\brief  D3Q15 Structure
  *
  *             8_ _ _ _ _ _ _ _ _ _ _ _  7
@@ -37,10 +39,10 @@ namespace Lattice {
  *
  */
 //                                       0  1  2   3   4   5   6  7   8   9  10, 11, 12, 13, 14
-inline constexpr int ex[Params::ndir] = {0, 1, 0, -1,  0,  0,  0, 1, -1, -1,  1,  1, -1, -1,  1};
-inline constexpr int ey[Params::ndir] = {0, 0, 1,  0, -1,  0,  0, 1,  1, -1, -1,  1,  1, -1, -1};
-inline constexpr int ez[Params::ndir] = {0, 0, 0,  0,  0,  1, -1, 1,  1,  1,  1, -1, -1, -1, -1};
-inline constexpr double w[Params::ndir] = {
+inline constexpr int ex[ndir] = {0, 1, 0, -1,  0,  0,  0, 1, -1, -1,  1,  1, -1, -1,  1};
+inline constexpr int ey[ndir] = {0, 0, 1,  0, -1,  0,  0, 1,  1, -1, -1,  1,  1, -1, -1};
+inline constexpr int ez[ndir] = {0, 0, 0,  0,  0,  1, -1, 1,  1,  1,  1, -1, -1, -1, -1};
+inline constexpr double w[ndir] = {
     2.0/9, // 0
     1.0/9, 1.0/9, 1.0/9, 1.0/9, 1.0/9, 1.0/9, // 1-6
     1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72, 1.0/72  // 7-14
@@ -50,28 +52,28 @@ inline constexpr double w[Params::ndir] = {
 //   0↔0  1↔3  2↔4  5↔6  7↔13  8↔14  9↔11  10↔12
 
 //                                        0  1  2  3  4  5  6   7   8   9  10 11  12 13 14
-inline constexpr int opp[Params::ndir] = {0, 3, 4, 1, 2, 6, 5, 13, 14, 11, 12, 9, 10, 7, 8};
+inline constexpr int opp[ndir] = {0, 3, 4, 1, 2, 6, 5, 13, 14, 11, 12, 9, 10, 7, 8};
 
 // Specular reflection partner for Z-walls (reflect ez, keep ey, ex):
 //   specZ[i] = direction with (ex[i], ey[i], -ez[i])
 //   0↔0  1↔1  2↔2  3↔3  4↔4  5↔6  7↔11  8↔12  9↔13  10↔14
 
 //                                          0  1  2  3  4  5  6   7   8   9  10 11 12 13  14
-inline constexpr int specZ[Params::ndir] = {0, 1, 2, 3, 4, 6, 5, 11, 12, 13, 14, 7, 8, 9, 10};
+inline constexpr int specZ[ndir] = {0, 1, 2, 3, 4, 6, 5, 11, 12, 13, 14, 7, 8, 9, 10};
 
 // Specular reflection partner for Y-walls (reflect ey, keep ez, ex):
 //   specY[i] = direction with (ex[i], -ey[i], ez[i])
 //   0↔0  1↔1  2↔4  3↔3  5↔5  6↔6  7↔10  8↔9  11↔14  12↔13
 
 //                                          0  1  2  3  4  5  6   7  8  9 10  11  12  13  14
-inline constexpr int specY[Params::ndir] = {0, 1, 4, 3, 2, 5, 6, 10, 9, 8, 7, 14, 13, 12, 11};
+inline constexpr int specY[ndir] = {0, 1, 4, 3, 2, 5, 6, 10, 9, 8, 7, 14, 13, 12, 11};
 
 // Specular reflection partner for X-walls (reflect ey, keep ez, ex):
 //   specX[i] = direction with (-ex[i], ey[i], ez[i])
 //   0↔0  1↔3  2↔2  4↔4  5↔5  6↔6  7↔8  9↔10  11↔12  13↔14
 
 //                                          0  1  2  3  4  5  6  7  8   9 10  11  12  13  14
-inline constexpr int specX[Params::ndir] = {0, 3, 2, 1, 4, 5, 6, 8, 7, 10, 9, 12, 11, 14, 13};
+inline constexpr int specX[ndir] = {0, 3, 2, 1, 4, 5, 6, 8, 7, 10, 9, 12, 11, 14, 13};
 
 /*
  * Missing (incoming) directions per wall face:

@@ -9,6 +9,7 @@
 #include "vtkhdf_writer.h"
 #include "analysis/defect_fields.h"
 #include "physics_helpers.h"
+#include "lattice_stencil.h"
 
 #include "analysis/disclination.h"
 using namespace Params;
@@ -157,7 +158,7 @@ void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
 void SimIO::ExportDistributionCSV(const FluidFields& ff,
                                 const std::string& path, int step) {
     std::ofstream f_file;
-    for (int i : std::views::iota(0, ndir)) {
+    for (int i : std::views::iota(0, Lattice::ndir)) {
         f_file.open(compat::format("{}/f_{}_{}.csv", path, i, step), std::ios::out);
         if (!f_file.is_open())
             throw std::runtime_error("Failed to open data file");
@@ -194,7 +195,7 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, Analysi
         // ff.f is laid out with i fastest-varying (host idx() layout), so we still
         // need a scratch buffer per direction with the export's [z,y,x] layout.
         std::vector<double> buf(nx * ny * nz);
-        for (int i = 0; i < ndir; i++) {
+        for (int i = 0; i < Lattice::ndir; i++) {
             for (int z = 0; z < nz; ++z)
                 for (int y = 0; y < ny; ++y)
                     for (int x = 0; x < nx; ++x)

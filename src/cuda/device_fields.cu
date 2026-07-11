@@ -39,8 +39,8 @@ std::string InitializeComputeBackend() {
 }
 
 DeviceFields::DeviceFields() :
-    d_f       (Params::nx * Params::ny * Params::nz * Params::ndir, 0.0),
-    d_f_new   (Params::nx * Params::ny * Params::nz * Params::ndir, 0.0),
+    d_f       (Params::nx * Params::ny * Params::nz * Lattice::ndir, 0.0),
+    d_f_new   (Params::nx * Params::ny * Params::nz * Lattice::ndir, 0.0),
     d_rho     (Params::nx * Params::ny * Params::nz, Params::kDensity),
     d_ux      (Params::nx * Params::ny * Params::nz, 0.0),
     d_uy      (Params::nx * Params::ny * Params::nz, 0.0),

@@ -5,6 +5,7 @@
 #include "params.h"
 #include "device_fields.h"
 #include "physics_helpers.h"
+#include "lattice_stencil.h"
 
 using namespace Params;
 
@@ -27,14 +28,14 @@ __device__ inline int wrap(int i, int n) { return (i + n) % n; }
 // a raw array of scalar type to be used inside a kernel unless it's used
 // inside a constexpr __device__ or __host__ __device__ function, so a
 // runtime-indexed device array needs its own device-resident storage.
-__constant__ int d_ex[Params::ndir];
-__constant__ int d_ey[Params::ndir];
-__constant__ int d_ez[Params::ndir];
-__constant__ double d_w[Params::ndir];
-__constant__ int d_opp[Params::ndir];
-__constant__ int d_specX[Params::ndir];
-__constant__ int d_specY[Params::ndir];
-__constant__ int d_specZ[Params::ndir];
+__constant__ int d_ex[Lattice::ndir];
+__constant__ int d_ey[Lattice::ndir];
+__constant__ int d_ez[Lattice::ndir];
+__constant__ double d_w[Lattice::ndir];
+__constant__ int d_opp[Lattice::ndir];
+__constant__ int d_specX[Lattice::ndir];
+__constant__ int d_specY[Lattice::ndir];
+__constant__ int d_specZ[Lattice::ndir];
 
 __global__ void GpuInitialize(
     double* f, 
@@ -55,7 +56,7 @@ __global__ void GpuInitialize(
     uzp =   uz[idx(x, y, z)]; // uz at current point
     Vec3 up{uxp, uyp, uzp};
     double u2 = up.Dot(up);	//Velocity squared
-    for (int i = 0; i < ndir; ++i) {
+    for (int i = 0; i < Lattice::ndir; ++i) {
         Vec3 e{
             static_cast<double>(d_ex[i]),
             static_cast<double>(d_ey[i]),
@@ -138,7 +139,7 @@ __global__ void GpuCollideAndStream(
     double uF = m.u.Dot(force);
     double u2 = m.u.Dot(m.u);
 
-    for (int i = 0; i < ndir; ++i) {
+    for (int i = 0; i < Lattice::ndir; ++i) {
         Vec3 e{
             static_cast<double>(d_ex[i]),
             static_cast<double>(d_ey[i]),

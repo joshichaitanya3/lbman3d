@@ -14,7 +14,6 @@ namespace Params {
     inline constexpr int nx = 100;
     inline constexpr int ny = 100;
     inline constexpr int nz = 15;
-    inline constexpr int ndir = 15;
     inline constexpr int nq = 3;
     inline constexpr int numprocs = 10;
 

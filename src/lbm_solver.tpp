@@ -41,7 +41,7 @@ void LbmSolver<BC>::Initialize(FluidFields& ff) const {
                 const double uzp  = ff.uz[idx(x, y, z)];
                 Vec3 up{uxp, uyp, uzp};
                 const double u2 = up.Dot(up);
-                for (int i : std::views::iota(0, ndir)) {
+                for (int i : std::views::iota(0, Lattice::ndir)) {
 
                     Vec3 e_i{
                         static_cast<double>(Lattice::ex[i]),
@@ -154,7 +154,7 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                 ff.uz[idx(x, y, z)]  = m.u.z;
                 const double uF =  m.u.Dot(force);
                 const double u2 = m.u.Dot(m.u);
-                for (int i : std::views::iota(0, ndir)) {
+                for (int i : std::views::iota(0, Lattice::ndir)) {
                     Vec3 e_i{
                         static_cast<double>(Lattice::ex[i]),
                         static_cast<double>(Lattice::ey[i]),
