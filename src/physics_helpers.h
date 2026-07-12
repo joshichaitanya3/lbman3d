@@ -89,6 +89,17 @@ struct Moments {
     Vec3 u;
 };
 
+// Full (non-symmetric) velocity gradient tensor, v_A_B = ∂(u_A)/∂B. uz_z
+// isn't stored; derive it via incompressibility (-(ux_x + uy_y)) at the call
+// site. Shared between boundary_handler.h's host-side, BC-aware
+// VelocityGradientTensor and kernels.cu's device-only, shared-memory-tile-
+// based VelGradient — both return this same plain aggregate.
+struct GradTensor {
+    double ux_x, ux_y, ux_z;
+    double uy_x, uy_y, uy_z;
+    double uz_x, uz_y;
+};
+
 inline CUDA_HOST_DEVICE double Feq(Moments m, Vec3 e, double u2, double w_i) {
     
     double u_dot_e = m.u.Dot(e);

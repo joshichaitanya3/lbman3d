@@ -55,49 +55,6 @@ void LbmSolver<BC>::Initialize(FluidFields& ff) const {
     }
 }
 
-namespace {
-template<typename U> constexpr double wallVx() {
-    if constexpr (is_moving_wall_v<U>) return U::Ux; else return 0.0;
-}
-template<typename U> constexpr double wallVy() {
-    if constexpr (is_moving_wall_v<U>) return U::Uy; else return 0.0;
-}
-template<typename U> constexpr double wallVz() {
-    if constexpr (is_moving_wall_v<U>) return U::Uz; else return 0.0;
-}
-} // namespace
-
-template<typename BC>
-template<typename WallSpec>
-void LbmSolver<BC>::HandleBoundaryPoint(
-    int x,
-    int y,
-    int z,
-    int i,
-    int i_refl,
-    double f_star,
-    FluidFields& ff
-) const {
-    using U = typename WallSpec::UBC;
-    if constexpr (std::is_same_v<U, Periodic>) {
-        // Periodic axes never reach here: UXoff/UYoff/UZoff wrap destinations
-        // in-domain. Guard against silent bounce-back if that assumption breaks.
-        return;
-    }
-    else if constexpr (std::is_same_v<U, SpecularReflection>) {
-        ff.f_new[idx(x, y, z, i_refl)] = f_star;
-    }
-    else {
-        constexpr double Ux = wallVx<U>();
-        constexpr double Uy = wallVy<U>();
-        constexpr double Uz = wallVz<U>();
-        const int m = Lattice::opp[i];
-        double rhop = ff.rho[idx(x, y, z)];
-        ff.f_new[idx(x, y, z, m)] = f_star + kCs2InvTimes2 * rhop * Lattice::w[m]
-                                * (Lattice::ex[m] * Ux + Lattice::ey[m] * Uy + Lattice::ez[m] * Uz);
-    }
-}
-
 template<typename BC>
 void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
     // Single-pass LBM step: moments → f_eq + forcing → collision → stream + BC.
@@ -168,31 +125,32 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                         + DT * forcing_term;
 
                     // ── Stream + Apply Boundary Conditions ───────────────────
-                    const int dx = UXoff<BC>(x, Lattice::ex[i]);
-                    const int dy = UYoff<BC>(y, Lattice::ey[i]);
-                    const int dz = UZoff<BC>(z, Lattice::ez[i]);
+                    const int dx = StreamXoff<BC>(x, Lattice::ex[i]);
+                    const int dy = StreamYoff<BC>(y, Lattice::ey[i]);
+                    const int dz = StreamZoff<BC>(z, Lattice::ez[i]);
                     if (InDomain(dx, dy, dz)) {
                         ff.f_new[idx(dx, dy, dz, i)] = f_star;
                     }
                     else {
+                        double* f_new = ff.f_new.data();
 
                         if (dx < 0) {
-                            HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, Lattice::specX[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, Lattice::specX[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
                         }
                         else if (dx >= nx) {
-                            HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, Lattice::specX[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, Lattice::specX[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
                         }
                         if (dy < 0) {
-                            HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, Lattice::specY[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, Lattice::specY[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
                         }
                         else if (dy >= ny) {
-                            HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, Lattice::specY[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, Lattice::specY[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
                         }
                         if (dz < 0) {
-                            HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, Lattice::specZ[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, Lattice::specZ[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
                         }
                         else if (dz >= nz) {
-                            HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, Lattice::specZ[i], f_star, ff);
+                            HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, Lattice::specZ[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
                         }
                     }
                 }
