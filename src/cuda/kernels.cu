@@ -37,36 +37,6 @@ __constant__ int d_specX[Lattice::ndir];
 __constant__ int d_specY[Lattice::ndir];
 __constant__ int d_specZ[Lattice::ndir];
 
-__global__ void GpuInitialize(
-    double* f, 
-    double* rho,
-    double* ux,
-    double* uy,
-    double* uz) {
-    
-    double rhop, uxp, uyp, uzp;
-    unsigned int z = blockIdx.z * blockDim.z + threadIdx.z;
-    unsigned int y = blockIdx.y * blockDim.y + threadIdx.y;
-    unsigned int x = blockIdx.x * blockDim.x + threadIdx.x;
-    if (x >= nx || y >= ny || z >= nz) return;  // bounds guard
-
-    rhop = rho[idx(x, y, z)]; // rho at current point
-    uxp =   ux[idx(x, y, z)]; // ux at current point
-    uyp =   uy[idx(x, y, z)]; // uy at current point
-    uzp =   uz[idx(x, y, z)]; // uz at current point
-    Vec3 up{uxp, uyp, uzp};
-    double u2 = up.Dot(up);	//Velocity squared
-    for (int i = 0; i < Lattice::ndir; ++i) {
-        Vec3 e{
-            static_cast<double>(d_ex[i]),
-            static_cast<double>(d_ey[i]),
-            static_cast<double>(d_ez[i])
-        };
-        // f[idx(x, y, z, i)] = Feq({rhop, up}, u2, i);
-        f[idx(x, y, z, i)] = Feq({rhop, up}, e, u2, d_w[i]);
-    }
-}
-
 // ---- Future work: compile-time-switchable boundary conditions ----------------
 // To support multiple BC types without runtime branching, template this kernel
 // on top/bottom wall BC types using an enum and if constexpr:
@@ -263,10 +233,22 @@ __global__ void GpuQTensorStep(
     unsigned int z = blockIdx.z * blockDim.z + tz;
     unsigned int y = blockIdx.y * blockDim.y + ty;
     unsigned int x = blockIdx.x * blockDim.x + tx;
-    if (x >= nx || y >= ny || z >= nz) return;
+    const bool in_domain = (x < nx) && (y < ny) && (z < nz);
+
+    // __syncthreads() below requires every thread in the block to arrive —
+    // when nx/ny/nz isn't a multiple of kBlockX/kBlockY/kBlockZ, the last
+    // block's out-of-domain "padding" threads can't just return here: an
+    // in-domain neighbor's Laplacian/Gradient stencil reads directly across
+    // into a padding thread's own tile slot, so skipping the load would
+    // leave that slot uninitialized. Padding threads load their periodic
+    // wraparound image (lx,ly,lz) instead, and every thread defers bailing
+    // out until after both barriers below.
+    const int lx = wrap(static_cast<int>(x), nx);
+    const int ly = wrap(static_cast<int>(y), ny);
+    const int lz = wrap(static_cast<int>(z), nz);
 
     const int sx = tx + kHalo, sy = ty + kHalo, sz = tz + kHalo;
-    const int gid = idx(x, y, z);
+    const int gid = idx(lx, ly, lz);
 
     s_qxx[sz][sy][sx] = qxx[gid];  s_qxy[sz][sy][sx] = qxy[gid];
     s_qxz[sz][sy][sx] = qxz[gid];  s_qyy[sz][sy][sx] = qyy[gid];
@@ -276,16 +258,18 @@ __global__ void GpuQTensorStep(
 
     __syncthreads();
 
-    set_halo(qxx, s_qxx, tx, ty, tz, sx, sy, sz, x, y, z);
-    set_halo(qxy, s_qxy, tx, ty, tz, sx, sy, sz, x, y, z);
-    set_halo(qxz, s_qxz, tx, ty, tz, sx, sy, sz, x, y, z);
-    set_halo(qyy, s_qyy, tx, ty, tz, sx, sy, sz, x, y, z);
-    set_halo(qyz, s_qyz, tx, ty, tz, sx, sy, sz, x, y, z);
-    set_halo(ux,  s_ux,  tx, ty, tz, sx, sy, sz, x, y, z);
-    set_halo(uy,  s_uy,  tx, ty, tz, sx, sy, sz, x, y, z);
-    set_halo(uz,  s_uz,  tx, ty, tz, sx, sy, sz, x, y, z);
+    set_halo(qxx, s_qxx, tx, ty, tz, sx, sy, sz, lx, ly, lz);
+    set_halo(qxy, s_qxy, tx, ty, tz, sx, sy, sz, lx, ly, lz);
+    set_halo(qxz, s_qxz, tx, ty, tz, sx, sy, sz, lx, ly, lz);
+    set_halo(qyy, s_qyy, tx, ty, tz, sx, sy, sz, lx, ly, lz);
+    set_halo(qyz, s_qyz, tx, ty, tz, sx, sy, sz, lx, ly, lz);
+    set_halo(ux,  s_ux,  tx, ty, tz, sx, sy, sz, lx, ly, lz);
+    set_halo(uy,  s_uy,  tx, ty, tz, sx, sy, sz, lx, ly, lz);
+    set_halo(uz,  s_uz,  tx, ty, tz, sx, sy, sz, lx, ly, lz);
 
     __syncthreads();
+
+    if (!in_domain) return;
 
     const double qxxp = s_qxx[sz][sy][sx], qxyp = s_qxy[sz][sy][sx];
     const double qxzp = s_qxz[sz][sy][sx], qyyp = s_qyy[sz][sy][sx];

@@ -4,6 +4,7 @@ if(LBM_USE_CUDA)
         target_sources(${target}
             PRIVATE
             device_fields.cu
+            device_solver.cu
         )
     endforeach()
 endif()

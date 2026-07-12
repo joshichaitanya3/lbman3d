@@ -31,12 +31,12 @@ struct DeviceFields {
 
     DeviceFields();
 
-    void Initialize(const QTensorFields& qf);
+    // ff is mutated transiently: ff.f_new is reused as scratch space for the
+    // host->device layout transpose, then restored to its normal contents.
+    // See device_fields.cu for why this is safe.
+    void Initialize(FluidFields& ff, const QTensorFields& qf);
 
     void CopyToHost(FluidFields& ff, QTensorFields& qf) const;
-
-    void QTensorStep();
-    void LBMStep();
 
 };
 
