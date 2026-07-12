@@ -29,7 +29,7 @@ void QTensorSolver<BC>::Initialize(QTensorFields& qf) const {
 template<typename BC>
 void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff) const {
 
-    auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
+    auto compute_cell = [&](int x, int y, int z) {
 
         // Fields
 
@@ -103,31 +103,27 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
         const double Wzx = -Wxz;
         const double Wzy = -Wyz;
 
-        // Q-tensor
-        const double Qxxx = (qf.qxx[idx(xp, y, z)] - qf.qxx[idx(xm, y, z)]) / 2.0;
-        const double Qxyx = (qf.qxy[idx(xp, y, z)] - qf.qxy[idx(xm, y, z)]) / 2.0;
-        const double Qxzx = (qf.qxz[idx(xp, y, z)] - qf.qxz[idx(xm, y, z)]) / 2.0;
-        const double Qyyx = (qf.qyy[idx(xp, y, z)] - qf.qyy[idx(xm, y, z)]) / 2.0;
-        const double Qyzx = (qf.qyz[idx(xp, y, z)] - qf.qyz[idx(xm, y, z)]) / 2.0;
+        // Q-tensor gradient + Laplacian (central/7-point stencil, wall-aware
+        // ghost values — see boundary_handler.h's QGradientAndLaplacian; NOT
+        // the QXoff/QYoff/QZoff Neumann-only clamp, which is wrong for
+        // Anchoring walls)
+        const QDerivs dQxx = QGradientAndLaplacian<QComp::XX, BC>(qf.qxx.data(), x, y, z);
+        const QDerivs dQxy = QGradientAndLaplacian<QComp::XY, BC>(qf.qxy.data(), x, y, z);
+        const QDerivs dQxz = QGradientAndLaplacian<QComp::XZ, BC>(qf.qxz.data(), x, y, z);
+        const QDerivs dQyy = QGradientAndLaplacian<QComp::YY, BC>(qf.qyy.data(), x, y, z);
+        const QDerivs dQyz = QGradientAndLaplacian<QComp::YZ, BC>(qf.qyz.data(), x, y, z);
 
-        const double Qxxy = (qf.qxx[idx(x, yp, z)] - qf.qxx[idx(x, ym, z)]) / 2.0;
-        const double Qxyy = (qf.qxy[idx(x, yp, z)] - qf.qxy[idx(x, ym, z)]) / 2.0;
-        const double Qxzy = (qf.qxz[idx(x, yp, z)] - qf.qxz[idx(x, ym, z)]) / 2.0;
-        const double Qyyy = (qf.qyy[idx(x, yp, z)] - qf.qyy[idx(x, ym, z)]) / 2.0;
-        const double Qyzy = (qf.qyz[idx(x, yp, z)] - qf.qyz[idx(x, ym, z)]) / 2.0;
+        const double Qxxx = dQxx.dx, Qxxy = dQxx.dy, Qxxz = dQxx.dz;
+        const double Qxyx = dQxy.dx, Qxyy = dQxy.dy, Qxyz = dQxy.dz;
+        const double Qxzx = dQxz.dx, Qxzy = dQxz.dy, Qxzz = dQxz.dz;
+        const double Qyyx = dQyy.dx, Qyyy = dQyy.dy, Qyyz = dQyy.dz;
+        const double Qyzx = dQyz.dx, Qyzy = dQyz.dy, Qyzz = dQyz.dz;
 
-        const double Qxxz = (qf.qxx[idx(x, y, zp)] - qf.qxx[idx(x, y, zm)]) / 2.0;
-        const double Qxyz = (qf.qxy[idx(x, y, zp)] - qf.qxy[idx(x, y, zm)]) / 2.0;
-        const double Qxzz = (qf.qxz[idx(x, y, zp)] - qf.qxz[idx(x, y, zm)]) / 2.0;
-        const double Qyyz = (qf.qyy[idx(x, y, zp)] - qf.qyy[idx(x, y, zm)]) / 2.0;
-        const double Qyzz = (qf.qyz[idx(x, y, zp)] - qf.qyz[idx(x, y, zm)]) / 2.0;
-
-        // Laplacian (seven-point stencil)
-        const double lap_Qxx = qf.qxx[idx(xp, y, z)] + qf.qxx[idx(xm, y, z)] + qf.qxx[idx(x, yp, z)] + qf.qxx[idx(x, ym, z)] + qf.qxx[idx(x, y, zp)] + qf.qxx[idx(x, y, zm)] - 6.0*Qxx;
-        const double lap_Qxy = qf.qxy[idx(xp, y, z)] + qf.qxy[idx(xm, y, z)] + qf.qxy[idx(x, yp, z)] + qf.qxy[idx(x, ym, z)] + qf.qxy[idx(x, y, zp)] + qf.qxy[idx(x, y, zm)] - 6.0*Qxy;
-        const double lap_Qxz = qf.qxz[idx(xp, y, z)] + qf.qxz[idx(xm, y, z)] + qf.qxz[idx(x, yp, z)] + qf.qxz[idx(x, ym, z)] + qf.qxz[idx(x, y, zp)] + qf.qxz[idx(x, y, zm)] - 6.0*Qxz;
-        const double lap_Qyy = qf.qyy[idx(xp, y, z)] + qf.qyy[idx(xm, y, z)] + qf.qyy[idx(x, yp, z)] + qf.qyy[idx(x, ym, z)] + qf.qyy[idx(x, y, zp)] + qf.qyy[idx(x, y, zm)] - 6.0*Qyy;
-        const double lap_Qyz = qf.qyz[idx(xp, y, z)] + qf.qyz[idx(xm, y, z)] + qf.qyz[idx(x, yp, z)] + qf.qyz[idx(x, ym, z)] + qf.qyz[idx(x, y, zp)] + qf.qyz[idx(x, y, zm)] - 6.0*Qyz;
+        const double lap_Qxx = dQxx.lap;
+        const double lap_Qxy = dQxy.lap;
+        const double lap_Qxz = dQxz.lap;
+        const double lap_Qyy = dQyy.lap;
+        const double lap_Qyz = dQyz.lap;
         
         // Advection: -u · ∇Q
         const double adv_xx = -(ux * Qxxx + uy * Qxxy + uz * Qxxz);
@@ -235,66 +231,21 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
 
     };
 
-    // Single parallel loop over the full domain. Ghost-node stencil offsets are
-    // resolved inline; anchoring BCs are applied per-point after the FD step.
+    // Single parallel loop over the full domain. Wall-aware ghost values
+    // (QGradientAndLaplacian) are resolved inline per point, including at
+    // boundary nodes — no separate post-step anchoring pass needed; see
+    // boundary_handler.h's header comment for why that used to exist and
+    // why it doesn't anymore.
     #pragma omp parallel for num_threads(numprocs) schedule(static)
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
-                const int xm = (x == 0)    ? QXoff<BC>(0, -1)   : x - 1;
-                const int xp = (x == nx-1) ? QXoff<BC>(nx-1, 1) : x + 1;
-                const int ym = (y == 0)    ? QYoff<BC>(0, -1)   : y - 1;
-                const int yp = (y == ny-1) ? QYoff<BC>(ny-1, 1) : y + 1;
-                const int zm = (z == 0)    ? QZoff<BC>(0, -1)   : z - 1;
-                const int zp = (z == nz-1) ? QZoff<BC>(nz-1, 1) : z + 1;
-
-                compute_cell(x, y, z, xm, xp, ym, yp, zm, zp);
-
-                // Apply anchoring BCs pointwise after the timestep.
-                // X walls first, Z walls last — Z-wall writes take precedence at edges/corners.
-                if (x == 0)    HandleQBoundaryPoint<typename BC::XLo>(qf, x, y, z);
-                else if (x == nx-1) HandleQBoundaryPoint<typename BC::XHi>(qf, x, y, z);
-                if (y == 0)    HandleQBoundaryPoint<typename BC::YLo>(qf, x, y, z);
-                else if (y == ny-1) HandleQBoundaryPoint<typename BC::YHi>(qf, x, y, z);
-                if (z == 0)    HandleQBoundaryPoint<typename BC::ZLo>(qf, x, y, z);
-                else if (z == nz-1) HandleQBoundaryPoint<typename BC::ZHi>(qf, x, y, z);
+                compute_cell(x, y, z);
             }
         }
     }
 
     UpdateQnewWithQ(qf);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Per-point Q-tensor boundary handler
-//
-// Neumann/Periodic: compile-time no-op — the stencil clamping/wrapping in
-// QXoff/QYoff/QZoff already enforces ∂Q/∂n = 0 at the correct wall position.
-//
-// Anchoring<S,θ,φ>: overwrites q_new at (z,y,x) with the prescribed
-// strong-anchoring value after the FD step. On the next step the Laplacian of
-// adjacent interior cells reads this fixed value, giving the correct Dirichlet
-// influence.
-// ─────────────────────────────────────────────────────────────────────────────
-
-template<typename BC>
-template<typename WallSpec>
-void QTensorSolver<BC>::HandleQBoundaryPoint(QTensorFields& qf, int x, int y, int z) const {
-    using Q = typename WallSpec::QBC;
-    if constexpr (is_anchoring_v<Q>) {
-        const double sin_sq_phi   = 0.5 * (1.0 - std::cos(2.0 * Q::phi));
-        const double cos_sq_phi   = 1.0 - sin_sq_phi;
-        const double sin_phi_cos_phi = 0.5 * std::sin(2.0 * Q::phi);
-        const double sin_sq_th    = 0.5 * (1.0 - std::cos(2.0 * Q::theta));
-        const double sin_th_cos_th = 0.5 * std::sin(2.0 * Q::theta);
-
-        const double S = Q::s;
-        qf.qxx_new[idx(x, y, z)] = S * (cos_sq_phi * sin_sq_th - 1.0/3.0);
-        qf.qxy_new[idx(x, y, z)] = S * (sin_phi_cos_phi * sin_sq_th);
-        qf.qxz_new[idx(x, y, z)] = S * (std::cos(Q::phi) * sin_th_cos_th);
-        qf.qyy_new[idx(x, y, z)] = S * (sin_sq_phi * sin_sq_th - 1.0/3.0);
-        qf.qyz_new[idx(x, y, z)] = S * (std::sin(Q::phi) * sin_th_cos_th);
-    }
 }
 
 template<typename BC>
@@ -306,23 +257,22 @@ template<typename BC>
 void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, const QTensorFields& qf) const {
     auto compute_cell = [&](int x, int y, int z, int xm, int xp, int ym, int yp, int zm, int zp) {
         
-        // First, add the active force.
-        ff.fx[idx(x, y, z)] += -ALPHA * (
-                           (qf.qxx[idx(xp, y, z)] - qf.qxx[idx(xm, y, z)])/2.0
-                         + (qf.qxy[idx(x, yp, z)] - qf.qxy[idx(x, ym, z)])/2.0
-                         + (qf.qxz[idx(x, y, zp)] - qf.qxz[idx(x, y, zm)])/2.0);
+        // First, add the active force. Q's own gradient — wall-aware ghost
+        // values (QGradientAndLaplacian), not the QXoff/QYoff/QZoff
+        // Neumann-only clamp (still correct/used below for P, which has no
+        // prescribed wall target of its own).
+        const QDerivs dQxx = QGradientAndLaplacian<QComp::XX, BC>(qf.qxx.data(), x, y, z);
+        const QDerivs dQxy = QGradientAndLaplacian<QComp::XY, BC>(qf.qxy.data(), x, y, z);
+        const QDerivs dQxz = QGradientAndLaplacian<QComp::XZ, BC>(qf.qxz.data(), x, y, z);
+        const QDerivs dQyy = QGradientAndLaplacian<QComp::YY, BC>(qf.qyy.data(), x, y, z);
+        const QDerivs dQyz = QGradientAndLaplacian<QComp::YZ, BC>(qf.qyz.data(), x, y, z);
 
-        ff.fy[idx(x, y, z)] += -ALPHA * (
-                           (qf.qxy[idx(xp, y, z)] - qf.qxy[idx(xm, y, z)])/2.0
-                         + (qf.qyy[idx(x, yp, z)] - qf.qyy[idx(x, ym, z)])/2.0
-                         + (qf.qyz[idx(x, y, zp)] - qf.qyz[idx(x, y, zm)])/2.0);
+        ff.fx[idx(x, y, z)] += -ALPHA * (dQxx.dx + dQxy.dy + dQxz.dz);
 
-        ff.fz[idx(x, y, z)] += -ALPHA * (
-                           (qf.qxz[idx(xp, y, z)] - qf.qxz[idx(xm, y, z)])/2.0
-                         + (qf.qyz[idx(x, yp, z)] - qf.qyz[idx(x, ym, z)])/2.0
-                         - (qf.qxx[idx(x, y, zp)] - qf.qxx[idx(x, y, zm)])/2.0
-                         - (qf.qyy[idx(x, y, zp)] - qf.qyy[idx(x, y, zm)])/2.0); // Since Pzz = -(Pxx + Pyy)
-        
+        ff.fy[idx(x, y, z)] += -ALPHA * (dQxy.dx + dQyy.dy + dQyz.dz);
+
+        ff.fz[idx(x, y, z)] += -ALPHA * (dQxz.dx + dQyz.dy - dQxx.dz - dQyy.dz); // Since Pzz = -(Pxx + Pyy)
+
         // Now, add the passive stress and friction
         ff.fx[idx(x, y, z)] += ((qf.Pxx[idx(xp, y, z)] - qf.Pxx[idx(xm, y, z)])/2.0
                          + (qf.Pxy[idx(x, yp, z)] - qf.Pxy[idx(x, ym, z)])/2.0
@@ -345,12 +295,12 @@ void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, cons
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
-                const int xm = (x == 0)    ? QXoff<BC>(0, -1)   : x - 1;
-                const int xp = (x == nx-1) ? QXoff<BC>(nx-1, 1) : x + 1;
-                const int ym = (y == 0)    ? QYoff<BC>(0, -1)   : y - 1;
-                const int yp = (y == ny-1) ? QYoff<BC>(ny-1, 1) : y + 1;
-                const int zm = (z == 0)    ? QZoff<BC>(0, -1)   : z - 1;
-                const int zp = (z == nz-1) ? QZoff<BC>(nz-1, 1) : z + 1;
+                const int xm = QXoff<BC>(x, -1);
+                const int xp = QXoff<BC>(x, 1);
+                const int ym = QYoff<BC>(y, -1);
+                const int yp = QYoff<BC>(y, 1);
+                const int zm = QZoff<BC>(z, -1);
+                const int zp = QZoff<BC>(z, 1);
                 compute_cell(x, y, z, xm, xp, ym, yp, zm, zp);
             }
         }
