@@ -2,6 +2,7 @@
 #define LBM_AN_QTENSOR_SOLVER_H_
 
 #include "offsets.h"
+#include "boundary_handler.h"
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 
@@ -21,19 +22,6 @@
 template<typename BC>
 class QTensorSolver {
     void UpdateQnewWithQ(QTensorFields& qf) const;
-
-    // Apply the Q-tensor anchoring BC for WallSpec at a single node (x,y,z).
-    // Called after the FD timestep for every boundary node.
-    //
-    // Parameters:
-    //   qf       — Q-tensor fields; writes qxx_new/qxy_new/qxz_new/qyy_new/qyz_new at (z,y,x)
-    //   x, y, z  — coordinates of the boundary node
-    //
-    // Periodic / Neumann: compile-time no-op (stencil clamping/wrapping already enforces
-    //   ∂Q/∂n = 0; no further action needed).
-    // Anchoring<S,θ,φ>: overwrites q_new at (z,y,x) with the strong-anchoring target
-    //   computed from S and the director angles (θ,φ).
-    template<typename WallSpec> void HandleQBoundaryPoint(QTensorFields& qf, int x, int y, int z) const;
 
 public:
     QTensorSolver() = default;

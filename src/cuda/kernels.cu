@@ -157,12 +157,6 @@ __device__ void set_halo(
 
 // ------------------------------------------------------------------------------
 
-struct GradTensor {
-    double ux_x, ux_y, ux_z;
-    double uy_x, uy_y, uy_z;
-    double uz_x, uz_y;  // uz_z = -(ux_x + uy_y) by incompressibility
-};
-
 __device__ Vec3 Gradient(double s_arr[][kBlockY+2*kHalo][kBlockX+2*kHalo], int sx, int sy, int sz) {
     return {
         0.5*(s_arr[sz][sy][sx+1] - s_arr[sz][sy][sx-1]),
