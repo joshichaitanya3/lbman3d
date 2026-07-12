@@ -2,6 +2,7 @@
 #define LBM_AN_QTENSOR_SOLVER_H_
 
 #include "offsets.h"
+#include "boundary_handler.h"
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 

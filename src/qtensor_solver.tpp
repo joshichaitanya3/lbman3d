@@ -54,21 +54,24 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
         const double Q2_yy = Qxy*Qxy + Qyy*Qyy + Qyz*Qyz - kone_thirds * TrQ2;
         const double Q2_yz = Qxy*Qxz - Qyz*Qxx;
         
-        // First-order derivatives 
+        // First-order derivatives
 
-        // Velocity gradient tensor (central differences; uses the same Q stencil offsets
-        // since HandleBoundaries has already set correct wall velocities from the
-        // previous LBM step before StepAndSetupBodyForce is called)
-        const double uxx = (ff.ux[idx(xp, y, z)] - ff.ux[idx(xm, y, z)]) / 2.0;
-        const double uxy = (ff.ux[idx(x, yp, z)] - ff.ux[idx(x, ym, z)]) / 2.0;
-        const double uxz = (ff.ux[idx(x, y, zp)] - ff.ux[idx(x, y, zm)]) / 2.0;
+        // Velocity gradient tensor (central differences with wall-aware ghost
+        // values — see boundary_handler.h's VelocityGradientTensor; NOT the
+        // Q-stencil xm/xp/ym/yp/zm/zp offsets above, which clamp for
+        // Neumann and are wrong for NoSlip/MovingWall and the normal
+        // component at SpecularReflection walls)
+        const GradTensor nabla_u = VelocityGradientTensor<BC>(ff.ux.data(), ff.uy.data(), ff.uz.data(), x, y, z);
+        const double uxx = nabla_u.ux_x;
+        const double uxy = nabla_u.ux_y;
+        const double uxz = nabla_u.ux_z;
 
-        const double uyx = (ff.uy[idx(xp, y, z)] - ff.uy[idx(xm, y, z)]) / 2.0;
-        const double uyy = (ff.uy[idx(x, yp, z)] - ff.uy[idx(x, ym, z)]) / 2.0;
-        const double uyz = (ff.uy[idx(x, y, zp)] - ff.uy[idx(x, y, zm)]) / 2.0;
+        const double uyx = nabla_u.uy_x;
+        const double uyy = nabla_u.uy_y;
+        const double uyz = nabla_u.uy_z;
 
-        const double uzx = (ff.uz[idx(xp, y, z)] - ff.uz[idx(xm, y, z)]) / 2.0;
-        const double uzy = (ff.uz[idx(x, yp, z)] - ff.uz[idx(x, ym, z)]) / 2.0;
+        const double uzx = nabla_u.uz_x;
+        const double uzy = nabla_u.uz_y;
         const double uzz = - (uxx + uyy); // from incompressibility
         
         /*
