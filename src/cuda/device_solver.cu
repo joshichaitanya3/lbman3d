@@ -5,8 +5,8 @@
 #include "lattice_stencil.h"
 #include "kernels.cu"
 
-
-void DeviceSolver::Initialize(DeviceFields& df) {
+template<typename BC>
+void DeviceSolver<BC>::Initialize(DeviceFields& df) {
 
     checkCudaErrors(cudaMemcpyToSymbol(d_ex, Lattice::ex, sizeof(Lattice::ex)));
     checkCudaErrors(cudaMemcpyToSymbol(d_ey, Lattice::ey, sizeof(Lattice::ey)));
@@ -25,7 +25,8 @@ void DeviceSolver::Initialize(DeviceFields& df) {
     std::cout << std::format("Requested {} bytes of shared memory\n", kQstepSmem) << std::endl;
 }
 
-void DeviceSolver::QTensorStep(DeviceFields& df) {
+template<typename BC>
+void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
 
     GpuQTensorStep<<<grid_, block_, kQstepSmem>>>(
         df.d_qxx.data().get(),
@@ -54,7 +55,9 @@ void DeviceSolver::QTensorStep(DeviceFields& df) {
     df.d_qyz.swap(df.d_qyz_new);
 }
 
-void DeviceSolver::LBMStep(DeviceFields& df) {
+template<typename BC>
+void DeviceSolver<BC>::LBMStep(DeviceFields& df) {
+
     GpuCollideAndStream<<<grid_, block_>>>(
         df.d_f.data().get(),
         df.d_f_new.data().get(),
@@ -70,3 +73,7 @@ void DeviceSolver::LBMStep(DeviceFields& df) {
 
     df.d_f.swap(df.d_f_new);
 }
+
+#include "sim_config.h"   // for SimBC
+
+template struct DeviceSolver<SimBC>;

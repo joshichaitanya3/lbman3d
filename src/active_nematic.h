@@ -31,7 +31,7 @@ class ActiveNematicSim {
     FluidFields    fluid_;
     QTensorFields  qtensor_;
     DeviceFields   d_fields_;
-    DeviceSolver   d_solver_;
+    DeviceSolver<BC> d_solver_;
     AnalysisFields af_;
     DefectFields   df_;
     DefectFinder<BC> finder_;
