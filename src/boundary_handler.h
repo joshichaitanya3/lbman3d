@@ -123,6 +123,22 @@ inline CUDA_HOST_DEVICE double VelocityGhost(double v_boundary, bool is_normal) 
     }
 }
 
+
+struct NeighborPair { double minus, plus; };
+
+template<Axis A, typename LoBC, typename HiBC>
+inline CUDA_HOST_DEVICE NeighborPair VelocityAxisGhostPair(
+    int i, int n, double v_minus, double v_center, double v_plus, bool is_normal
+) {
+    if constexpr (std::is_same_v<LoBC, Periodic>) {
+        return NeighborPair{v_minus, v_plus};
+    } else {
+        const double vm = (i == 0)   ? VelocityGhost<A, LoBC>(v_center, is_normal) : v_minus;
+        const double vp = (i == n-1) ? VelocityGhost<A, HiBC>(v_center, is_normal) : v_plus;
+        return NeighborPair{vm, vp};
+    }
+}
+
 // Central-difference gradient of velocity component A along an axis whose
 // walls are LoBC/HiBC. v_minus/v_plus must already be fetched with a
 // wraparound-safe index (e.g. idx(x-1,y,z), which always wraps modulo n —
@@ -136,14 +152,10 @@ template<Axis A, typename LoBC, typename HiBC>
 inline CUDA_HOST_DEVICE double VelocityAxisGradient(
     int i, int n, double v_minus, double v_center, double v_plus, bool is_normal
 ) {
-    if constexpr (std::is_same_v<LoBC, Periodic>) {
-        return (v_plus - v_minus) / 2.0;
-    } else {
-        const double vm = (i == 0)   ? VelocityGhost<A, LoBC>(v_center, is_normal) : v_minus;
-        const double vp = (i == n-1) ? VelocityGhost<A, HiBC>(v_center, is_normal) : v_plus;
-        return (vp - vm) / 2.0;
-    }
+    NeighborPair pair = VelocityAxisGhostPair<A, LoBC, HiBC>(i, n, v_minus, v_center, v_plus, is_normal);
+    return (pair.plus - pair.minus) / 2.0;
 }
+
 
 // Full (non-symmetric) velocity gradient tensor at (x,y,z): ∇u with
 // components v_A_B = ∂(u_A)/∂B. Central differences with wall-aware ghost
@@ -258,23 +270,21 @@ inline CUDA_HOST_DEVICE double QGhost(double q_boundary) {
     }
 }
 
-struct QPair { double minus, plus; };
-
 // Ghost-substituted (minus, plus) neighbor pair for Q component C along an
 // axis whose walls are LoBC/HiBC. q_minus/q_plus must already be fetched
 // with SafeFetchAxisOffset. Periodic short-circuits to the real fetched
 // neighbors (QGhost has no Periodic case); otherwise i==0/i==n-1 replaces
 // the (physically meaningless, since the fetch clamped) value with QGhost.
 template<QComp C, typename LoBC, typename HiBC>
-inline CUDA_HOST_DEVICE QPair QAxisGhostPair(
+inline CUDA_HOST_DEVICE NeighborPair QAxisGhostPair(
     int i, int n, double q_minus, double q_center, double q_plus
 ) {
     if constexpr (std::is_same_v<LoBC, Periodic>) {
-        return QPair{q_minus, q_plus};
+        return NeighborPair{q_minus, q_plus};
     } else {
         const double qm = (i == 0)   ? QGhost<C, LoBC>(q_center) : q_minus;
         const double qp = (i == n-1) ? QGhost<C, HiBC>(q_center) : q_plus;
-        return QPair{qm, qp};
+        return NeighborPair{qm, qp};
     }
 }
 
@@ -301,9 +311,9 @@ inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, in
 
     const double q0 = q[idx(x, y, z)];
 
-    const QPair px = QAxisGhostPair<C, XLoQ, XHiQ>(x, nx, q[idx(xm, y, z)], q0, q[idx(xp, y, z)]);
-    const QPair py = QAxisGhostPair<C, YLoQ, YHiQ>(y, ny, q[idx(x, ym, z)], q0, q[idx(x, yp, z)]);
-    const QPair pz = QAxisGhostPair<C, ZLoQ, ZHiQ>(z, nz, q[idx(x, y, zm)], q0, q[idx(x, y, zp)]);
+    const NeighborPair px = QAxisGhostPair<C, XLoQ, XHiQ>(x, nx, q[idx(xm, y, z)], q0, q[idx(xp, y, z)]);
+    const NeighborPair py = QAxisGhostPair<C, YLoQ, YHiQ>(y, ny, q[idx(x, ym, z)], q0, q[idx(x, yp, z)]);
+    const NeighborPair pz = QAxisGhostPair<C, ZLoQ, ZHiQ>(z, nz, q[idx(x, y, zm)], q0, q[idx(x, y, zp)]);
 
     return QDerivs{
         (px.plus - px.minus) / 2.0,
