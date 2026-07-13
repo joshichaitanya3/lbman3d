@@ -18,7 +18,7 @@ struct DeviceSolver {
 };
 
 #else
-
+template<typename BC>
 struct DeviceSolver {};   // zero-size, optimized away entirely
 
 #endif

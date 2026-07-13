@@ -17,18 +17,12 @@ void DeviceSolver<BC>::Initialize(DeviceFields& df) {
     checkCudaErrors(cudaMemcpyToSymbol(d_specY, Lattice::specY, sizeof(Lattice::specY)));
     checkCudaErrors(cudaMemcpyToSymbol(d_specZ, Lattice::specZ, sizeof(Lattice::specZ)));
 
-    checkCudaErrors(cudaFuncSetAttribute(
-        GpuQTensorStep,
-        cudaFuncAttributeMaxDynamicSharedMemorySize,
-        kQstepSmem
-    ));
-    std::cout << std::format("Requested {} bytes of shared memory\n", kQstepSmem) << std::endl;
 }
 
 template<typename BC>
 void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
 
-    GpuQTensorStep<<<grid_, block_, kQstepSmem>>>(
+    GpuQTensorStep<BC><<<grid_, block_>>>(
         df.d_qxx.data().get(),
         df.d_qxy.data().get(),
         df.d_qxz.data().get(),
