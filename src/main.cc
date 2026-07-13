@@ -8,10 +8,8 @@
 int main(int argc, char* argv[]) {
     ActiveNematicSim<SimBC> sim{};
     #ifdef SIM_WITH_CUDA
-    std::cerr << "Warning: The GPU version is currently only proof-of-concept:\n"
-                 "It implements *only* fully periodic boundary conditions regardless of the sim_config, "
-                 "and does not implement passive stresses. For a production run, please recompile with "
-                 "-DLBM_FORCE_CPU=ON flag in CMake.\n" << std::endl;
+    std::cerr << "Warning: The GPU version currently does not implement passive stresses. "
+        "Please recompile with -DLBM_FORCE_CPU=ON flag in CMake if passive stresses are needed.\n" << std::endl;
     #endif
     for (int t : std::views::iota(0, kNumSteps)) {
         if (t % kSaveInterval == 0) {

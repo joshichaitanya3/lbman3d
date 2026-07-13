@@ -29,10 +29,8 @@ std::string InitializeComputeBackend() {
         "        free memory: {:.1f} MiB\n"
         "   asyncEngineCount: {}\n"
         "   canMapHostMemory: {}\n"
-        "Warning: The GPU version is currently only proof-of-concept:\n"
-        "It implements *only* fully periodic boundary conditions regardless of the sim_config, "
-        "and does not implement passive stresses. For a production run, please recompile with "
-        "-DLBM_FORCE_CPU=ON flag in CMake.\n",
+        "Warning: The GPU version currently does not implement passive stresses. "
+        "Please recompile with -DLBM_FORCE_CPU=ON flag in CMake if passive stresses are needed.\n",
         device_id, props.name, props.multiProcessorCount,
         props.major, props.minor,
         props.totalGlobalMem / bytesPerMiB, free_mem / bytesPerMiB,
