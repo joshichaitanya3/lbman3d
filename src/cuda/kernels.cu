@@ -6,6 +6,7 @@
 #include "device_fields.h"
 #include "physics_helpers.h"
 #include "lattice_stencil.h"
+#include "boundary_handler.h"
 
 using namespace Params;
 
@@ -37,42 +38,7 @@ __constant__ int d_specX[Lattice::ndir];
 __constant__ int d_specY[Lattice::ndir];
 __constant__ int d_specZ[Lattice::ndir];
 
-// ---- Future work: compile-time-switchable boundary conditions ----------------
-// To support multiple BC types without runtime branching, template this kernel
-// on top/bottom wall BC types using an enum and if constexpr:
-//
-//   enum class WallBC { BounceBack, SpecularReflect, MovingWall };
-//
-//   template<WallBC BC>
-//   __device__ void ApplyWallBC(double* f_new, int x, int y, int i,
-//                                double f_star, double rho) {
-//       if constexpr (BC == WallBC::BounceBack) {
-//           f_new[idx(x, y, d_opp[i])] = f_star;
-//       } else if constexpr (BC == WallBC::SpecularReflect) {
-//           f_new[idx(x, y, d_spec[i])] = f_star;
-//       } else if constexpr (BC == WallBC::MovingWall) {
-//           // Ladd correction: f_opp = f*_i - 6 * w_i * rho * (e_i . u_wall)
-//           // For a wall moving at kWallVelocity in x:
-//           double correction = 6.0 * d_w[i] * rho * d_ex[i] * kWallVelocity;
-//           f_new[idx(x, y, d_opp[i])] = f_star - correction;
-//       }
-//   }
-//
-//   template<WallBC TopBC, WallBC BottomBC>
-//   __global__ void GpuCollideAndStream(...) {
-//       ...
-//       } else if (yd >= ny) {
-//           ApplyWallBC<TopBC>(f_new, x, y, i, f_star, rhop);
-//       } else {  // yd < 0
-//           ApplyWallBC<BottomBC>(f_new, x, y, i, f_star, rhop);
-//       }
-//   }
-//
-// Instantiate whichever combo is needed, e.g.:
-//   GpuCollideAndStream<WallBC::BounceBack,  WallBC::BounceBack><<<...>>>();  // Poiseuille
-//   GpuCollideAndStream<WallBC::MovingWall,  WallBC::BounceBack><<<...>>>();  // Couette
-//   GpuCollideAndStream<WallBC::SpecularReflect, WallBC::BounceBack><<<...>>>();  // free-slip top
-// ------------------------------------------------------------------------------
+template<typename BC>
 __global__ void GpuCollideAndStream(
     double* f,
     double* f_new,
@@ -110,21 +76,39 @@ __global__ void GpuCollideAndStream(
     double u2 = m.u.Dot(m.u);
 
     for (int i = 0; i < Lattice::ndir; ++i) {
-        Vec3 e{
+        Vec3 e_i{
             static_cast<double>(d_ex[i]),
             static_cast<double>(d_ey[i]),
             static_cast<double>(d_ez[i])
         };
 
-        auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, e, d_w[i]);
+        auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, e_i, d_w[i]);
         double f_star = omega * f[idx(x, y, z, i)] + omega_prime * feq + DT * forcing_term;
-        int xd = wrap(static_cast<int>(x) + d_ex[i], nx);
-        int yd = wrap(static_cast<int>(y) + d_ey[i], ny);
-        int zd = wrap(static_cast<int>(z) + d_ez[i], nz);
-        if (InDomain(xd, yd, zd)) {
-            f_new[idx(xd, yd, zd, i)] = f_star;
+        // ── Stream + Apply Boundary Conditions ───────────────────
+        const int dx = StreamXoff<BC>(x, d_ex[i]);
+        const int dy = StreamYoff<BC>(y, d_ey[i]);
+        const int dz = StreamZoff<BC>(z, d_ez[i]);   
+        if (InDomain(dx, dy, dz)) {
+            f_new[idx(dx, dy, dz, i)] = f_star;
         } else {
-            f_new[idx(x, y, z, d_opp[i])] = f_star;
+            if (dx < 0) {
+                HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, d_specX[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp);
+            }
+            else if (dx >= nx) {
+                HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, d_specX[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp);
+            }
+            if (dy < 0) {
+                HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, d_specY[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp);
+            }
+            else if (dy >= ny) {
+                HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, d_specY[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp);
+            }
+            if (dz < 0) {
+                HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, d_specZ[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp);
+            }
+            else if (dz >= nz) {
+                HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, d_specZ[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp);
+            }
         }
     }
 }

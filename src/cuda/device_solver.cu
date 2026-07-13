@@ -58,7 +58,7 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
 template<typename BC>
 void DeviceSolver<BC>::LBMStep(DeviceFields& df) {
 
-    GpuCollideAndStream<<<grid_, block_>>>(
+    GpuCollideAndStream<BC><<<grid_, block_>>>(
         df.d_f.data().get(),
         df.d_f_new.data().get(),
         df.d_force_x.data().get(),
