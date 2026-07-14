@@ -38,7 +38,12 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
         df.d_uz.data().get(),
         df.d_force_x.data().get(),
         df.d_force_y.data().get(),
-        df.d_force_z.data().get()
+        df.d_force_z.data().get(),
+        df.d_Pxx.data().get(),
+        df.d_Pxy.data().get(),
+        df.d_Pxz.data().get(),
+        df.d_Pyy.data().get(),
+        df.d_Pyz.data().get()
     );
     checkCudaErrors(cudaGetLastError());
 
@@ -47,6 +52,25 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
     df.d_qxz.swap(df.d_qxz_new);
     df.d_qyy.swap(df.d_qyy_new);
     df.d_qyz.swap(df.d_qyz_new);
+
+    GpuComputeBodyForce<BC><<<grid_, block_>>>(
+        df.d_qxx.data().get(),
+        df.d_qxy.data().get(),
+        df.d_qxz.data().get(),
+        df.d_qyy.data().get(),
+        df.d_qyz.data().get(),
+        df.d_ux.data().get(),
+        df.d_uy.data().get(),
+        df.d_uz.data().get(),
+        df.d_force_x.data().get(),
+        df.d_force_y.data().get(),
+        df.d_force_z.data().get(),
+        df.d_Pxx.data().get(),
+        df.d_Pxy.data().get(),
+        df.d_Pxz.data().get(),
+        df.d_Pyy.data().get(),
+        df.d_Pyz.data().get()
+    );
 }
 
 template<typename BC>
