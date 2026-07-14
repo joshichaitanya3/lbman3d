@@ -6,6 +6,7 @@
 #include "boundary.h"
 #include "params.h"
 #include "physics_helpers.h"
+#include "qtensor_types.h"
 
 using namespace Params;
 
@@ -218,17 +219,13 @@ inline CUDA_HOST_DEVICE GradTensor VelocityGradientTensor(
 // feeling the wall through its ghost neighbor — no post-hoc overwrite needed.
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum class QComp { XX, XY, XZ, YY, YZ };
-
-struct QTensor5 { double xx, xy, xz, yy, yz; };
-
 // Strong-anchoring target Q (order parameter S at director angle (θ,φ)),
 // same formula boundary.h's Anchoring<S,θ,φ> documents. Only meaningful for
 // QBC = Anchoring<...>; the true branch below never instantiates against a
 // QBC without ::s/::theta/::phi (Neumann, Periodic) since if constexpr
 // discards the untaken branch.
 template<typename QBC>
-inline CUDA_HOST_DEVICE QTensor5 AnchoredQ() {
+inline CUDA_HOST_DEVICE SymTrLessTensor5 AnchoredQ() {
     if constexpr (is_anchoring_v<QBC>) {
         const double sin_sq_phi     = 0.5 * (1.0 - std::cos(2.0 * QBC::phi));
         const double cos_sq_phi     = 1.0 - sin_sq_phi;
@@ -236,7 +233,7 @@ inline CUDA_HOST_DEVICE QTensor5 AnchoredQ() {
         const double sin_sq_th      = 0.5 * (1.0 - std::cos(2.0 * QBC::theta));
         const double sin_th_cos_th  = 0.5 * std::sin(2.0 * QBC::theta);
         const double S = QBC::s;
-        return QTensor5{
+        return SymTrLessTensor5{
             S * (cos_sq_phi * sin_sq_th - 1.0/3.0),
             S * (sin_phi_cos_phi * sin_sq_th),
             S * (std::cos(QBC::phi) * sin_th_cos_th),
@@ -244,17 +241,8 @@ inline CUDA_HOST_DEVICE QTensor5 AnchoredQ() {
             S * (std::sin(QBC::phi) * sin_th_cos_th)
         };
     } else {
-        return QTensor5{0.0, 0.0, 0.0, 0.0, 0.0};
+        return SymTrLessTensor5{0.0, 0.0, 0.0, 0.0, 0.0};
     }
-}
-
-template<QComp C>
-inline CUDA_HOST_DEVICE constexpr double QComponent(const QTensor5& t) {
-    if constexpr (C == QComp::XX) return t.xx;
-    else if constexpr (C == QComp::XY) return t.xy;
-    else if constexpr (C == QComp::XZ) return t.xz;
-    else if constexpr (C == QComp::YY) return t.yy;
-    else return t.yz;
 }
 
 // Ghost VALUE for Q component C at a wall of type QBC. Mid-point convention,
@@ -287,8 +275,6 @@ inline CUDA_HOST_DEVICE NeighborPair QAxisGhostPair(
         return NeighborPair{qm, qp};
     }
 }
-
-struct QDerivs { double dx, dy, dz, lap; };
 
 // Gradient (central difference) and Laplacian (7-point stencil) of Q
 // component C at (x,y,z), wall-aware via QGhost/QAxisGhostPair above rather
@@ -323,6 +309,41 @@ inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, in
     };
 }
 
+template<typename BCConfig>
+inline CUDA_HOST_DEVICE Vec3 PassiveStressDivergence(
+    const double* pxx,
+    const double* pxy,
+    const double* pxz,
+    const double* pyy,
+    const double* pyz,
+    const int x,
+    const int y,
+    const int z
+) {
+
+    const int xm = QXoff<BCConfig>(x, -1);
+    const int xp = QXoff<BCConfig>(x, +1);
+    const int ym = QYoff<BCConfig>(y, -1);
+    const int yp = QYoff<BCConfig>(y, +1);
+    const int zm = QZoff<BCConfig>(z, -1);
+    const int zp = QZoff<BCConfig>(z, +1);
+
+    // Now, add the passive stress and friction
+    double fx = ((pxx[idx(xp, y, z)] - pxx[idx(xm, y, z)])/2.0
+                        + (pxy[idx(x, yp, z)] - pxy[idx(x, ym, z)])/2.0
+                        + (pxz[idx(x, y, zp)] - pxz[idx(x, y, zm)])/2.0);
+
+    double fy = ((pxy[idx(xp, y, z)] - pxy[idx(xm, y, z)])/2.0
+                        + (pyy[idx(x, yp, z)] - pyy[idx(x, ym, z)])/2.0
+                        + (pyz[idx(x, y, zp)] - pyz[idx(x, y, zm)])/2.0);
+
+    double fz = ((pxz[idx(xp, y, z)] - pxz[idx(xm, y, z)])/2.0
+                        + (pyz[idx(x, yp, z)] - pyz[idx(x, ym, z)])/2.0
+                        - (pxx[idx(x, y, zp)] - pxx[idx(x, y, zm)])/2.0
+                        - (pyy[idx(x, y, zp)] - pyy[idx(x, y, zm)])/2.0); // Since Pzz = -(Pxx + Pyy)
+    
+    return {fx, fy, fz};
+}
 // Post-collision boundary handling for a single out-of-domain stream. Writes
 // the reconstructed population to f_new at the SOURCE node (x,y,z), not the
 // out-of-domain destination:
