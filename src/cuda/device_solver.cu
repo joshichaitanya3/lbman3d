@@ -71,6 +71,7 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
         df.d_Pyy.data().get(),
         df.d_Pyz.data().get()
     );
+    checkCudaErrors(cudaGetLastError());
 }
 
 template<typename BC>
