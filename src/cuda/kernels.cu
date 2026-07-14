@@ -83,7 +83,7 @@ __global__ void GpuCollideAndStream(
         };
 
         auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, e_i, d_w[i]);
-        double f_star = omega * f[idx(x, y, z, i)] + omega_prime * feq + DT * forcing_term;
+        double f_star = PointwiseBGKCollide(f[idx(x, y, z, i)], feq, forcing_term);
         // ── Stream + Apply Boundary Conditions ───────────────────
         const int dx = StreamXoff<BC>(x, d_ex[i]);
         const int dy = StreamYoff<BC>(y, d_ey[i]);

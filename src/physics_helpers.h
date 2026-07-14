@@ -154,4 +154,12 @@ inline CUDA_HOST_DEVICE Moments ComputeMoments(
     return {rhop, up};
 }
 
+inline CUDA_HOST_DEVICE double PointwiseBGKCollide(
+    double f,
+    double feq,
+    double forcing_term
+) {
+    return omega * f + omega_prime * feq + DT * forcing_term;
+}
+
 #endif // LBM_AN_PHYSICS_HELPERS_H_
