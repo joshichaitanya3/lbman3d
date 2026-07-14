@@ -4,9 +4,11 @@
 #include <format>
 #include "params.h"
 #include "device_fields.h"
+#include "qtensor_types.h"
 #include "physics_helpers.h"
 #include "lattice_stencil.h"
 #include "boundary_handler.h"
+#include "model.h"
 
 using namespace Params;
 
@@ -131,7 +133,13 @@ __global__ void GpuQTensorStep(
     double* uz,
     double* force_x,
     double* force_y,
-    double* force_z
+    double* force_z,
+    double* Pxx,
+    double* Pxy,
+    double* Pxz,
+    double* Pyy,
+    double* Pyz
+    
 ) {
     const int tx = threadIdx.x, ty = threadIdx.y, tz = threadIdx.z;
 
@@ -144,25 +152,19 @@ __global__ void GpuQTensorStep(
 
     const int gid = idx(x, y, z);
     
-    const double qxxp = qxx[gid], qxyp = qxy[gid];
-    const double qxzp = qxz[gid], qyyp = qyy[gid];
-    const double qyzp = qyz[gid];
-
-    const double uxp = ux[gid], uyp = uy[gid], uzp = uz[gid];
-    // qzzp = -qxxp - qyyp
-
-    // tr(Q²) = 2*(qxx² + qyy² + qxx·qyy + qxy² + qxz² + qyz²)
-    const double trq2 = 2.0*(qxxp*qxxp + qyyp*qyyp + qxxp*qyyp
-                            + qxyp*qxyp + qxzp*qxzp + qyzp*qyzp);
-
-    const double kone_thirds = 1.0/3.0;
-    const double Q2_xx = qxxp*qxxp + qxyp*qxyp + qxzp*qxzp - kone_thirds * trq2;
-    const double Q2_xy = qxxp*qxyp + qxyp*qyyp + qxzp*qyzp;
-    const double Q2_xz = qxyp*qyzp - qxzp*qyyp;
-    const double Q2_yy = qxyp*qxyp + qyyp*qyyp + qyzp*qyzp - kone_thirds * trq2;
-    const double Q2_yz = qxyp*qxzp - qyzp*qxxp;
-
-    const double ld = A + C*trq2;
+    const SymTrLessTensor5 Q{
+        qxx[gid],
+        qxy[gid],
+        qxz[gid],
+        qyy[gid],
+        qyz[gid]
+    };
+    
+    const Vec3 u{
+        ux[gid],
+        uy[gid],
+        uz[gid]
+    };
     
     const QDerivs dQxx = QGradientAndLaplacian<QComp::XX, BC>(qxx, x, y, z);
     const QDerivs dQxy = QGradientAndLaplacian<QComp::XY, BC>(qxy, x, y, z);
@@ -170,80 +172,106 @@ __global__ void GpuQTensorStep(
     const QDerivs dQyy = QGradientAndLaplacian<QComp::YY, BC>(qyy, x, y, z);
     const QDerivs dQyz = QGradientAndLaplacian<QComp::YZ, BC>(qyz, x, y, z);
 
-    // Molecular field H = L·∇²Q - ld·Q
-    const double H_xx = L*dQxx.lap - ld*qxxp - B * Q2_xx;
-    const double H_xy = L*dQxy.lap - ld*qxyp - B * Q2_xy;
-    const double H_xz = L*dQxz.lap - ld*qxzp - B * Q2_xz;
-    const double H_yy = L*dQyy.lap - ld*qyyp - B * Q2_yy;
-    const double H_yz = L*dQyz.lap - ld*qyzp - B * Q2_yz;
-
-    // Q gradients (for advection and active force)
-    const Vec3 gqxx{dQxx.dx, dQxx.dy, dQxx.dz};
-    const Vec3 gqxy{dQxy.dx, dQxy.dy, dQxy.dz};
-    const Vec3 gqxz{dQxz.dx, dQxz.dy, dQxz.dz};
-    const Vec3 gqyy{dQyy.dx, dQyy.dy, dQyy.dz};
-    const Vec3 gqyz{dQyz.dx, dQyz.dy, dQyz.dz};
-
     // Velocity gradient tensor: vA_B = ∂(u_A)/∂B
-    auto [ux_x, ux_y, ux_z, uy_x, uy_y, uy_z, uz_x, uz_y] =
-        VelocityGradientTensor<BC>(ux, uy, uz, x, y, z);
+    const GradTensor nabla_u = VelocityGradientTensor<BC>(ux, uy, uz, x, y, z);
     
-    const double W_xy = 0.5*(ux_y - uy_x);
-    const double W_xz = 0.5*(ux_z - uz_x);
-    const double W_yz = 0.5*(uy_z - uz_y);
-
-    // Symmetric strain D_AB = (∂u_A/∂B + ∂u_B/∂A) / 2
-    const double D_xx = ux_x;
-    const double D_xy = 0.5*(ux_y + uy_x);
-    const double D_xz = 0.5*(ux_z + uz_x);
-    const double D_yy = uy_y;
-    const double D_yz = 0.5*(uy_z + uz_y);
-
-    // Co-rotation S = (W·Q - Q·W)
-    const double S_xx =  2.0*(W_xy*qxyp + W_xz*qxzp);
-    const double S_xy =  W_xy*(qyyp - qxxp) + W_xz*qyzp + W_yz*qxzp;
-    const double S_xz =  W_xy*qyzp - W_xz*(2.0*qxxp + qyyp) - W_yz*qxyp;
-    const double S_yy = -2.0*W_xy*qxyp + 2.0*W_yz*qyzp;
-    const double S_yz = -W_xy*qxzp - W_yz*(qxxp + 2.0*qyyp) - W_xz*qxyp;
-
+    const QStencil qs{
+            Q, u, dQxx, dQxy, dQxz, dQyy, dQyz, nabla_u
+        };
         
-    /* ##############################################################################
-    // #   higher order order flow alignment   lambda [(E Q + Q E)_ij]
-    1->xx, 2->xy, 3->xz, 4->yy, 5->yz
-    QE_xx = e_1 Q_1 + e_2 Q_2 + e_3 Q_3
-    QE_xy = e_2 Q_1 + e_4 Q_2 + e_5 Q_3
-    QE_xz = e_3 Q_1 + e_5 Q_2 + (-e_1 - e_4) Q_3
-    QE_yy = e_2 Q_2 + e_4 Q_4 + e_5 Q_5
-    QE_yz = e_3 Q_2 + e_5 Q_4 + (-e_1 - e_4) Q_5
+    SymTrLessTensor5 q_new, passive_stress;
+    Vec3 advective_backflow;
     
-    Q:E (trace): (2 e_1 + e_4) Q_1 + 2 e_2 Q_2 + 2 e_3 Q_3 + e_1 Q_4 + 2 e_4 Q_4 + 2 e_5 Q_5
-    // ##############################################################################
-    */
-    const double ktwo_thirds = 2.0/3.0;
+    PointwiseStepAndSetupBodyForce(
+        qs,
+        q_new,
+        passive_stress,
+        advective_backflow
+    );
     
-    const double tr_QE = (2.0 * D_xx + D_yy) * qxxp + (2.0 * D_xy) * qxyp + (2.0 * D_xz) * qxzp + (D_xx + 2.0 * D_yy) * qyyp + 2.0 * D_yz * qyzp;
 
-    const double aln2_xx = 2.0 * (D_xx * qxxp + D_xy * qxyp + D_xz * qxzp) - ktwo_thirds * tr_QE;
-    const double aln2_xy = D_xy * qxxp + D_yy * qxyp + D_yz * qxzp
-                            + qxyp * D_xx + qyyp * D_xy + qyzp * D_xz;
-    const double aln2_xz = D_xz * qxxp + D_yz * qxyp + (-D_xx - D_yy) * qxzp
-                            + qxzp * D_xx + qyzp * D_xy + (-qxxp - qyyp) * D_xz;
-    
-    const double aln2_yy = 2.0 * (D_xy * qxyp + D_yy * qyyp + D_yz * qyzp) - ktwo_thirds * tr_QE;
-    const double aln2_yz = D_xz * qxyp + D_yz * qyyp + (-D_xx - D_yy) * qyzp
-                            + qxzp * D_xy + qyzp * D_yy + (-qxxp - qyyp) * D_yz;
+    qxx_new[gid] = q_new.xx;
+    qxy_new[gid] = q_new.xy;
+    qxz_new[gid] = q_new.xz;
+    qyy_new[gid] = q_new.yy;
+    qyz_new[gid] = q_new.yz;
 
-    const Vec3 u{uxp, uyp, uzp};
+    Pxx[gid] = passive_stress.xx;
+    Pxy[gid] = passive_stress.xy;
+    Pxz[gid] = passive_stress.xz;
+    Pyy[gid] = passive_stress.yy;
+    Pyz[gid] = passive_stress.yz;
 
-    qxx_new[gid] = qxxp + DT*(GAMMA*H_xx + S_xx + LAMBDA * (ktwo_thirds * D_xx + aln2_xx) - u.Dot(gqxx));
-    qxy_new[gid] = qxyp + DT*(GAMMA*H_xy + S_xy + LAMBDA * (ktwo_thirds * D_xy + aln2_xy) - u.Dot(gqxy));
-    qxz_new[gid] = qxzp + DT*(GAMMA*H_xz + S_xz + LAMBDA * (ktwo_thirds * D_xz + aln2_xz) - u.Dot(gqxz));
-    qyy_new[gid] = qyyp + DT*(GAMMA*H_yy + S_yy + LAMBDA * (ktwo_thirds * D_yy + aln2_yy) - u.Dot(gqyy));
-    qyz_new[gid] = qyzp + DT*(GAMMA*H_yz + S_yz + LAMBDA * (ktwo_thirds * D_yz + aln2_yz) - u.Dot(gqyz));
+    force_x[gid] = advective_backflow.x;
+    force_y[gid] = advective_backflow.y;
+    force_z[gid] = advective_backflow.z;
+}
 
-    // Active force: f_a = -ALPHA*(div Q)_a - MU*u_a
-    // qzz = -qxx - qyy, so ∂z(qzz) = -gqxx.z - gqyy.z
-    force_x[gid] = -ALPHA*(gqxx.x + gqxy.y + gqxz.z) - MU*u.x;
-    force_y[gid] = -ALPHA*(gqxy.x + gqyy.y + gqyz.z) - MU*u.y;
-    force_z[gid] = -ALPHA*(gqxz.x + gqyz.y - gqxx.z - gqyy.z) - MU*u.z;
+
+template<typename BC>
+__global__ void GpuComputeBodyForce(
+    double* qxx,
+    double* qxy,
+    double* qxz,
+    double* qyy,
+    double* qyz,
+    double* ux,
+    double* uy,
+    double* uz,
+    double* force_x,
+    double* force_y,
+    double* force_z,
+    double* Pxx,
+    double* Pxy,
+    double* Pxz,
+    double* Pyy,
+    double* Pyz
+) {
+    const int tx = threadIdx.x, ty = threadIdx.y, tz = threadIdx.z;
+
+    unsigned int z = blockIdx.z * blockDim.z + tz;
+    unsigned int y = blockIdx.y * blockDim.y + ty;
+    unsigned int x = blockIdx.x * blockDim.x + tx;
+    const bool in_domain = (x < nx) && (y < ny) && (z < nz);
+
+    if (!in_domain) return;
+
+    const int gid = idx(x, y, z);
+
+    const QDerivs dQxx = QGradientAndLaplacian<QComp::XX, BC>(qxx, x, y, z);
+    const QDerivs dQxy = QGradientAndLaplacian<QComp::XY, BC>(qxy, x, y, z);
+    const QDerivs dQxz = QGradientAndLaplacian<QComp::XZ, BC>(qxz, x, y, z);
+    const QDerivs dQyy = QGradientAndLaplacian<QComp::YY, BC>(qyy, x, y, z);
+    const QDerivs dQyz = QGradientAndLaplacian<QComp::YZ, BC>(qyz, x, y, z);
+
+    const Vec3 passive_div = PassiveStressDivergence<BC>(
+        Pxx,
+        Pxy,
+        Pxz,
+        Pyy,
+        Pyz,
+        x,
+        y,
+        z
+    );
+
+    const Vec3 u{
+        ux[gid],
+        uy[gid],
+        uz[gid]
+    };
+
+    Vec3 force = PointwiseSetActiveStressAndComputeBodyForce(
+        dQxx,
+        dQxy,
+        dQxz,
+        dQyy,
+        dQyz,
+        passive_div,
+        u
+    );
+
+    force_x[gid] += force.x;
+    force_y[gid] += force.y;
+    force_z[gid] += force.z;
 }
