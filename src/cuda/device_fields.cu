@@ -28,9 +28,7 @@ std::string InitializeComputeBackend() {
         "      global memory: {:.1f} MiB\n"
         "        free memory: {:.1f} MiB\n"
         "   asyncEngineCount: {}\n"
-        "   canMapHostMemory: {}\n"
-        "Warning: The GPU version currently does not implement passive stresses. "
-        "Please recompile with -DLBM_FORCE_CPU=ON flag in CMake if passive stresses are needed.\n",
+        "   canMapHostMemory: {}\n",
         device_id, props.name, props.multiProcessorCount,
         props.major, props.minor,
         props.totalGlobalMem / bytesPerMiB, free_mem / bytesPerMiB,
