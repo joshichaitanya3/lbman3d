@@ -114,7 +114,7 @@ cmake -B build -DLBM_FORCE_CPU=ON
 cmake --build build -j$(nproc)
 ```
 
-**If you have a CUDA-capable machine but want a production run right now, use `-DLBM_FORCE_CPU=ON`.** The GPU path is currently a proof of concept: it only supports fully periodic boundary conditions (regardless of what's configured in `sim_config.h`) and does not yet compute the passive (elastic) stress contribution to the body force. Only the CPU path has the full physics and all boundary condition types. Running the GPU build prints a warning to this effect at startup and logs it to `lbm.log`.
+The GPU path is fully featured: it supports all boundary condition types and computes the full passive and active stress contributions. It is physics-equivalent to the CPU path.
 
 ## Running
 
