@@ -56,7 +56,13 @@ DeviceFields::DeviceFields() :
     d_qyy     (Params::nx * Params::ny * Params::nz, 0.0),
     d_qyy_new (Params::nx * Params::ny * Params::nz, 0.0),
     d_qyz     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyz_new (Params::nx * Params::ny * Params::nz, 0.0)
+    d_qyz_new (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pxx     (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pxy     (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pxz     (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pyy     (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pyz     (Params::nx * Params::ny * Params::nz, 0.0)
+
 {}
 
 void DeviceFields::Initialize(FluidFields& ff, const QTensorFields& qf) {
