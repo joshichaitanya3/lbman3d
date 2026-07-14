@@ -7,6 +7,7 @@
 #include "params.h"
 #include "physics_helpers.h"
 #include "qtensor_types.h"
+#include "offsets.h"
 
 using namespace Params;
 
