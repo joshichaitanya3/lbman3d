@@ -6,7 +6,7 @@
 #include "device_fields.h"
 
 #ifdef SIM_WITH_CUDA
-
+template<typename BC>
 struct DeviceSolver {
     // int gpu_id;
     // cudaStream_t stream;
@@ -18,7 +18,7 @@ struct DeviceSolver {
 };
 
 #else
-
+template<typename BC>
 struct DeviceSolver {};   // zero-size, optimized away entirely
 
 #endif

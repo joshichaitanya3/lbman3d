@@ -120,9 +120,7 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                     auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, e_i, Lattice::w[i]);
 
                     // ── Collision (BGK) ───────────────────────────────────────
-                    const double f_star = omega * ff.f[idx(x, y, z, i)]
-                        + omega_prime * feq
-                        + DT * forcing_term;
+                    const double f_star = PointwiseBGKCollide(ff.f[idx(x, y, z, i)], feq, forcing_term);
 
                     // ── Stream + Apply Boundary Conditions ───────────────────
                     const int dx = StreamXoff<BC>(x, Lattice::ex[i]);

@@ -6,6 +6,8 @@
 #include "boundary.h"
 #include "params.h"
 #include "physics_helpers.h"
+#include "qtensor_types.h"
+#include "offsets.h"
 
 using namespace Params;
 
@@ -123,6 +125,22 @@ inline CUDA_HOST_DEVICE double VelocityGhost(double v_boundary, bool is_normal) 
     }
 }
 
+
+struct NeighborPair { double minus, plus; };
+
+template<Axis A, typename LoBC, typename HiBC>
+inline CUDA_HOST_DEVICE NeighborPair VelocityAxisGhostPair(
+    int i, int n, double v_minus, double v_center, double v_plus, bool is_normal
+) {
+    if constexpr (std::is_same_v<LoBC, Periodic>) {
+        return NeighborPair{v_minus, v_plus};
+    } else {
+        const double vm = (i == 0)   ? VelocityGhost<A, LoBC>(v_center, is_normal) : v_minus;
+        const double vp = (i == n-1) ? VelocityGhost<A, HiBC>(v_center, is_normal) : v_plus;
+        return NeighborPair{vm, vp};
+    }
+}
+
 // Central-difference gradient of velocity component A along an axis whose
 // walls are LoBC/HiBC. v_minus/v_plus must already be fetched with a
 // wraparound-safe index (e.g. idx(x-1,y,z), which always wraps modulo n —
@@ -136,14 +154,10 @@ template<Axis A, typename LoBC, typename HiBC>
 inline CUDA_HOST_DEVICE double VelocityAxisGradient(
     int i, int n, double v_minus, double v_center, double v_plus, bool is_normal
 ) {
-    if constexpr (std::is_same_v<LoBC, Periodic>) {
-        return (v_plus - v_minus) / 2.0;
-    } else {
-        const double vm = (i == 0)   ? VelocityGhost<A, LoBC>(v_center, is_normal) : v_minus;
-        const double vp = (i == n-1) ? VelocityGhost<A, HiBC>(v_center, is_normal) : v_plus;
-        return (vp - vm) / 2.0;
-    }
+    NeighborPair pair = VelocityAxisGhostPair<A, LoBC, HiBC>(i, n, v_minus, v_center, v_plus, is_normal);
+    return (pair.plus - pair.minus) / 2.0;
 }
+
 
 // Full (non-symmetric) velocity gradient tensor at (x,y,z): ∇u with
 // components v_A_B = ∂(u_A)/∂B. Central differences with wall-aware ghost
@@ -206,17 +220,13 @@ inline CUDA_HOST_DEVICE GradTensor VelocityGradientTensor(
 // feeling the wall through its ghost neighbor — no post-hoc overwrite needed.
 // ─────────────────────────────────────────────────────────────────────────────
 
-enum class QComp { XX, XY, XZ, YY, YZ };
-
-struct QTensor5 { double xx, xy, xz, yy, yz; };
-
 // Strong-anchoring target Q (order parameter S at director angle (θ,φ)),
 // same formula boundary.h's Anchoring<S,θ,φ> documents. Only meaningful for
 // QBC = Anchoring<...>; the true branch below never instantiates against a
 // QBC without ::s/::theta/::phi (Neumann, Periodic) since if constexpr
 // discards the untaken branch.
 template<typename QBC>
-inline CUDA_HOST_DEVICE QTensor5 AnchoredQ() {
+inline CUDA_HOST_DEVICE SymTrLessTensor5 AnchoredQ() {
     if constexpr (is_anchoring_v<QBC>) {
         const double sin_sq_phi     = 0.5 * (1.0 - std::cos(2.0 * QBC::phi));
         const double cos_sq_phi     = 1.0 - sin_sq_phi;
@@ -224,7 +234,7 @@ inline CUDA_HOST_DEVICE QTensor5 AnchoredQ() {
         const double sin_sq_th      = 0.5 * (1.0 - std::cos(2.0 * QBC::theta));
         const double sin_th_cos_th  = 0.5 * std::sin(2.0 * QBC::theta);
         const double S = QBC::s;
-        return QTensor5{
+        return SymTrLessTensor5{
             S * (cos_sq_phi * sin_sq_th - 1.0/3.0),
             S * (sin_phi_cos_phi * sin_sq_th),
             S * (std::cos(QBC::phi) * sin_th_cos_th),
@@ -232,17 +242,8 @@ inline CUDA_HOST_DEVICE QTensor5 AnchoredQ() {
             S * (std::sin(QBC::phi) * sin_th_cos_th)
         };
     } else {
-        return QTensor5{0.0, 0.0, 0.0, 0.0, 0.0};
+        return SymTrLessTensor5{0.0, 0.0, 0.0, 0.0, 0.0};
     }
-}
-
-template<QComp C>
-inline CUDA_HOST_DEVICE constexpr double QComponent(const QTensor5& t) {
-    if constexpr (C == QComp::XX) return t.xx;
-    else if constexpr (C == QComp::XY) return t.xy;
-    else if constexpr (C == QComp::XZ) return t.xz;
-    else if constexpr (C == QComp::YY) return t.yy;
-    else return t.yz;
 }
 
 // Ghost VALUE for Q component C at a wall of type QBC. Mid-point convention,
@@ -258,27 +259,23 @@ inline CUDA_HOST_DEVICE double QGhost(double q_boundary) {
     }
 }
 
-struct QPair { double minus, plus; };
-
 // Ghost-substituted (minus, plus) neighbor pair for Q component C along an
 // axis whose walls are LoBC/HiBC. q_minus/q_plus must already be fetched
 // with SafeFetchAxisOffset. Periodic short-circuits to the real fetched
 // neighbors (QGhost has no Periodic case); otherwise i==0/i==n-1 replaces
 // the (physically meaningless, since the fetch clamped) value with QGhost.
 template<QComp C, typename LoBC, typename HiBC>
-inline CUDA_HOST_DEVICE QPair QAxisGhostPair(
+inline CUDA_HOST_DEVICE NeighborPair QAxisGhostPair(
     int i, int n, double q_minus, double q_center, double q_plus
 ) {
     if constexpr (std::is_same_v<LoBC, Periodic>) {
-        return QPair{q_minus, q_plus};
+        return NeighborPair{q_minus, q_plus};
     } else {
         const double qm = (i == 0)   ? QGhost<C, LoBC>(q_center) : q_minus;
         const double qp = (i == n-1) ? QGhost<C, HiBC>(q_center) : q_plus;
-        return QPair{qm, qp};
+        return NeighborPair{qm, qp};
     }
 }
-
-struct QDerivs { double dx, dy, dz, lap; };
 
 // Gradient (central difference) and Laplacian (7-point stencil) of Q
 // component C at (x,y,z), wall-aware via QGhost/QAxisGhostPair above rather
@@ -301,9 +298,9 @@ inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, in
 
     const double q0 = q[idx(x, y, z)];
 
-    const QPair px = QAxisGhostPair<C, XLoQ, XHiQ>(x, nx, q[idx(xm, y, z)], q0, q[idx(xp, y, z)]);
-    const QPair py = QAxisGhostPair<C, YLoQ, YHiQ>(y, ny, q[idx(x, ym, z)], q0, q[idx(x, yp, z)]);
-    const QPair pz = QAxisGhostPair<C, ZLoQ, ZHiQ>(z, nz, q[idx(x, y, zm)], q0, q[idx(x, y, zp)]);
+    const NeighborPair px = QAxisGhostPair<C, XLoQ, XHiQ>(x, nx, q[idx(xm, y, z)], q0, q[idx(xp, y, z)]);
+    const NeighborPair py = QAxisGhostPair<C, YLoQ, YHiQ>(y, ny, q[idx(x, ym, z)], q0, q[idx(x, yp, z)]);
+    const NeighborPair pz = QAxisGhostPair<C, ZLoQ, ZHiQ>(z, nz, q[idx(x, y, zm)], q0, q[idx(x, y, zp)]);
 
     return QDerivs{
         (px.plus - px.minus) / 2.0,
@@ -313,6 +310,41 @@ inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, in
     };
 }
 
+template<typename BCConfig>
+inline CUDA_HOST_DEVICE Vec3 PassiveStressDivergence(
+    const double* pxx,
+    const double* pxy,
+    const double* pxz,
+    const double* pyy,
+    const double* pyz,
+    const int x,
+    const int y,
+    const int z
+) {
+
+    const int xm = QXoff<BCConfig>(x, -1);
+    const int xp = QXoff<BCConfig>(x, +1);
+    const int ym = QYoff<BCConfig>(y, -1);
+    const int yp = QYoff<BCConfig>(y, +1);
+    const int zm = QZoff<BCConfig>(z, -1);
+    const int zp = QZoff<BCConfig>(z, +1);
+
+    // Now, add the passive stress and friction
+    double fx = ((pxx[idx(xp, y, z)] - pxx[idx(xm, y, z)])/2.0
+                        + (pxy[idx(x, yp, z)] - pxy[idx(x, ym, z)])/2.0
+                        + (pxz[idx(x, y, zp)] - pxz[idx(x, y, zm)])/2.0);
+
+    double fy = ((pxy[idx(xp, y, z)] - pxy[idx(xm, y, z)])/2.0
+                        + (pyy[idx(x, yp, z)] - pyy[idx(x, ym, z)])/2.0
+                        + (pyz[idx(x, y, zp)] - pyz[idx(x, y, zm)])/2.0);
+
+    double fz = ((pxz[idx(xp, y, z)] - pxz[idx(xm, y, z)])/2.0
+                        + (pyz[idx(x, yp, z)] - pyz[idx(x, ym, z)])/2.0
+                        - (pxx[idx(x, y, zp)] - pxx[idx(x, y, zm)])/2.0
+                        - (pyy[idx(x, y, zp)] - pyy[idx(x, y, zm)])/2.0); // Since Pzz = -(Pxx + Pyy)
+    
+    return {fx, fy, fz};
+}
 // Post-collision boundary handling for a single out-of-domain stream. Writes
 // the reconstructed population to f_new at the SOURCE node (x,y,z), not the
 // out-of-domain destination:

@@ -28,11 +28,7 @@ std::string InitializeComputeBackend() {
         "      global memory: {:.1f} MiB\n"
         "        free memory: {:.1f} MiB\n"
         "   asyncEngineCount: {}\n"
-        "   canMapHostMemory: {}\n"
-        "Warning: The GPU version is currently only proof-of-concept:\n"
-        "It implements *only* fully periodic boundary conditions regardless of the sim_config, "
-        "and does not implement passive stresses. For a production run, please recompile with "
-        "-DLBM_FORCE_CPU=ON flag in CMake.\n",
+        "   canMapHostMemory: {}\n",
         device_id, props.name, props.multiProcessorCount,
         props.major, props.minor,
         props.totalGlobalMem / bytesPerMiB, free_mem / bytesPerMiB,
@@ -58,7 +54,13 @@ DeviceFields::DeviceFields() :
     d_qyy     (Params::nx * Params::ny * Params::nz, 0.0),
     d_qyy_new (Params::nx * Params::ny * Params::nz, 0.0),
     d_qyz     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyz_new (Params::nx * Params::ny * Params::nz, 0.0)
+    d_qyz_new (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pxx     (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pxy     (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pxz     (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pyy     (Params::nx * Params::ny * Params::nz, 0.0),
+    d_Pyz     (Params::nx * Params::ny * Params::nz, 0.0)
+
 {}
 
 void DeviceFields::Initialize(FluidFields& ff, const QTensorFields& qf) {

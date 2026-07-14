@@ -29,6 +29,12 @@ struct DeviceFields {
     thrust::device_vector<double> d_qyy, d_qyy_new;
     thrust::device_vector<double> d_qyz, d_qyz_new;
 
+    thrust::device_vector<double> d_Pxx;
+    thrust::device_vector<double> d_Pxy;
+    thrust::device_vector<double> d_Pxz;
+    thrust::device_vector<double> d_Pyy;
+    thrust::device_vector<double> d_Pyz;
+
     DeviceFields();
 
     // ff is mutated transiently: ff.f_new is reused as scratch space for the

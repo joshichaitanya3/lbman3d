@@ -91,9 +91,8 @@ struct Moments {
 
 // Full (non-symmetric) velocity gradient tensor, v_A_B = ∂(u_A)/∂B. uz_z
 // isn't stored; derive it via incompressibility (-(ux_x + uy_y)) at the call
-// site. Shared between boundary_handler.h's host-side, BC-aware
-// VelocityGradientTensor and kernels.cu's device-only, shared-memory-tile-
-// based VelGradient — both return this same plain aggregate.
+// site. Returned by boundary_handler.h's BC-aware VelocityGradientTensor,
+// which is shared between host and device paths.
 struct GradTensor {
     double ux_x, ux_y, ux_z;
     double uy_x, uy_y, uy_z;
@@ -153,6 +152,14 @@ inline CUDA_HOST_DEVICE Moments ComputeMoments(
     uzp /= rhop;
     Vec3 up{uxp, uyp, uzp};
     return {rhop, up};
+}
+
+inline CUDA_HOST_DEVICE double PointwiseBGKCollide(
+    double f,
+    double feq,
+    double forcing_term
+) {
+    return omega * f + omega_prime * feq + DT * forcing_term;
 }
 
 #endif // LBM_AN_PHYSICS_HELPERS_H_
