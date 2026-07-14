@@ -209,7 +209,7 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
                                 + Qxz * Hxy + Qyz * Hyy + (-Qxx - Qyy) * Hyz;
         
         const double Tauxx = 0.0; // Diagonal component of antisymmetric tensor
-        const double Tauxy = (Hxy*Qxx + Hyy*Qxy + Hyz*Qxz) - (Qxy*Hxx + Qyy*Hxy + Qyz*Qxz);
+        const double Tauxy = (Hxy*Qxx + Hyy*Qxy + Hyz*Qxz) - (Qxy*Hxx + Qyy*Hxy + Qyz*Hxz);
         const double Tauxz = (Hxz*Qxx + Hyz*Qxy + (-Hxx - Hyy)*Qxz) - (Qxz*Hxx + Qyz*Hxy + (-Qxx - Qyy)*Hxz);
         const double Tauyy = 0.0; // Diagonal component of antisymmetric tensor
         const double Tauyz = (Hxz*Qxy + Hyz*Qyy + (-Hxx - Hyy)*Qyz) - (Qxz*Hxy + Qyz*Hyy + (-Qxx - Qyy)*Hyz);
