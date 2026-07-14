@@ -17,10 +17,8 @@ constexpr int kBlockX = 32;
 constexpr int kBlockY = 4;
 constexpr int kBlockZ = 4;
 
-static constexpr size_t kQstepSmem =
-        8 * (kBlockZ+2*kHalo) * (kBlockY+2*kHalo) * (kBlockX+2*kHalo) * sizeof(double);
-dim3 block_{kBlockX, kBlockY, kBlockZ};
-dim3 grid_{(nx + kBlockX - 1) / kBlockX, (ny + kBlockY - 1) / kBlockY, (nz + kBlockZ - 1) / kBlockZ};
+static dim3 block_{kBlockX, kBlockY, kBlockZ};
+static dim3 grid_{(nx + kBlockX - 1) / kBlockX, (ny + kBlockY - 1) / kBlockY, (nz + kBlockZ - 1) / kBlockZ};
 
 // idx(x,y,z[,i]) now comes from physics_helpers.h, shared with host code.
 __device__ inline int wrap(int i, int n) { return (i + n) % n; }
