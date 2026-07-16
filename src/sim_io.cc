@@ -1,6 +1,6 @@
 #include "sim_io.h"
-#include "params.h"
-#include "sim_config.h"
+#include <params.h>
+#include <sim_config.h>
 #include "format_compat.h"
 
 #include <cmath>

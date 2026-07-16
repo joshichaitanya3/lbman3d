@@ -1,9 +1,9 @@
 #include <chrono>
 #include <iostream>
 #include "format_compat.h"
-#include "sim_config.h"
+#include <sim_config.h>
 #include "active_nematic.h"
-#include "params.h"
+#include <params.h>
 
 inline constexpr int kWarmupSteps    = 10;
 inline constexpr int kBenchmarkSteps = 1000;

@@ -1,7 +1,7 @@
 #ifndef LBM_AN_MODEL_H
 #define LBM_AN_MODEL_H
 
-#include "params.h"
+#include <params.h>
 #include "qtensor_types.h"
 #include "physics_helpers.h"
 #include "boundary_handler.h"

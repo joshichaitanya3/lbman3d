@@ -2,7 +2,7 @@
 #define LBM_AN_ANALYSIS_FIELDS_H_
 
 #include <vector>
-#include "params.h"
+#include <params.h>
 #include "qtensor_fields.h"
 #include "physics_helpers.h"
 #include "offsets.h"

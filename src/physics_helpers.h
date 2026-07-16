@@ -8,7 +8,7 @@
 #endif
 
 #include <cassert>
-#include "params.h"
+#include <params.h>
 #include "lattice_stencil.h"
 
 using namespace Params;

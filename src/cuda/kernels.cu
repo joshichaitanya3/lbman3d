@@ -2,7 +2,7 @@
 #include <stdexcept>
 #include <string>
 #include <format>
-#include "params.h"
+#include <params.h>
 #include "device_fields.h"
 #include "qtensor_types.h"
 #include "physics_helpers.h"

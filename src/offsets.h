@@ -3,7 +3,7 @@
 
 #include <type_traits>
 #include "boundary.h"
-#include "params.h"
+#include <params.h>
 #include "physics_helpers.h"
 
 // ─────────────────────────────────────────────────────────────────────────────

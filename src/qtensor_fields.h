@@ -2,7 +2,7 @@
 #define LBM_AN_QTENSOR_FIELDS_H_
 
 #include <vector>
-#include "params.h"
+#include <params.h>
 
 // Owns Q-tensor state: current and scratch (new) components.
 // Flat, row-major storage indexed via idx(x,y,z) from physics_helpers.h.

@@ -1,9 +1,9 @@
 #include <iostream>
 #include <ranges>
 #include "format_compat.h"
-#include "sim_config.h"
+#include <sim_config.h>
 #include "active_nematic.h"
-#include "params.h"
+#include <params.h>
 
 int main(int argc, char* argv[]) {
     ActiveNematicSim<SimBC> sim{};

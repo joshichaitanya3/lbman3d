@@ -1,5 +1,5 @@
 #include "device_fields.h"
-#include "params.h"
+#include <params.h>
 #include "cuda_utils.h"
 #include "lattice_stencil.h"
 #include "physics_helpers.h"

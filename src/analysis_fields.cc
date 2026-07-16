@@ -1,5 +1,5 @@
 #include "analysis_fields.h"
-#include "params.h"
+#include <params.h>
 #include "physics_helpers.h"
 #include <cmath>
 using namespace Params;

@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-#include "params.h"
+#include <params.h>
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 #include "analysis_fields.h"
