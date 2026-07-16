@@ -99,9 +99,7 @@ struct GradTensor {
     double uz_x, uz_y;
 };
 
-inline CUDA_HOST_DEVICE double Feq(Moments m, Vec3 e, double u2, double w_i) {
-    
-    double u_dot_e = m.u.Dot(e);
+inline CUDA_HOST_DEVICE double Feq(Moments m, double u_dot_e, double u2, double w_i) {
     return (w_i * m.rho * (1.0 + kCs2Inv * u_dot_e + khalfCs4Inv * u_dot_e * u_dot_e - khalfCs2Inv * u2));
 }
 
@@ -117,7 +115,7 @@ inline CUDA_HOST_DEVICE FeqForcing ComputeFeqAndForcing(
     double ue = m.u.Dot(e);
     double eF  = e.Dot(force);
 
-    double feq = (w_i * m.rho * (1.0 + 3.0 * ue + 4.5 * ue * ue - 1.5 * u2));
+    double feq = Feq(m, ue, u2, w_i);
     double forcing_term = omega_forcing * w_i
         * (3.0 * eF - 3.0 * uF + 9.0 * ue * eF);
     

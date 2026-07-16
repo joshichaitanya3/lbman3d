@@ -48,7 +48,7 @@ void LbmSolver<BC>::Initialize(FluidFields& ff) const {
                         static_cast<double>(Lattice::ey[i]),
                         static_cast<double>(Lattice::ez[i])
                     };
-                    ff.f[idx(x, y, z, i)] = Feq({rhop, up}, e_i, u2, Lattice::w[i]);
+                    ff.f[idx(x, y, z, i)] = Feq({rhop, up}, up.Dot(e_i), u2, Lattice::w[i]);
                 }
             }
         }
