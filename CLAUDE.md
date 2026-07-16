@@ -46,6 +46,8 @@ Only two files need to be touched for a typical simulation:
 
 Everything else under `src/` is solver code. The BC interface in `sim_config.h` is a key design goal — any refactor must preserve or improve its readability, never complicate it.
 
+These two files are included with **angle brackets** throughout `src/` (`#include <params.h>`, `#include <sim_config.h>`). This is intentional: angle brackets skip the file-relative lookup and use the `-I` list, so a physicist can shadow either file at compile time by prepending a directory to the include path — enabling parameter sweeps or per-test configurations without modifying `src/`. All other project-local headers use quoted includes (`#include "model.h"` etc.) per C++ convention. Do not change `params.h` or `sim_config.h` back to quoted form.
+
 ## Architecture
 
 ### Solver hierarchy
