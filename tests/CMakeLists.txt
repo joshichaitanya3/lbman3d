@@ -4,7 +4,7 @@ function(lbm_add_test target params_dir)
         ${CMAKE_SOURCE_DIR}/src
         ${HDF5_INCLUDE_DIRS}
     )
-    target_link_libraries(${target} PRIVATE GTest::gtest_main ${HDF5_C_LIBRARIES})
+    target_link_libraries(${target} PRIVATE GTest::gtest_main ${HDF5_C_LIBRARIES} lbm_warnings)
 
     if(HAVE_STD_FORMAT)
         target_compile_definitions(${target} PRIVATE HAVE_STD_FORMAT)

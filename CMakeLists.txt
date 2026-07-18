@@ -54,6 +54,13 @@ set(CMAKE_CXX_FLAGS "-fopenmp -g")
 set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-Og")
 
+# Warning flags as an INTERFACE library so they apply only to project targets,
+# not to FetchContent dependencies (GoogleTest, fmt).
+add_library(lbm_warnings INTERFACE)
+target_compile_options(lbm_warnings INTERFACE
+    $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wshadow -Werror>
+)
+
 # Detect whether this toolchain's standard library supports <format> and <print>.
 # GCC 13's libstdc++ ships incomplete C++23 headers; GCC 15 is fine.
 # Under C++20, <print> is unavailable and the fmt fallback is used automatically.
@@ -86,6 +93,7 @@ foreach(target main benchmark)
     )
     target_link_libraries(${target} PRIVATE
         ${HDF5_C_LIBRARIES}
+        lbm_warnings
     )
     if(HAVE_STD_FORMAT)
         target_compile_definitions(${target} PRIVATE HAVE_STD_FORMAT)
