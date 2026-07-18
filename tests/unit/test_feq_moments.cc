@@ -3,6 +3,7 @@
 #include "lattice_stencil.h"
 #include "physics_helpers.h"
 #include <vector>
+#include <random>
 
 using namespace Lattice;
 
@@ -18,19 +19,20 @@ TEST(FeqMoments, ZeroVelocityFeq) {
 
 TEST(FeqMoments, FeqZerothMoment) {
 
-    std::vector<Vec3> test_velocities;
-    
-    test_velocities.push_back({0.0, 0.0, 0.0});
-    test_velocities.push_back({0.6, -1.0, 2.0});
-    test_velocities.push_back({-1.0, -1.0, -1.0});
-    test_velocities.push_back({0.003, 0.0, 0.0});
+    std::mt19937 rng(42);
+    std::uniform_real_distribution<double> rho_dist(0.5, 2.0);
+    std::uniform_real_distribution<double> u_dist(-0.3, 0.3);
 
-    std::vector<double> test_rhos{0.5, 1.0, 5.2, 0.01};
-    for (int s = 0; s < 4; s++) {
+    for (int s = 0; s < 5; s++) {
         double sum = 0.0;
-        Vec3 u = test_velocities[s];
+        Vec3 u{u_dist(rng), u_dist(rng), u_dist(rng)};
+        double rho = rho_dist(rng);
+        if (s==0) {
+            u.x = 0.0; u.y = 0.0; u.z = 0.0;
+            rho = 1.0;
+        }
+
         double u2 = u.Dot(u);
-        double rho = test_rhos[s];
 
         Moments m{rho, u};
         for (int i = 0; i < ndir; i++) {
@@ -48,19 +50,21 @@ TEST(FeqMoments, FeqZerothMoment) {
 
 TEST(FeqMoments, FeqFirstMoment) {
 
-    std::vector<Vec3> test_velocities;
-    
-    test_velocities.push_back({0.0, 0.0, 0.0});
-    test_velocities.push_back({0.6, -1.0, 2.0});
-    test_velocities.push_back({-1.0, -1.0, -1.0});
-    test_velocities.push_back({0.003, 0.0, 0.0});
+    std::mt19937 rng(33);
+    std::uniform_real_distribution<double> rho_dist(0.5, 2.0);
+    std::uniform_real_distribution<double> u_dist(-0.3, 0.3);
 
-    std::vector<double> test_rhos{0.5, 1.0, 5.2, 0.01};
-    for (int s = 0; s < 4; s++) {
-        Vec3 u = test_velocities[s];
+    for (int s = 0; s < 5; s++) {
+
+        Vec3 u{u_dist(rng), u_dist(rng), u_dist(rng)};
+        double rho = rho_dist(rng);
+        if (s==0) {
+            u.x = 0.0; u.y = 0.0; u.z = 0.0;
+            rho = 1.0;
+        }
+
         double u2 = u.Dot(u);
-        double rho = test_rhos[s];
-        
+
         double sum_x = 0.0;
         double sum_y = 0.0;
         double sum_z = 0.0;
@@ -86,22 +90,21 @@ TEST(FeqMoments, FeqFirstMoment) {
 
 TEST(FeqMoments, MomentsRoundtrip) {
 
-    std::vector<Vec3> test_velocities;
-    
-    test_velocities.push_back({0.0, 0.0, 0.0});
-    test_velocities.push_back({0.6, -1.0, 2.0});
-    test_velocities.push_back({-1.0, -1.0, -1.0});
-    test_velocities.push_back({0.003, 0.0, 0.0});
+    std::mt19937 rng(78);
+    std::uniform_real_distribution<double> rho_dist(0.5, 2.0);
+    std::uniform_real_distribution<double> u_dist(-0.3, 0.3);
 
-    std::vector<double> test_rhos{0.5, 1.0, 5.2, 0.01};
-    for (int s = 0; s < 4; s++) {
-        Vec3 u = test_velocities[s];
+    for (int s = 0; s < 5; s++) {
+
+        Vec3 u{u_dist(rng), u_dist(rng), u_dist(rng)};
+        double rho = rho_dist(rng);
+        if (s==0) {
+            u.x = 0.0; u.y = 0.0; u.z = 0.0;
+            rho = 1.0;
+        }
+
         double u2 = u.Dot(u);
-        double rho = test_rhos[s];
-        
-        double sum_x = 0.0;
-        double sum_y = 0.0;
-        double sum_z = 0.0;
+
         double f[ndir];
         Moments m{rho, u};
         for (int i = 0; i < ndir; i++) {
@@ -133,14 +136,20 @@ TEST(FeqMoments, MomentsRoundtrip) {
 
 TEST(FeqMoments, GuoHalfStepCorrection) {
 
-    std::vector<double> test_rhos{0.5, 1.0, 5.2, 0.01};
-    std::vector<double> test_forces{0.0, 0.1, -0.5, 10.0};
-    for (int s = 0; s < 4; s++) {
+    std::mt19937 rng(57);
+    std::uniform_real_distribution<double> rho_dist(0.5, 2.0);
+    std::uniform_real_distribution<double> force_dist(-0.3, 0.3);
+
+    for (int s = 0; s < 5; s++) {
         Vec3 u{0.0, 0.0, 0.0};
         double u2 = u.Dot(u);
-        double rho = test_rhos[s];
-        double force_x = test_forces[s];
-        
+        double rho = rho_dist(rng);
+        double force_x = force_dist(rng);
+        if (s==0) {
+            rho = 1.0;
+            force_x = 0.0;
+        }
+
         double f[ndir];
         for (int i = 0; i < ndir; i++) {
 
