@@ -77,7 +77,6 @@ public:
         return mass;
     }
 
-    int GetTimeStep() const { return time_step_; }
 };
 
 struct PoiseuilleBC {
@@ -97,9 +96,6 @@ class PoiseuilleFlow : public ::testing::Test {
     static inline PoiseuilleFlowBenchmark<PoiseuilleBC> sim{};
     // Runs ONCE before all tests in this fixture
     static void SetUpTestSuite() {
-        std::cout << "nx: " << nx << std::endl;
-        std::cout << "ny: " << ny << std::endl;
-        std::cout << "nz: " << nz << std::endl;
         for (int i = 0; i < 5000; i++)
             sim.Step();
     }
