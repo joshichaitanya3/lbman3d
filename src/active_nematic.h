@@ -99,7 +99,7 @@ public:
         d_fields_.CopyToHost(fluid_, qtensor_);
         #endif
         QtensorToOrderDirector(qtensor_, af_);
-        finder_.FindDefects(qtensor_, af_, df_);
+        finder_.FindDefects(af_, df_);
 
         switch (fmt)
         {
@@ -108,8 +108,8 @@ public:
             num_files_exported++;
             break;
         case VTKHDF:
-            io_.ExportVTKHDF(fluid_, qtensor_, af_, path, num_files_exported, static_cast<double>(time_step_)*Params::DT);
-            io_.ExportDisclinations(df_, path, num_files_exported, static_cast<double>(time_step_)*Params::DT);
+            io_.ExportVTKHDF(fluid_, af_, path, num_files_exported);
+            io_.ExportDisclinations(df_, path, num_files_exported);
             num_files_exported++;
             break;
         default:

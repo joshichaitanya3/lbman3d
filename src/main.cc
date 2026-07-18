@@ -5,7 +5,7 @@
 #include "active_nematic.h"
 #include <params.h>
 
-int main(int argc, char* argv[]) {
+int main() {
     ActiveNematicSim<SimBC> sim{};
     for (int t : std::views::iota(0, kNumSteps)) {
         if (t % kSaveInterval == 0) {

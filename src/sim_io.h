@@ -39,11 +39,11 @@ public:
     void ExportCSV(const FluidFields& ff, const QTensorFields& qf,
                 const std::string& path, int step);
 
-    void ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, AnalysisFields& af,
-                const std::string& path, int step, double time);
+    void ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
+                const std::string& path, int step);
     
     void ExportDisclinations(const DefectFields& df,
-                const std::string& path, int step, double time);
+                const std::string& path, int step);
     
     // Write one CSV per lattice direction to `path/`.
     void ExportDistributionCSV(const FluidFields& ff,

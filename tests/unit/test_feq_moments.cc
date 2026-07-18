@@ -141,8 +141,6 @@ TEST(FeqMoments, GuoHalfStepCorrection) {
     std::uniform_real_distribution<double> force_dist(-0.3, 0.3);
 
     for (int s = 0; s < 5; s++) {
-        Vec3 u{0.0, 0.0, 0.0};
-        double u2 = u.Dot(u);
         double rho = rho_dist(rng);
         double force_x = force_dist(rng);
         if (s==0) {

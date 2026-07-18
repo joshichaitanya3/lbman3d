@@ -26,7 +26,7 @@ class ZeroActivitySolver : public QTensorSolver<BC> {
 };
 
 template<typename BC>
-void ZeroActivitySolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, const QTensorFields& qf) const {
+void ZeroActivitySolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields&, const QTensorFields&) const {
     return;
 }
 
