@@ -95,11 +95,14 @@ public:
         return TotalNematicFreeEnergy<BC>(qtensor_);
     }
 
+    double MeanOrder() {
+        QtensorToOrderDirector(qtensor_, af_);
+        return std::accumulate(af_.order_.begin(), af_.order_.end(),0.0) / static_cast<double>(af_.order_.size());
+    }
     double SpatialUniformity() {
         QtensorToOrderDirector(qtensor_, af_);
 
-        double sum_order = std::accumulate(af_.order_.begin(), af_.order_.end(),0.0);
-        double mean_order = sum_order / static_cast<double>(af_.order_.size());
+        double mean_order = MeanOrder();
         std::vector<double> diff_sq;
         for (int i : std::views::iota(0, nx*ny*nz)) {
             double diff = af_.order_[i] - mean_order;
@@ -140,6 +143,12 @@ TEST_F(QTensorRelaxation, MonotoneFreeEnergyDecrease) {
         double val2 = nematic_energies[i+1];
         EXPECT_TRUE(val2 < (val1 + 1e-10));
     }
+}
+
+TEST_F(QTensorRelaxation, MeanOrder) {
+
+    double analytical_expectation = -B/(3.0 * C);
+    EXPECT_NEAR(sim.MeanOrder(), analytical_expectation, 1e-6);
 }
 
 TEST_F(QTensorRelaxation, SpatialUniformity) {
