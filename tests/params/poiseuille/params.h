@@ -1,5 +1,5 @@
-#ifndef LBM_AN_PARAMS_H_
-#define LBM_AN_PARAMS_H_
+#ifndef LBM_AN_TESTS_PARAMS_POISEUILLE_PARAMS_H_
+#define LBM_AN_TESTS_PARAMS_POISEUILLE_PARAMS_H_
 
 #include <cmath> // for sqrt
 
@@ -71,4 +71,4 @@ namespace Params {
     inline constexpr bool kTrackNematicEnergy = false;
 }
 
-#endif // LBM_AN_TESTS_PARAMS_PARAMS_UNIT_H_
+#endif // LBM_AN_TESTS_PARAMS_POISEUILLE_PARAMS_H_

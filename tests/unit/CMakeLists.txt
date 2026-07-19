@@ -9,4 +9,3 @@ add_executable(unit_tests
 )
 
 lbm_add_test(unit_tests unit)
-

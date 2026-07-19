@@ -106,5 +106,3 @@ TEST(LatticeStencil, MissingDirectionSetZHi) {
         }
     }
 }
-
-
