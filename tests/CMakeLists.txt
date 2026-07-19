@@ -1,3 +1,5 @@
+option(LBM_BUILD_UNIT_TESTS "Build the unit test suite (under LBM_BUILD_TESTS)" ON)
+
 function(lbm_add_test target params_dir)
     target_include_directories(${target} PRIVATE
         ${CMAKE_SOURCE_DIR}/tests/params/${params_dir}  # shadows src/params.h
@@ -21,5 +23,7 @@ function(lbm_add_test target params_dir)
     gtest_discover_tests(${target})
 endfunction()
 
-add_subdirectory(unit)
+if(LBM_BUILD_UNIT_TESTS)
+    add_subdirectory(unit)
+endif()
 add_subdirectory(integration)
