@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <vector>
-#include "params.h"
+#include <params.h>
 #include "defect_connectivity_graph.h"
 #include "disclination.h"
 

@@ -1,5 +1,5 @@
 #include "qtensor_fields.h"
-#include "params.h"
+#include <params.h>
 
 QTensorFields::QTensorFields() :
     qxx     (Params::nx * Params::ny * Params::nz, 0.0),

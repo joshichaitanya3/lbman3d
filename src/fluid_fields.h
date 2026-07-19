@@ -2,7 +2,7 @@
 #define LBM_AN_FLUID_FIELDS_H_
 
 #include <vector>
-#include "params.h"
+#include <params.h>
 
 // Owns all LBM state: distribution functions, macroscopic fields, body force.
 // fx/fy/fz are the only write surface shared with QTensorSolver.

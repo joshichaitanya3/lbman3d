@@ -1,5 +1,5 @@
 #include "fluid_fields.h"
-#include "params.h"
+#include <params.h>
 #include "lattice_stencil.h"
 
 FluidFields::FluidFields() :

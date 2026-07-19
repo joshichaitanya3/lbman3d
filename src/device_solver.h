@@ -2,7 +2,7 @@
 #define LBM_AN_DEVICE_SOLVER_H_
 
 #include <string>
-#include "params.h"
+#include <params.h>
 #include "device_fields.h"
 
 #ifdef SIM_WITH_CUDA

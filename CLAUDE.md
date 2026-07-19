@@ -35,7 +35,17 @@ mkdir -p data
 
 C++ standard: C++23 for CPU-only builds; C++20 when CUDA is enabled (nvcc does not support C++23). The CMakeLists.txt handles this automatically.
 
-There is no test suite yet — one needs to be added.
+## Testing
+
+A test suite exists under `tests/` (GoogleTest, fetched via `FetchContent`): unit tests for individual physics/BC-dispatch functions, integration tests for full solver runs (Poiseuille flow, Q-tensor relaxation, BC combinations). See `tests/CLAUDE.md` for the full test catalogue, the `params.h`-shadowing mechanism used to give each test its own grid/physics constants, and the CI branch strategy.
+
+```bash
+cmake -B build -DLBM_FORCE_CPU=ON
+cmake --build build -j$(nproc)
+cd build && ctest --output-on-failure
+```
+
+**Any new feature, bugfix, or refactor must come with corresponding test coverage** — extend the unit and/or integration suite in `tests/` rather than leaving new behavior untested. Follow the existing conventions in `tests/CLAUDE.md` (params-shadowing directory layout, `lbm_add_test` helper, one executable per integration scenario) rather than inventing new ones.
 
 ## User-facing configuration files
 
@@ -45,6 +55,8 @@ Only two files need to be touched for a typical simulation:
 - **`src/params.h`** — grid dimensions (`nx`, `ny`, `nz`), LBM relaxation (`TAUF`), Landau coefficients (`A`, `B`, `C`), elastic constant (`L`), activity (`ALPHA`), flow-alignment (`LAMBDA`), rotational viscosity (`GAMMA`), friction (`MU`), and logging flags.
 
 Everything else under `src/` is solver code. The BC interface in `sim_config.h` is a key design goal — any refactor must preserve or improve its readability, never complicate it.
+
+These two files are included with **angle brackets** throughout `src/` (`#include <params.h>`, `#include <sim_config.h>`). This is intentional: angle brackets skip the file-relative lookup and use the `-I` list, so a physicist can shadow either file at compile time by prepending a directory to the include path — enabling parameter sweeps or per-test configurations without modifying `src/`. All other project-local headers use quoted includes (`#include "model.h"` etc.) per C++ convention. Do not change `params.h` or `sim_config.h` back to quoted form.
 
 ## Architecture
 

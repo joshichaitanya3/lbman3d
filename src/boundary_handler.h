@@ -4,7 +4,7 @@
 #include <type_traits>
 #include <cmath>
 #include "boundary.h"
-#include "params.h"
+#include <params.h>
 #include "physics_helpers.h"
 #include "qtensor_types.h"
 #include "offsets.h"

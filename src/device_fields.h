@@ -2,7 +2,7 @@
 #define LBM_AN_DEVICE_FIELDS_H_
 
 #include <string>
-#include "params.h"
+#include <params.h>
 
 #ifdef SIM_WITH_CUDA
 

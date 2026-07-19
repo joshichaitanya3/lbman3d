@@ -1,4 +1,4 @@
-#include "params.h"
+#include <params.h>
 #include "boundary.h"
 #include "lattice_stencil.h"
 

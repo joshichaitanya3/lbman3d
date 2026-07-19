@@ -1,0 +1,29 @@
+name: Unit Tests
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: configure
+      run:  |
+        sudo apt update
+        sudo apt install libhdf5-dev
+    - name: cache-deps
+      uses: actions/cache@v4
+      with:
+        path: build/_deps
+        key: ${{ runner.os }}-deps-${{ hashFiles('CMakeLists.txt') }}
+    - name: build-tests
+      run: (cmake -B build -DLBM_FORCE_CPU=ON -DCMAKE_BUILD_TYPE=Debug; cmake --build build --target unit_tests)
+    - name: run-tests
+      run: |
+        ./build/tests/unit/unit_tests

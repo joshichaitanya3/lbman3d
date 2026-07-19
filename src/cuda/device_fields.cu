@@ -1,5 +1,5 @@
 #include "device_fields.h"
-#include "params.h"
+#include <params.h>
 #include "cuda_utils.h"
 #include "lattice_stencil.h"
 #include "physics_helpers.h"
@@ -83,6 +83,11 @@ void DeviceFields::Initialize(FluidFields& ff, const QTensorFields& qf) {
 
     thrust::copy(ff.f_new.begin(), ff.f_new.end(), d_f.begin());
     std::copy(ff.f.begin(), ff.f.end(), ff.f_new.begin());
+
+    // Copy Force fields initialized on the host to the device
+    thrust::copy(ff.fx.begin(),  ff.fx.end(),  d_force_x.begin());
+    thrust::copy(ff.fy.begin(),  ff.fy.end(),  d_force_y.begin());
+    thrust::copy(ff.fz.begin(),  ff.fz.end(),  d_force_z.begin());
 
     // Copy QTensor fields initialized on the host to the device
     thrust::copy(qf.qxx.begin(),  qf.qxx.end(),  d_qxx.begin());

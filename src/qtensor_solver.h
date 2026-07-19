@@ -28,7 +28,7 @@ public:
     virtual ~QTensorSolver() = default;
 
     // Set initial Q field with uniform noise (qxx ≈ 0.5, qxy ≈ 0).
-    void Initialize(QTensorFields& qf) const;
+    virtual void Initialize(QTensorFields& qf) const;
 
     /* !\brief Beris-Edwards FD step + setting up the backflow coupling
      *
