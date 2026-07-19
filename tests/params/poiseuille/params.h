@@ -16,7 +16,7 @@ namespace Params {
     static constexpr double khalfCs2Inv = 1.5; // 1/2 * 1/c_s^2
     static constexpr double khalfCs4Inv = 4.5; // 1/2 * 1/c_s^4
     // Grid
-    inline constexpr int nx = 32;
+    inline constexpr int nx = 5;
     inline constexpr int ny = 16;
     inline constexpr int nz = 5;
     inline constexpr int nq = 3;
