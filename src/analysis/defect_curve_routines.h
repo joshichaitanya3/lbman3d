@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include "disclination.h"
+#include "physics_helpers.h"
 
 // -- Smoothing function
 
@@ -69,10 +70,6 @@ std::vector<double> Smoothen(const std::vector<double>& points, bool is_loop, in
     }
     return out;
 }
-
-
-// ── Tiny 3-vector helper ─────────────────────────────────────────────────────
-struct Vec3 { double x, y, z; };
 
 // ── Result type ──────────────────────────────────────────────────────────────
 struct SplineResult {
