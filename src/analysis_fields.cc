@@ -64,7 +64,7 @@ OrderDirector QtensorToOrderDirectorPoint(
     const double q = DetQ(Qxx, Qxy, Qxz, Qyy, Qyz);
 
     const double r = 2.0 * std::sqrt(p/3.0);
-    const double S = r * std::cos(1.0/3.0 * std::acos(4*q/(r*r*r)));
+    const double S = r * std::cos(1.0/3.0 * std::acos(std::clamp(4*q/(r*r*r), -1.0, 1.0)));
 
     double nhatx = Qxz*(Qyy-S) - Qxy*Qyz;
     double nhaty = Qyz*(Qxx-S) - Qxy*Qxz;
