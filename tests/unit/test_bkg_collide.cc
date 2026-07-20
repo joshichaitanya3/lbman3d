@@ -27,8 +27,6 @@ TEST(BGKCollide, ForcingLinearity) {
 
     EXPECT_DOUBLE_EQ(diff1, diff2);
 }
-<<<<<<< HEAD
-=======
 
 TEST(BGKCollide, ForcingAntisymmetry) {
     // At u=0, the Guo operator reduces to F_i = ω'·w_i·3·(e_i·F). Because
@@ -57,4 +55,3 @@ TEST(BGKCollide, ForcingAntisymmetry) {
         EXPECT_DOUBLE_EQ(fi + fj, 0.0) << "pair (" << i << ", " << j << ")";
     }
 }
->>>>>>> a992510 (Add more unit tests)
