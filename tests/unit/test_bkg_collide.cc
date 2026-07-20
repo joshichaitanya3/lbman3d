@@ -2,14 +2,6 @@
 #include "physics_helpers.h"
 #include <math.h>
 
-// inline CUDA_HOST_DEVICE double PointwiseBGKCollide(
-//     double f,
-//     double feq,
-//     double forcing_term
-// ) {
-//     return omega * f + omega_prime * feq + DT * forcing_term;
-// }
-
 TEST(BGKCollide, FixedPointAtEquilibrium) {
     double feq = 1.0;
     EXPECT_DOUBLE_EQ(feq, PointwiseBGKCollide(feq, feq, 0.0));
@@ -35,3 +27,34 @@ TEST(BGKCollide, ForcingLinearity) {
 
     EXPECT_DOUBLE_EQ(diff1, diff2);
 }
+<<<<<<< HEAD
+=======
+
+TEST(BGKCollide, ForcingAntisymmetry) {
+    // At u=0, the Guo operator reduces to F_i = ω'·w_i·3·(e_i·F). Because
+    // e_{opp[i]} = −e_i and w_{opp[i]} = w_i, the pair sums to exactly zero:
+    // the force injects momentum but not mass. Verified for the three
+    // face-normal pairs (1↔3, 2↔4, 5↔6) with a non-axis-aligned force so
+    // all three projections are exercised.
+    const Moments m{1.0, {0.0, 0.0, 0.0}};
+    const Vec3 F{1e-5, 2e-5, 3e-5};
+    const double u2 = 0.0, uF = 0.0;
+
+    for (int i : {1, 2, 5}) {
+        const int j = Lattice::opp[i];
+        const Vec3 ei{
+            static_cast<double>(Lattice::ex[i]),
+            static_cast<double>(Lattice::ey[i]),
+            static_cast<double>(Lattice::ez[i])
+        };
+        const Vec3 ej{
+            static_cast<double>(Lattice::ex[j]),
+            static_cast<double>(Lattice::ey[j]),
+            static_cast<double>(Lattice::ez[j])
+        };
+        auto [feqi, fi] = ComputeFeqAndForcing(m, u2, uF, F, ei, Lattice::w[i]);
+        auto [feqj, fj] = ComputeFeqAndForcing(m, u2, uF, F, ej, Lattice::w[j]);
+        EXPECT_DOUBLE_EQ(fi + fj, 0.0) << "pair (" << i << ", " << j << ")";
+    }
+}
+>>>>>>> a992510 (Add more unit tests)

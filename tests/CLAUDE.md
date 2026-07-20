@@ -124,7 +124,7 @@ No params needed (only touches `lattice_stencil.h` arrays). Tests:
 ### `test_anchored_q.cc` — `AnchoredQ`, `QGhost`, `QGradientAndLaplacian`
 
 - **AnchoredQTraceless**: `xx + yy + zz == 0`
-- **AnchoredQMagnitude**: `HalfTrQ2 == 2S²/3`
+- **AnchoredQMagnitude**: `HalfTrQ2 == S²/3`
 - **AnchoredQAlignedAlongZ**: at `theta=0, phi=0` → `xx=yy=-S/3`, all off-diag=0
 - **QGhostNeumann**: returns `q_boundary` unchanged
 - **QGhostAnchoring**: returns `2*anchored_comp - q_boundary`
