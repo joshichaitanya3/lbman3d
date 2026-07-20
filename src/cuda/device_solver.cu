@@ -1,6 +1,6 @@
 #include "device_fields.h"
 #include "device_solver.h"
-#include "params.h"
+#include <params.h>
 #include "cuda_utils.h"
 #include "lattice_stencil.h"
 #include "kernels.cu"
@@ -93,6 +93,6 @@ void DeviceSolver<BC>::LBMStep(DeviceFields& df) {
     df.d_f.swap(df.d_f_new);
 }
 
-#include "sim_config.h"   // for SimBC
+#include <sim_config.h>   // for SimBC
 
 template struct DeviceSolver<SimBC>;

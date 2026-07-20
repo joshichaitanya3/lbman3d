@@ -1,7 +1,7 @@
 #ifndef LBM_AN_LATTICE_STENCIL_H_
 #define LBM_AN_LATTICE_STENCIL_H_
 
-#include "params.h"
+#include <params.h>
 
 // D3Q15 lattice stencil: the discrete velocity set (e_i, w_i) and its
 // symmetry maps (opposite/specular-reflection partners), shared by both the
@@ -38,7 +38,7 @@ inline constexpr int ndir = 15;
  * 13 _ _ _ _ _ _ _ _ _ _ _ _14
  *
  */
-//                                       0  1  2   3   4   5   6  7   8   9  10, 11, 12, 13, 14
+//                               0  1  2   3   4   5   6  7   8   9  10, 11, 12, 13, 14
 inline constexpr int ex[ndir] = {0, 1, 0, -1,  0,  0,  0, 1, -1, -1,  1,  1, -1, -1,  1};
 inline constexpr int ey[ndir] = {0, 0, 1,  0, -1,  0,  0, 1,  1, -1, -1,  1,  1, -1, -1};
 inline constexpr int ez[ndir] = {0, 0, 0,  0,  0,  1, -1, 1,  1,  1,  1, -1, -1, -1, -1};

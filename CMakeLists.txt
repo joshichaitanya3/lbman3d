@@ -54,6 +54,13 @@ set(CMAKE_CXX_FLAGS "-fopenmp -g")
 set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-Og")
 
+# Warning flags as an INTERFACE library so they apply only to project targets,
+# not to FetchContent dependencies (GoogleTest, fmt).
+add_library(lbm_warnings INTERFACE)
+target_compile_options(lbm_warnings INTERFACE
+    $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wextra -Wshadow -Werror>
+)
+
 # Detect whether this toolchain's standard library supports <format> and <print>.
 # GCC 13's libstdc++ ships incomplete C++23 headers; GCC 15 is fine.
 # Under C++20, <print> is unavailable and the fmt fallback is used automatically.
@@ -86,6 +93,7 @@ foreach(target main benchmark)
     )
     target_link_libraries(${target} PRIVATE
         ${HDF5_C_LIBRARIES}
+        lbm_warnings
     )
     if(HAVE_STD_FORMAT)
         target_compile_definitions(${target} PRIVATE HAVE_STD_FORMAT)
@@ -100,6 +108,31 @@ foreach(target main benchmark)
         )
     endif()
 endforeach()
+
+# Testing setup
+option(LBM_BUILD_TESTS "Build unit and integration tests" ON)
+if(LBM_BUILD_TESTS)
+    # Fetch Google Test
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG        v1.17.0  # Use latest stable version
+    )
+
+    # For Windows: Prevent overriding parent project's compiler/linker settings
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
+
+    # Discover tests automatically
+    include(GoogleTest)
+
+    # Enable testing
+    enable_testing()
+
+    # Add test subdirectory
+    add_subdirectory(tests)
+endif()
 
 add_subdirectory(src)
 

@@ -1,6 +1,6 @@
 #include "sim_io.h"
-#include "params.h"
-#include "sim_config.h"
+#include <params.h>
+#include <sim_config.h>
 #include "format_compat.h"
 
 #include <cmath>
@@ -176,8 +176,8 @@ void SimIO::ExportDistributionCSV(const FluidFields& ff,
 }
 
 
-void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, AnalysisFields& af,
-                         const std::string& path, int step, double time) {
+void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
+                         const std::string& path, int step) {
     constexpr int kStepWidth = [] {
         int w = 1, n = kNumSteps - 1;
         while (n >= 10) { n /= 10; ++w; }
@@ -215,24 +215,12 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, const QTensorFields& qf, Analysi
     // straight through to WriteVectorField without repacking.
     writer.WriteVectorField("director", af.director_.data());
 
-    // --- FieldData: simulation time ---
-    // {
-    //     hid_t fd = H5Gcreate2(vtkhdf, "FieldData", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    //     hsize_t dim = 1;
-    //     double time_val = time;  // your simulation time parameter
-    //     hid_t sp = H5Screate_simple(1, &dim, nullptr);
-    //     hid_t ds = H5Dcreate2(fd, "TimeValue", H5T_NATIVE_DOUBLE, sp,
-    //                         H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    //     H5Dwrite(ds, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, &time_val);
-    //     H5Dclose(ds);
-    // }
 }
 
 void SimIO::ExportDisclinations(
     const DefectFields& df,
     const std::string& path,
-    int step,
-    double time) 
+    int step) 
 {
     
     DisclinationMesh mesh;

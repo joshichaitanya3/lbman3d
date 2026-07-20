@@ -1,4 +1,9 @@
 # lbman3d
+
+[![Build](https://github.com/joshichaitanya3/lbman3d/actions/workflows/build.yml/badge.svg)](https://github.com/joshichaitanya3/lbman3d/actions/workflows/build.yml)
+[![Unit Tests](https://github.com/joshichaitanya3/lbman3d/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/joshichaitanya3/lbman3d/actions/workflows/unit-tests.yml)
+[![Integration Tests](https://github.com/joshichaitanya3/lbman3d/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/joshichaitanya3/lbman3d/actions/workflows/integration-tests.yml)
+
 Lattice Boltzmann Method-based solver for 3D Active Nematics
 
 The flow equation is solved using a D3Q15 scheme. The Q-tensor equation is solved using a simple finite-difference scheme.
@@ -80,7 +85,7 @@ inline constexpr int kSaveInterval = 1000;    // write CSV output every N steps
 | Preset | Description |
 |---|---|
 | `FullyPeriodicConfig` | All walls periodic (alias: `PeriodicBC`) |
-| `ChannelConfig` | Periodic in X, no-slip Neumann walls in Y, Z |
+| `ChannelConfig` | Periodic in Z, no-slip Neumann walls in X, Y |
 
 ### `src/params.h` — physical and numerical parameters
 
@@ -115,6 +120,26 @@ cmake --build build -j$(nproc)
 ```
 
 The GPU path is fully featured: it supports all boundary condition types and computes the full passive and active stress contributions. It is physics-equivalent to the CPU path.
+
+## Testing
+
+The test suite (GoogleTest, fetched automatically by CMake) builds by default alongside `main`/`benchmark`:
+
+```bash
+cmake -B build -DLBM_FORCE_CPU=ON
+cmake --build build -j$(nproc)
+cd build && ctest --output-on-failure
+```
+
+The integration tests run thousands of solver steps, so they're slow without optimizations. For a quicker run, add `-DCMAKE_BUILD_TYPE=Release`:
+
+```bash
+cmake -B build -DLBM_FORCE_CPU=ON -DCMAKE_BUILD_TYPE=Release
+```
+
+Note this also strips the `idx()` bounds-check `assert()`, which one unit test (`TestIdx.InDomainEdgeCases`) deliberately triggers — expect that single test to fail under a Release build; it's not a real regression, just that test needing a Debug build to exercise the assert it's checking. The CI `unit-tests` workflow always uses Debug for this reason, and `integration-tests` skips the unit test binary entirely (via `-DLBM_BUILD_UNIT_TESTS=OFF`) so it can use Release freely.
+
+See [`tests/CLAUDE.md`](tests/CLAUDE.md) for the full test catalogue, the per-test `params.h`-shadowing mechanism, and the CI branch strategy (`feature/*` → `dev` runs build + unit tests; `dev` → `main` additionally runs the integration suite).
 
 ## Running
 
