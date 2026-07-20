@@ -19,11 +19,11 @@ struct Disclination {
     std::vector<double> smooth_tangents; // Unit tangent vectors at every point
     bool is_loop = false;
 
-    const bool SmoothingAvailable() const {
+    bool SmoothingAvailable() const {
         return (smooth_points.size() == points.size());
     }
 
-    const bool TangentsAvailable() const {
+    bool TangentsAvailable() const {
         return (smooth_tangents.size() == smooth_points.size());
     }
 };
@@ -88,7 +88,7 @@ public:
     int64_t NumConnectivityIds() const {return connectivity.size();}
     const std::vector<double>& Tangents() const { return tangents; }
 
-    const bool TangentsAvailable() const {return tangents_available;}
+    bool TangentsAvailable() const {return tangents_available;}
 };
 
 #endif // LBM_AN_ANALYSIS_DISCLINATION_H
