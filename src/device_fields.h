@@ -11,6 +11,7 @@
 #include "qtensor_fields.h"
 #include "fluid_fields.h"
 #include <thrust/device_vector.h>
+#include "local_grid.h"
 
 // Selects the CUDA device to use (device 0) and returns a human-readable,
 // multi-line description of it (name, compute capability, memory, ...) for
@@ -35,7 +36,7 @@ struct DeviceFields {
     thrust::device_vector<double> d_Pyy;
     thrust::device_vector<double> d_Pyz;
 
-    DeviceFields();
+    explicit DeviceFields(LocalGrid g = LocalGrid::SingleRank());
 
     // ff is mutated transiently: ff.f_new is reused as scratch space for the
     // host->device layout transpose, then restored to its normal contents.
@@ -48,12 +49,15 @@ struct DeviceFields {
 
 #else
 #include "format_compat.h"
+#include "local_grid.h"
 
 inline std::string InitializeComputeBackend() {
     return compat::format("CPU (OpenMP, numprocs = {})", Params::numprocs);
 }
 
-struct DeviceFields {};   // zero-size, optimized away entirely
+struct DeviceFields {
+    explicit DeviceFields(LocalGrid) {}
+};   // zero-size, optimized away entirely
 
 #endif
 #endif // LBM_AN_DEVICE_FIELDS_H_

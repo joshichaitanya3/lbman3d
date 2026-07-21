@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <params.h>
+#include "local_grid.h"
 
 // Owns all LBM state: distribution functions, macroscopic fields, body force.
 // fx/fy/fz are the only write surface shared with QTensorSolver.
@@ -12,7 +13,7 @@ struct FluidFields {
     std::vector<double> fx, fy, fz;
     std::vector<double> rho, ux, uy, uz;
 
-    FluidFields();
+    explicit FluidFields(LocalGrid g = LocalGrid::SingleRank());
 
     void SwapFandFnew() {
         std::swap(f, f_new);

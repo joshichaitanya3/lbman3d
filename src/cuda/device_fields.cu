@@ -4,6 +4,7 @@
 #include "lattice_stencil.h"
 #include "physics_helpers.h"
 #include <algorithm>
+#include "local_grid.h"
 
 std::string InitializeComputeBackend() {
     checkCudaErrors(cudaSetDevice(0));
@@ -35,31 +36,31 @@ std::string InitializeComputeBackend() {
         props.asyncEngineCount, props.canMapHostMemory);
 }
 
-DeviceFields::DeviceFields() :
-    d_f       (Params::nx * Params::ny * Params::nz * Lattice::ndir, 0.0),
-    d_f_new   (Params::nx * Params::ny * Params::nz * Lattice::ndir, 0.0),
-    d_rho     (Params::nx * Params::ny * Params::nz, Params::kDensity),
-    d_ux      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_uy      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_uz      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_force_x      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_force_y      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_force_z      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxx     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxx_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxy     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxy_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxz     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxz_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyy     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyy_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyz     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyz_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pxx     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pxy     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pxz     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pyy     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pyz     (Params::nx * Params::ny * Params::nz, 0.0)
+DeviceFields::DeviceFields(LocalGrid g) :
+    d_f       (g.Volume() * Lattice::ndir, 0.0),
+    d_f_new   (g.Volume() * Lattice::ndir, 0.0),
+    d_rho     (g.Volume(), Params::kDensity),
+    d_ux      (g.Volume(), 0.0),
+    d_uy      (g.Volume(), 0.0),
+    d_uz      (g.Volume(), 0.0),
+    d_force_x (g.Volume(), 0.0),
+    d_force_y (g.Volume(), 0.0),
+    d_force_z (g.Volume(), 0.0),
+    d_qxx     (g.Volume(), 0.0),
+    d_qxx_new (g.Volume(), 0.0),
+    d_qxy     (g.Volume(), 0.0),
+    d_qxy_new (g.Volume(), 0.0),
+    d_qxz     (g.Volume(), 0.0),
+    d_qxz_new (g.Volume(), 0.0),
+    d_qyy     (g.Volume(), 0.0),
+    d_qyy_new (g.Volume(), 0.0),
+    d_qyz     (g.Volume(), 0.0),
+    d_qyz_new (g.Volume(), 0.0),
+    d_Pxx     (g.Volume(), 0.0),
+    d_Pxy     (g.Volume(), 0.0),
+    d_Pxz     (g.Volume(), 0.0),
+    d_Pyy     (g.Volume(), 0.0),
+    d_Pyz     (g.Volume(), 0.0)
 
 {}
 
