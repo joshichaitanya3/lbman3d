@@ -8,12 +8,14 @@
 #include "device_fields.h"
 #include "device_solver.h"
 #include "lbm_solver.h"
+#include "local_grid.h"
 
 using namespace Params;
 
 // Uses LbmSolver to simulate Poiseuille flow in 3D.
 template<typename BC>
 class PoiseuilleFlowBenchmark {
+    LocalGrid        grid_;
     FluidFields      fluid_;
     QTensorFields    qtensor_;
     LbmSolver<BC>    lbm_;
@@ -32,7 +34,11 @@ class PoiseuilleFlowBenchmark {
 public:
     // Default: constant-alpha active nematic.
     // Supply a QTensorSolver subclass to override the activity model.
-    PoiseuilleFlowBenchmark()
+    PoiseuilleFlowBenchmark() :
+        grid_(LocalGrid::SingleRank()),
+        fluid_(grid_),
+        qtensor_(grid_),
+        d_fields_(grid_)
     {
         Initialize();
     }
