@@ -101,7 +101,7 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
     // boundary nodes — no separate post-step anchoring pass needed; see
     // boundary_handler.h's header comment for why that used to exist and
     // why it doesn't anymore.
-    #pragma omp parallel for num_threads(numprocs) schedule(static)
+    #pragma omp parallel for num_threads(kNumOMPThreads) schedule(static)
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
@@ -164,7 +164,7 @@ void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, cons
         ff.fz[idx(x, y, z)] += force.z;
     };
 
-    #pragma omp parallel for default(shared) num_threads(numprocs) schedule(static)
+    #pragma omp parallel for default(shared) num_threads(kNumOMPThreads) schedule(static)
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {

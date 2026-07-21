@@ -52,7 +52,7 @@ struct DeviceFields {
 #include "local_grid.h"
 
 inline std::string InitializeComputeBackend() {
-    return compat::format("CPU (OpenMP, numprocs = {})", Params::numprocs);
+    return compat::format("CPU (OpenMP, kNumOMPThreads = {})", Params::kNumOMPThreads);
 }
 
 struct DeviceFields {

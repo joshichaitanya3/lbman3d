@@ -38,7 +38,7 @@ double NematicFreeEnergyDensity(
 template<typename BC>
 double TotalNematicFreeEnergy(const QTensorFields& qf) {
     double total = 0.0;
-    #pragma omp parallel for default(shared) num_threads(Params::numprocs) \
+    #pragma omp parallel for default(shared) num_threads(Params::kNumOMPThreads) \
         schedule(static) reduction(+:total)
     for (int z = 0; z < Params::nz; ++z) {
         for (int y = 0; y < Params::ny; ++y) {

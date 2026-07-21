@@ -15,7 +15,7 @@ namespace Params {
     inline constexpr int ny = 100;
     inline constexpr int nz = 15;
     inline constexpr int nq = 3;
-    inline constexpr int numprocs = 10;
+    inline constexpr int kNumOMPThreads = 10;
 
     // Spatial / temporal
     inline constexpr double DX = 1.0, DY = 1.0, DZ = 1.0;

@@ -58,7 +58,7 @@ double NematicFreeEnergyDensity(
 
 void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
 
-    // #pragma omp parallel for num_threads(numprocs) schedule(static)
+    // #pragma omp parallel for num_threads(kNumOMPThreads) schedule(static)
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {

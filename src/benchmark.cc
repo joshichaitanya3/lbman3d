@@ -46,12 +46,12 @@ int main() {
 
     double ms_total = ms_qtensor + ms_lbm;
     std::cout << compat::format(
-        "NX={} NY={} NZ={} numprocs={}\n"
+        "NX={} NY={} NZ={} kNumOMPThreads={}\n"
         "Steps(successful): {}({})\n"
         "  QTensor : {:.3f} ms/step ({:.1f}%)\n"
         "  LBM     : {:.3f} ms/step ({:.1f}%)\n"
         "  Total   : {:.3f} ms/step\n",
-        Params::nx, Params::ny, Params::nz, Params::numprocs,
+        Params::nx, Params::ny, Params::nz, Params::kNumOMPThreads,
         kBenchmarkSteps, num_successful_steps,
         ms_qtensor / kBenchmarkSteps, 100.0 * ms_qtensor / ms_total,
         ms_lbm     / kBenchmarkSteps, 100.0 * ms_lbm     / ms_total,
