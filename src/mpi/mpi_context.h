@@ -4,7 +4,6 @@
 #ifdef LBM_ENABLE_MPI
 #include <mpi.h>
 #include <array>
-#include <iostream>
 
 struct MPIContext {
     bool owns_mpi_; // Did we start this MPI instance?
@@ -36,7 +35,6 @@ struct MPIContext {
         int finalized;
         MPI_Finalized(&finalized);
         if (!finalized) {
-            std::cerr << "MPI has not been finalized. Finalizing now..." << std::endl;
             MPI_Comm_free(&cart_comm);  // only reached if MPI is still live. Always free our communicator
             if (owns_mpi_) MPI_Finalize(); // only finalize if we were the ones who initialized
         }
