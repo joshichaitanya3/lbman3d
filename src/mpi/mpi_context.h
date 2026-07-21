@@ -1,0 +1,57 @@
+#ifndef LBM_AN_MPI_MPI_CONTEXT_H_
+#define LBM_AN_MPI_MPI_CONTEXT_H_
+
+#ifdef LBM_ENABLE_MPI
+#include <mpi.h>
+#include <array>
+#include <iostream>
+
+struct MPIContext {
+    bool owns_mpi_; // Did we start this MPI instance?
+    int world_rank, world_size;
+    int dims[3];          // {px, py, pz}: ranks per axis, filled by MPI_Dims_create
+    int coords[3];        // {ix, iy, iz}: this rank's position in the 3D grid
+    MPI_Comm cart_comm;
+
+    // periods: whether each axis wraps. Pass {1,1,1} for fully periodic,
+    // {0,0,0} for walled — MPI_Cart_shift returns MPI_PROC_NULL at physical edges.
+    explicit MPIContext(std::array<int, 3> periods = {1, 1, 1}) {
+        int initialized;
+        MPI_Initialized(&initialized);
+        owns_mpi_ = !initialized;
+        if (owns_mpi_) MPI_Init(NULL, NULL);
+
+        MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+        dims[0] = dims[1] = dims[2] = 0;              // 0 = let MPI decide
+        MPI_Dims_create(world_size, 3, dims);
+
+        int reorder = 1;                               // allow topology-aware rank assignment
+        MPI_Cart_create(MPI_COMM_WORLD, 3, dims, periods.data(), reorder, &cart_comm);
+        MPI_Comm_rank(cart_comm, &world_rank);         // re-query: reorder may have changed it
+        MPI_Cart_coords(cart_comm, world_rank, 3, coords);
+    }
+
+    ~MPIContext() {
+        int finalized;
+        MPI_Finalized(&finalized);
+        if (!finalized) {
+            std::cerr << "MPI has not been finalized. Finalizing now..." << std::endl;
+            MPI_Comm_free(&cart_comm);  // only reached if MPI is still live. Always free our communicator
+            if (owns_mpi_) MPI_Finalize(); // only finalize if we were the ones who initialized
+        }
+    }
+
+};
+
+#else
+
+struct MPIContext {
+    int world_rank = 0, world_size = 1;
+    int dims[3]   = {1, 1, 1};
+    int coords[3] = {0, 0, 0};
+};
+
+#endif
+
+#endif // LBM_AN_MPI_MPI_CONTEXT_H_

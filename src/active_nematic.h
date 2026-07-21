@@ -17,6 +17,7 @@
 #include "device_fields.h"
 #include "device_solver.h"
 #include "local_grid.h"
+#include "mpi/mpi_context.h"
 
 enum ExportFormat { CSV, VTKHDF };
 
@@ -29,6 +30,7 @@ enum ExportFormat { CSV, VTKHDF };
 // To run without any Q-tensor dynamics use LbmSolver directly.
 template<typename BC>
 class ActiveNematicSim {
+    MPIContext     mpi_; // Needs to be the first member
     LocalGrid      grid_;
     FluidFields    fluid_;
     QTensorFields  qtensor_;
@@ -55,7 +57,8 @@ public:
     // Default: constant-alpha active nematic.
     // Supply a QTensorSolver subclass to override the activity model.
     explicit ActiveNematicSim(std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
-        : grid_(LocalGrid::SingleRank()),
+        : mpi_(),
+          grid_(LocalGrid::SingleRank()),
           fluid_(grid_),
           qtensor_(grid_),
           d_fields_(grid_),
