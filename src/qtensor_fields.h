@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <params.h>
+#include "local_grid.h"
 
 // Owns Q-tensor state: current and scratch (new) components.
 // Flat, row-major storage indexed via idx(x,y,z) from physics_helpers.h.
@@ -13,7 +14,7 @@ struct QTensorFields {
     // Nematic stress tensor (active + passive)
     std::vector<double> Pxx, Pxy, Pxz, Pyy, Pyz;
 
-    QTensorFields();
+    explicit QTensorFields(LocalGrid g = LocalGrid::SingleRank());
 
     void SwapWithNew() {
         std::swap(qxx, qxx_new);

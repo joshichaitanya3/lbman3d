@@ -13,7 +13,7 @@ tests/
 ├── CLAUDE.md
 ├── CMakeLists.txt               # defines lbm_add_test(); fetches GoogleTest; add_subdirectory(unit/integration)
 ├── params/                      # per-scenario params.h files that shadow src/params.h at compile time
-│   ├── unit/params.h            # 8×8×8, ALPHA=0, numprocs=1  — used by all unit tests
+│   ├── unit/params.h            # 8×8×8, ALPHA=0, kNumOMPThreads=1  — used by all unit tests
 │   ├── poiseuille/params.h      # 32×16×4, ALPHA=0, tuned TAUF
 │   ├── qtrelax/params.h         # 16×16×16, ALPHA=0, A=0 B=-0.3 C=0.3
 │   ├── bc_check/params.h        # 16×8×8, ALPHA=0
@@ -201,7 +201,7 @@ No params needed (only touches `lattice_stencil.h` arrays). Tests:
 
 **Purpose**: Verify `∑ρ` is conserved to machine precision throughout a full active + LBM run.
 
-**BC**: `FullyPeriodicConfig`. Run both solvers (full `ActiveNematicSim`-equivalent loop, but constructed manually without `SimIO`). `numprocs = 1` for determinism.
+**BC**: `FullyPeriodicConfig`. Run both solvers (full `ActiveNematicSim`-equivalent loop, but constructed manually without `SimIO`). `kNumOMPThreads = 1` for determinism.
 
 **Run**: 1000 steps. Check after every step.
 
@@ -253,6 +253,6 @@ Key steps: same dependencies + `actions/cache@v4` for `build/_deps` (keyed on `C
 
 **Note**: `find_package(HDF5 REQUIRED)` in the root CMakeLists runs unconditionally at configure time, so `libhdf5-dev` is needed in both workflows even though test targets do not link `sim_io.cc`. This is a known limitation to clean up eventually by guarding the HDF5 find behind a condition.
 
-### `numprocs` in test params
+### `kNumOMPThreads` in test params
 
-Set `numprocs = 1` in all `tests/params/*/params.h` files. GitHub-hosted runners have 2 vCPUs and OpenMP threading introduces ordering non-determinism that complicates exact-value assertions in integration tests.
+Set `kNumOMPThreads = 1` in all `tests/params/*/params.h` files. GitHub-hosted runners have 2 vCPUs and OpenMP threading introduces ordering non-determinism that complicates exact-value assertions in integration tests.

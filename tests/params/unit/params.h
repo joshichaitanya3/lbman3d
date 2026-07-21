@@ -3,7 +3,7 @@
 
 /*
  * !\brief Custom parameters for small unit-tests
- * (Only change being a 8x8x8 grid and numprocs=1)
+ * (Only change being a 8x8x8 grid and kNumOMPThreads=1)
  */
 namespace Params {
 
@@ -19,7 +19,7 @@ namespace Params {
     inline constexpr int ny = 8;
     inline constexpr int nz = 8;
     inline constexpr int nq = 3;
-    inline constexpr int numprocs = 1;
+    inline constexpr int kNumOMPThreads = 1;
 
     // Spatial / temporal
     inline constexpr double DX = 1.0, DY = 1.0, DZ = 1.0;

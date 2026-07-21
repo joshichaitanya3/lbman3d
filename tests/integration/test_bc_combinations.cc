@@ -13,6 +13,7 @@
 #include "device_solver.h"
 #include "lbm_solver.h"
 #include "qtensor_solver.h"
+#include "local_grid.h"
 
 using namespace Params;
 
@@ -29,6 +30,7 @@ using namespace Params;
 // ─────────────────────────────────────────────────────────────────────────────
 template<typename BC>
 class LbmOnlyBenchmark {
+    LocalGrid        grid_;
     FluidFields      fluid_;
     QTensorFields    qtensor_;
     LbmSolver<BC>    lbm_;
@@ -36,7 +38,12 @@ class LbmOnlyBenchmark {
     DeviceSolver<BC> d_solver_;
 
 public:
-    LbmOnlyBenchmark() { Reinitialize(); }
+    LbmOnlyBenchmark() :
+        grid_(LocalGrid::SingleRank()),
+        fluid_(grid_),
+        qtensor_(grid_),
+        d_fields_(grid_)
+    { Reinitialize(); }
 
     FluidFields& Fluid() { return fluid_; }
 

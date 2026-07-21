@@ -92,7 +92,7 @@ inline constexpr int kSaveInterval = 1000;    // write CSV output every N steps
 | Parameter | Description |
 |---|---|
 | `nx`, `ny`, `nz` | Grid dimensions |
-| `numprocs` | Number of OpenMP threads |
+| `kNumOMPThreads` | Number of OpenMP threads |
 | `DT` | Lattice time step |
 | `TAUF` | LBM relaxation times (shear and forcing) |
 | `RHO` | Initial lattice density |

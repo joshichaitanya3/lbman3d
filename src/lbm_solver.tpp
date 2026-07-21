@@ -82,7 +82,7 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
     //   independent single-axis reflections do not compose at shared edges/corners,
     //   violating mass conservation. An explicit HandleCorner override is needed (TODO).
 
-    #pragma omp parallel for default(shared) num_threads(numprocs)
+    #pragma omp parallel for default(shared) num_threads(kNumOMPThreads)
     for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
             for (int x : std::views::iota(0, nx)) {
