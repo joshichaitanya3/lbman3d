@@ -1,6 +1,9 @@
 #include <mpi.h>
 #include <gtest/gtest.h>
 #include "mpi/mpi_context.h"
+#include <array>
+#include <set>
+#include <vector>
 
 TEST(MPIContext, DimsProductEqualsWorldSize) {
     MPIContext ctx;
