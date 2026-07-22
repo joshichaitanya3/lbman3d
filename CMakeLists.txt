@@ -85,6 +85,13 @@ endif()
 
 find_package(HDF5 REQUIRED COMPONENTS C)
 
+# MPI Setup
+option(LBM_ENABLE_MPI "Use MPI parallelization" OFF)
+
+if(LBM_ENABLE_MPI)
+    find_package(MPI REQUIRED)
+endif()
+
 foreach(target main benchmark)
     add_executable(${target})
     target_include_directories(${target} PUBLIC
@@ -107,6 +114,14 @@ foreach(target main benchmark)
             $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --use_fast_math>
         )
     endif()
+    if(LBM_ENABLE_MPI)
+        target_include_directories(${target} PUBLIC
+            ${MPI_INCLUDE_PATH}
+        )
+        target_link_libraries(${target} PRIVATE MPI::MPI_CXX)
+        target_compile_definitions(${target} PRIVATE LBM_ENABLE_MPI)
+    endif()
+
 endforeach()
 
 # Testing setup
