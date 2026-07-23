@@ -3,12 +3,12 @@
 
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
+#include "local_grid.h"
+#include "mpi_context.h"
 #ifdef LBM_ENABLE_MPI
 #include <mpi.h>
 #include <vector>
 #include <algorithm>
-#include "local_grid.h"
-#include "mpi_context.h"
 #include "lattice_stencil.h"
 #include "physics_helpers.h"
 
@@ -299,6 +299,9 @@ struct HaloExchange {
 #else
 
 struct HaloExchange {
+    explicit HaloExchange(LocalGrid = LocalGrid::SingleRank()) {}
+    explicit HaloExchange(const LocalGrid&, const MPIContext&) {}
+
     void ExchangeQTensor(QTensorFields&, FluidFields&) {}
     void ExchangePassiveStresses(QTensorFields&) {}
     void ExchangeLBM(FluidFields&) {}
