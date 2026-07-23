@@ -56,14 +56,15 @@ Mark each PR done as it merges to `dev`.
 |----|--------|---------|
 | I | done | `LocalGrid` struct; field constructors use local volume; rename `numprocs` → `kNumOMPThreads` |
 | II | done | `LBM_ENABLE_MPI` CMake flag; `MPIContext` (RAII, Cartesian topology); wired as first member of `ActiveNematicSim`; MPI test suite under `tests/mpi/` |
-| III | — | `HaloExchange` class: posts MPI sends/receives for Q and LBM ghost layers; single-rank no-op |
-| IV | — | Wire `HaloExchange` into the three-phase timestep: before Q update and before LBM step |
-| V | — | GPU-aware path: CUDA-aware MPI or pinned-buffer staging; isolated to `HaloExchange` |
-| VI | — | Global reductions in `SimIO`: `MPI_Allreduce` for diagnostics (mass, energy, order parameter) |
-| VII | — | Actual decomposition: `LocalGrid::FromMpiContext`; uneven-split arithmetic; `CheckGpuMemory` + `CheckMinSubdomainSize`; `idx()` and loop bounds switch to local dims |
+| III | done | `HaloExchange` class: pack/unpack buffers, `ExchangeQTensor` / `ExchangePassiveStresses` / `ExchangeLBM`; single-rank no-op |
+| IV | — | Wire `HaloExchange` into the three-phase timestep: before Q update, between phases 1–2, before LBM step |
+| V | — | Global reductions in `SimIO`: `MPI_Allreduce` for diagnostics; parallel HDF5 export with collective MPI-IO |
+| VI | — | Actual decomposition: `LocalGrid::FromMpiContext`; uneven-split arithmetic; `CheckGpuMemory` + `CheckMinSubdomainSize`; `idx()` and loop bounds switch to local dims; pack/unpack tests now runnable |
+| VII | — | GPU-aware path: CUDA-aware MPI or pinned-buffer staging; isolated to `HaloExchange`; decomposition already validated on CPU |
 
-PRs III–VI can proceed without VII (single-rank no-ops throughout). VII is the last
-PR and is the one that changes observable memory layout and loop bounds.
+PRs III–V are single-rank no-ops that wire infrastructure before decomposition exists.
+VI is where MPI does real distributed work on CPU — validate correctness here before
+touching GPU. VII is then an isolated communication-layer swap with known-correct logic.
 
 ## Testing MPI code
 
