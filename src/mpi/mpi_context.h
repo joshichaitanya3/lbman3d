@@ -31,6 +31,28 @@ struct MPIContext {
         MPI_Cart_coords(cart_comm, world_rank, 3, coords);
     }
 
+    // These default to MPI_COMM_WORLD, which happens to contain the same
+    // ranks as cart_comm today (cart_comm is built from the entirety of
+    // MPI_COMM_WORLD, with no sub-communicator splitting). If that ever
+    // changes (e.g. ensemble runs splitting MPI_COMM_WORLD across
+    // independent simulations), pass the relevant MPIContext's cart_comm
+    // explicitly instead of relying on the default.
+    static void SumDoubles(double* local_sum, double* global_sum, MPI_Comm comm = MPI_COMM_WORLD) {
+        MPI_Allreduce(local_sum, global_sum, 1, MPI_DOUBLE, MPI_SUM, comm);
+    }
+
+    static void SumInts(int* local_sum, int* global_sum, MPI_Comm comm = MPI_COMM_WORLD) {
+        MPI_Allreduce(local_sum, global_sum, 1, MPI_INT, MPI_SUM, comm);
+    }
+
+    // True on exactly one rank in `comm` — the one responsible for file I/O
+    // (log file, exports) so every rank doesn't write/truncate the same path.
+    static bool IsRoot(MPI_Comm comm = MPI_COMM_WORLD) {
+        int rank;
+        MPI_Comm_rank(comm, &rank);
+        return rank == 0;
+    }
+
     ~MPIContext() {
         int finalized;
         MPI_Finalized(&finalized);
@@ -48,6 +70,17 @@ struct MPIContext {
     int world_rank = 0, world_size = 1;
     int dims[3]   = {1, 1, 1};
     int coords[3] = {0, 0, 0};
+
+    static void SumDoubles(double* local_sum, double* global_sum) {
+        *global_sum = *local_sum;
+    }
+
+    static void SumInts(int* local_sum, int* global_sum) {
+        *global_sum = *local_sum;
+    }
+
+    static bool IsRoot() { return true; }
+
 };
 
 #endif
