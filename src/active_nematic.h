@@ -18,6 +18,7 @@
 #include "device_solver.h"
 #include "local_grid.h"
 #include "mpi/mpi_context.h"
+#include "mpi/halo_exchange.h"
 
 enum ExportFormat { CSV, VTKHDF };
 
@@ -32,6 +33,7 @@ template<typename BC>
 class ActiveNematicSim {
     MPIContext     mpi_; // Needs to be the first member
     LocalGrid      grid_;
+    HaloExchange   halo_;
     FluidFields    fluid_;
     QTensorFields  qtensor_;
     DeviceFields   d_fields_;
@@ -59,6 +61,7 @@ public:
     explicit ActiveNematicSim(std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
         : mpi_(),
           grid_(LocalGrid::SingleRank()),
+          halo_(grid_, mpi_),
           fluid_(grid_),
           qtensor_(grid_),
           d_fields_(grid_),
@@ -73,13 +76,18 @@ public:
         #ifdef SIM_WITH_CUDA
         d_solver_.QTensorStep(d_fields_);
         #else
-        qtensor_solver_->Step(qtensor_, fluid_);
+        halo_.ExchangeQTensor(qtensor_, fluid_);
+        qtensor_solver_->StepAndSetupBodyForce(qtensor_, fluid_);
+
+        halo_.ExchangePassiveStresses(qtensor_);
+        qtensor_solver_->SetActiveStressAndComputeBodyForce(fluid_, qtensor_);
         #endif
     }
     void LBMStep() {
         #ifdef SIM_WITH_CUDA
         d_solver_.LBMStep(d_fields_);
         #else
+        halo_.ExchangeLBM(fluid_);
         lbm_.LatticeBoltzmannStep(fluid_);
         #endif
     }
