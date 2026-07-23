@@ -12,11 +12,16 @@
 #include "lattice_stencil.h"
 
 #include "analysis/disclination.h"
+#include "mpi/mpi_context.h"
+
 using namespace Params;
 
 SimIO::SimIO()
 {
-    log_file_.open("lbm.log", std::ios::out);
+    // Only the root rank owns the log file — every rank would otherwise open
+    // and truncate the same path, corrupting each other's output.
+    if (MPIContext::IsRoot())
+        log_file_.open("lbm.log", std::ios::out);
 }
 
 SimIO::~SimIO() {
@@ -25,6 +30,7 @@ SimIO::~SimIO() {
 }
 
 void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_info) {
+    if (!MPIContext::IsRoot()) return;
     compat::println(log_file_, "Hybrid Lattice Boltzmann simulation for 3D active nematics\n");
     compat::println(log_file_, "##########################################################");
     compat::println(log_file_, "#####################   Parameters   #####################");
@@ -95,12 +101,50 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
         }
     }
     int num_disclinations = df.disclinations.size();
+    double te = ke + nematic_energy;
 
-    compat::println(log_file_, "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, Kinetic Energy: {}, Total Energy: {}, Relative Error: {}, NumDisclinations: {}",
-                    time_step, mass, px, py, pz, ke, ke + nematic_energy, e1/e2, num_disclinations);
-    std::flush(log_file_);
-    if (std::isnan(mass) || std::isnan(px) || std::isnan(py) || std::isnan(pz)) {
-        compat::println(log_file_, "DIVERGED at time step {} — aborting.", time_step);
+    double global_mass, global_px, global_py, global_pz, global_ke, global_te, global_e1, global_e2;
+    int global_num_disclinations;
+
+    // Collective — every rank must call these, even though only the root
+    // rank below actually writes the result to the log file.
+    MPIContext::SumDoubles(&mass, &global_mass);
+    MPIContext::SumDoubles(&px, &global_px);
+    MPIContext::SumDoubles(&py, &global_py);
+    MPIContext::SumDoubles(&pz, &global_pz);
+    MPIContext::SumDoubles(&ke, &global_ke);
+    MPIContext::SumDoubles(&te, &global_te);
+    MPIContext::SumDoubles(&e1, &global_e1);
+    MPIContext::SumDoubles(&e2, &global_e2);
+    MPIContext::SumInts(&num_disclinations, &global_num_disclinations); // This is currently incorrect, since a single disclination could span multiple ranks, but we will keep it for now.
+
+    // Divergence is derived from the globally-reduced quantities, so every
+    // rank reaches the same verdict and stays in lockstep — only the actual
+    // log writing below is root-only.
+    bool diverged = std::isnan(global_mass) || std::isnan(global_px) ||
+                     std::isnan(global_py) || std::isnan(global_pz);
+
+    if (MPIContext::IsRoot()) {
+        compat::println(
+            log_file_,
+            "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, "
+            "Kinetic Energy: {}, Total Energy: {}, Relative Error: {}, "
+            "NumDisclinations: {}",
+            time_step,
+            global_mass,
+            global_px,
+            global_py,
+            global_pz,
+            global_ke,
+            global_te,
+            global_e1/global_e2,
+            global_num_disclinations
+        );
+        std::flush(log_file_);
+    }
+    if (diverged) {
+        if (MPIContext::IsRoot())
+            compat::println(log_file_, "DIVERGED at time step {} — aborting.", time_step);
         return false;
     }
     return true;
