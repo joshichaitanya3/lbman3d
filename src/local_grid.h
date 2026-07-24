@@ -7,9 +7,9 @@
 struct LocalGrid {
     int local_nx, local_ny, local_nz;
     int offset_x,  offset_y,  offset_z;   // position in global domain
-
+    int kHaloMPI;
     static LocalGrid SingleRank() {
-        return {Params::nx, Params::ny, Params::nz, 0, 0, 0};
+        return {Params::nx, Params::ny, Params::nz, 0, 0, 0, 1};
     }
 
     /* !\brief Domain volume
