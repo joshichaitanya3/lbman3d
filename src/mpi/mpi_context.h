@@ -1,6 +1,7 @@
 #ifndef LBM_AN_MPI_MPI_CONTEXT_H_
 #define LBM_AN_MPI_MPI_CONTEXT_H_
 
+#include "local_grid.h"
 #ifdef LBM_ENABLE_MPI
 #include <mpi.h>
 #include <array>
@@ -55,6 +56,24 @@ struct MPIContext {
         return rank == 0;
     }
 
+    LocalGrid MakeLocalGrid() const {
+        auto local_dim = [](int global, int n, int coord) {
+            return global / n + (coord < global % n ? 1 : 0);
+        };
+        auto offset = [](int global, int n, int coord) {
+            return coord * (global / n) + std::min(coord, global % n);
+        };
+        return {
+            local_dim(Params::nx, dims[0], coords[0]),
+            local_dim(Params::ny, dims[1], coords[1]),
+            local_dim(Params::nz, dims[2], coords[2]),
+            offset(Params::nx, dims[0], coords[0]),
+            offset(Params::ny, dims[1], coords[1]),
+            offset(Params::nz, dims[2], coords[2]),
+            1
+        };
+    }
+
     ~MPIContext() {
         int finalized;
         MPI_Finalized(&finalized);
@@ -82,6 +101,24 @@ struct MPIContext {
     }
 
     static bool IsRoot() { return true; }
+
+    LocalGrid MakeLocalGrid() const {
+        auto local_dim = [](int global, int n, int coord) {
+            return global / n + (coord < global % n ? 1 : 0);
+        };
+        auto offset = [](int global, int n, int coord) {
+            return coord * (global / n) + std::min(coord, global % n);
+        };
+        return {
+            local_dim(Params::nx, dims[0], coords[0]),
+            local_dim(Params::ny, dims[1], coords[1]),
+            local_dim(Params::nz, dims[2], coords[2]),
+            offset(Params::nx, dims[0], coords[0]),
+            offset(Params::ny, dims[1], coords[1]),
+            offset(Params::nz, dims[2], coords[2]),
+            0
+        };
+    }
 
 };
 
