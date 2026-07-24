@@ -11,7 +11,7 @@ struct MPIContext {
     int dims[3];          // {px, py, pz}: ranks per axis, filled by MPI_Dims_create
     int coords[3];        // {ix, iy, iz}: this rank's position in the 3D grid
     MPI_Comm cart_comm;
-
+    MPI_Info info;
     // periods: whether each axis wraps. Pass {1,1,1} for fully periodic,
     // {0,0,0} for walled — MPI_Cart_shift returns MPI_PROC_NULL at physical edges.
     explicit MPIContext(std::array<int, 3> periods = {1, 1, 1}) {
@@ -21,6 +21,8 @@ struct MPIContext {
         if (owns_mpi_) MPI_Init(NULL, NULL);
 
         MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+        info = MPI_INFO_NULL;
 
         dims[0] = dims[1] = dims[2] = 0;              // 0 = let MPI decide
         MPI_Dims_create(world_size, 3, dims);
