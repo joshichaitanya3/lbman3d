@@ -83,13 +83,21 @@ if(NOT HAVE_STD_FORMAT)
     FetchContent_MakeAvailable(fmt)
 endif()
 
-find_package(HDF5 REQUIRED COMPONENTS C)
-
 # MPI Setup
 option(LBM_ENABLE_MPI "Use MPI parallelization" OFF)
 
 if(LBM_ENABLE_MPI)
     find_package(MPI REQUIRED)
+    set(HDF5_PREFER_PARALLEL TRUE)
+endif()
+
+find_package(HDF5 REQUIRED COMPONENTS C)
+
+if(LBM_ENABLE_MPI)
+    if(NOT HDF5_IS_PARALLEL)
+        message(FATAL_ERROR "Found a serial HDF5 (${HDF5_C_LIBRARIES}); a parallel (MPI-enabled) HDF5 is required. "
+                         "On Debian/Ubuntu, try: cmake -DHDF5_ROOT=/usr/lib/x86_64-linux-gnu/hdf5/openmpi ..")
+    endif()
 endif()
 
 foreach(target main benchmark)
