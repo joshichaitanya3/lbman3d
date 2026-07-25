@@ -221,7 +221,7 @@ void SimIO::ExportDistributionCSV(const FluidFields& ff,
 
 
 void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
-                         const std::string& path, int step) {
+                         const std::string& path, int step, const MPIContext& ctx, const LocalGrid& grid) {
     constexpr int kStepWidth = [] {
         int w = 1, n = kNumSteps - 1;
         while (n >= 10) { n /= 10; ++w; }
@@ -229,11 +229,11 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
     }();
     const std::string file_path = std::format("{}/lbm_{:0{}}.vtkhdf", path, step, kStepWidth);
 
-    ImageDataWriter writer(file_path);
+    ImageDataWriter writer(file_path, ctx);
 
     // --- PointData datasets, shape [nz, ny, nx] (z slowest, x fastest) ---
 
-    writer.WriteScalarField("rho", ff.rho.data());
+    writer.WriteScalarField("rho", ff.rho.data(), grid);
 
     if constexpr (Params::kDebugLogging) {
         // ff.f is laid out with i fastest-varying (host idx() layout), so we still
@@ -244,28 +244,30 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
                 for (int y = 0; y < ny; ++y)
                     for (int x = 0; x < nx; ++x)
                         buf[z * ny * nx + y * nx + x] = ff.f[idx(x, y, z, i)];
-            writer.WriteScalarField(std::format("f{}", i).c_str(), buf.data());
+            writer.WriteScalarField(std::format("f{}", i).c_str(), buf.data(), grid);
         }
     }
 
-    writer.WriteScalarField("order", af.order_.data());
+    writer.WriteScalarField("order", af.order_.data(), grid);
 
     // Velocity: three independent scalar fields, written directly from backing stores.
-    writer.WriteScalarField("ux", ff.ux.data());
-    writer.WriteScalarField("uy", ff.uy.data());
-    writer.WriteScalarField("uz", ff.uz.data());
+    writer.WriteScalarField("ux", ff.ux.data(), grid);
+    writer.WriteScalarField("uy", ff.uy.data(), grid);
+    writer.WriteScalarField("uz", ff.uz.data(), grid);
 
     // Director: AoS layout [nz, ny, nx, 3] (see dirIdx in analysis_fields.h) passes
     // straight through to WriteVectorField without repacking.
-    writer.WriteVectorField("director", af.director_.data());
+    writer.WriteVectorField("director", af.director_.data(), grid);
 
 }
 
 void SimIO::ExportDisclinations(
     const DefectFields& df,
     const std::string& path,
-    int step) 
-{
+    int step,
+    const MPIContext& ctx,
+    const LocalGrid&
+) {
     
     DisclinationMesh mesh;
 
@@ -280,7 +282,7 @@ void SimIO::ExportDisclinations(
     }();
     const std::string file_path = std::format("{}/disclinations_{:0{}}.vtkhdf", path, step, kStepWidth);
 
-    UnstructuredGridWriter writer(file_path);
+    UnstructuredGridWriter writer(file_path, ctx);
 
     writer.WriteTopology(mesh.Points(), mesh.Connectivity(),
                          mesh.Offsets(), mesh.CellTypes());
