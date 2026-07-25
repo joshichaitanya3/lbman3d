@@ -12,13 +12,29 @@ struct LocalGrid {
         return {Params::nx, Params::ny, Params::nz, 0, 0, 0, 1};
     }
 
-    /* !\brief Domain volume
-     *
-     * Currently set to `local_nx * local_ny * local_nz`.
-     * We will use this volume to allocate fields for now, while we 
-     * setup the MPI machinery. Eventually, the actual volume allocated
-     * will be (local_nx + 2) * (local_ny + 2) * (local_nz + 2), via a 
-     * separate `HaloVolume` method
-     */
+
+    inline int idx(int x, int y, int z) {
+        return (z * local_ny * local_nx + y * local_nx + x);
+    }
+    inline int idx(int x, int y, int z, int i) {
+        return (z * local_ny * local_nx + y * local_nx + x)*3 + i;
+    }
     int Volume() const { return local_nx * local_ny * local_nz; }
+
+    // Index into a halo-padded buffer (1 ghost cell on every face).
+    // x, y, z are still the *interior* logical coordinates (0..local_n{x,y,z}-1);
+    // the +1 shift and the (local_n{x,y}+2) strides account for the ghost layer.
+    inline int halo_idx(int x, int y, int z) const {
+        return ((z + kHaloMPI) * (local_ny + 2*kHaloMPI) * (local_nx + 2*kHaloMPI)
+                 + (y + kHaloMPI) * (local_nx + 2*kHaloMPI)
+                 + (x + kHaloMPI));
+    }
+    inline int halo_idx(int x, int y, int z, int i) const {
+        return ((z + kHaloMPI) * (local_ny + 2*kHaloMPI) * (local_nx + 2*kHaloMPI)
+                 + (y + kHaloMPI) * (local_nx + 2*kHaloMPI)
+                 + (x + kHaloMPI))*3 + i;
+    }
+    int HaloVolume() const {
+        return (local_nx + 2*kHaloMPI) * (local_ny + 2*kHaloMPI) * (local_nz + 2*kHaloMPI);
+    }
 };
