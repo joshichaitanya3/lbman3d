@@ -15,8 +15,9 @@ The flow equation is solved using a D3Q15 scheme. The Q-tensor equation is solve
 | CMake | ≥ 3.23 | Build system |
 | C++ compiler | C++23 (CPU) / C++20 (CUDA) | GCC 13+ or Clang 17+ recommended; nvcc does not support C++23, so the standard drops to C++20 automatically when building with CUDA |
 | OpenMP | — | Usually bundled with the compiler |
-| HDF5 | any recent | C library only |
+| HDF5 | any recent | C library only; **parallel HDF5** required for MPI builds (see below) |
 | CUDA Toolkit | optional | Enables the GPU-accelerated path; auto-detected by CMake if present (see `-DLBM_FORCE_CPU` under [Building](#building)) |
+| MPI | optional | Required for the experimental MPI-parallel path; see [MPI (experimental)](#mpi-experimental) |
 
 ### Installing HDF5
 
@@ -34,6 +35,12 @@ sudo dnf install hdf5-devel
 ```bash
 brew install hdf5
 ```
+
+For MPI builds, install the **parallel HDF5** variant instead. On Debian/Ubuntu:
+```bash
+sudo apt install libhdf5-mpi-dev libopenmpi-dev
+```
+On other platforms, install an MPI implementation (OpenMPI or MPICH) and the corresponding parallel HDF5 package. CMake will automatically prefer the parallel HDF5 when `-DLBM_ENABLE_MPI=ON` is set.
 
 ## Configuration
 
@@ -120,6 +127,23 @@ cmake --build build -j$(nproc)
 ```
 
 The GPU path is fully featured: it supports all boundary condition types and computes the full passive and active stress contributions. It is physics-equivalent to the CPU path.
+
+### MPI (experimental)
+
+MPI parallelisation is a work in progress. To build with it enabled:
+
+```bash
+cmake -B build -DLBM_ENABLE_MPI=ON
+cmake --build build -j$(nproc)
+```
+
+Requires parallel HDF5 and an MPI implementation (see [Installing HDF5](#installing-hdf5)). Run with:
+
+```bash
+mpirun -n 4 ./build/main
+```
+
+Domain decomposition across ranks is not yet active — the MPI infrastructure (halo exchange, collective I/O, global diagnostics) is being wired up incrementally. Single-rank MPI runs are correct; multi-rank runs will produce the same result as serial for now.
 
 ## Testing
 
