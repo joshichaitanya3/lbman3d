@@ -177,9 +177,9 @@ public:
         };
 
         hsize_t dims_chunk[3] = {
-            (hsize_t)CHUNK_LINEAR_SIZE,
-            (hsize_t)CHUNK_LINEAR_SIZE,
-            (hsize_t)CHUNK_LINEAR_SIZE
+            std::min((hsize_t)CHUNK_LINEAR_SIZE, dims_global[0]),
+            std::min((hsize_t)CHUNK_LINEAR_SIZE, dims_global[1]),
+            std::min((hsize_t)CHUNK_LINEAR_SIZE, dims_global[2])
         };
 
         int dataspace_num_dims = 3;
@@ -287,9 +287,9 @@ public:
         };
 
         hsize_t dims_chunk[4] = {
-            (hsize_t)CHUNK_LINEAR_SIZE,
-            (hsize_t)CHUNK_LINEAR_SIZE,
-            (hsize_t)CHUNK_LINEAR_SIZE,
+            std::min((hsize_t)CHUNK_LINEAR_SIZE, dims_global[0]),
+            std::min((hsize_t)CHUNK_LINEAR_SIZE, dims_global[1]),
+            std::min((hsize_t)CHUNK_LINEAR_SIZE, dims_global[2]),
             (hsize_t)components
         };
 
