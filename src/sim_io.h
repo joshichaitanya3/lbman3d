@@ -12,7 +12,7 @@
 #include "analysis_fields.h"
 #include "analysis/defect_fields.h"
 #include "analysis/defect_finder.h"
-
+#include "mpi/mpi_context.h"
 
 // Handles all logging and CSV export.
 // Owns diagnostic tracking fields (rho_past, ux_past, uy_past) to keep
@@ -40,10 +40,10 @@ public:
                 const std::string& path, int step);
 
     void ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
-                const std::string& path, int step);
+                const std::string& path, int step, const MPIContext& ctx, const LocalGrid& grid);
     
     void ExportDisclinations(const DefectFields& df,
-                const std::string& path, int step);
+                const std::string& path, int step, const MPIContext& ctx, const LocalGrid&);
     
     // Write one CSV per lattice direction to `path/`.
     void ExportDistributionCSV(const FluidFields& ff,

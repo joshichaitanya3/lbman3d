@@ -116,7 +116,9 @@ public:
         d_fields_.CopyToHost(fluid_, qtensor_);
         #endif
         QtensorToOrderDirector(qtensor_, af_);
+        #ifndef LBM_ENABLE_MPI // MPI-parallel defect-detection not yet implemented
         finder_.FindDefects(af_, df_);
+        #endif
 
         switch (fmt)
         {
@@ -125,8 +127,10 @@ public:
             num_files_exported++;
             break;
         case VTKHDF:
-            io_.ExportVTKHDF(fluid_, af_, path, num_files_exported);
-            io_.ExportDisclinations(df_, path, num_files_exported);
+            io_.ExportVTKHDF(fluid_, af_, path, num_files_exported, mpi_, grid_);
+            #ifndef LBM_ENABLE_MPI // MPI-parallel defect-export not yet implemented
+            io_.ExportDisclinations(df_, path, num_files_exported, mpi_, grid_);
+            #endif
             num_files_exported++;
             break;
         default:

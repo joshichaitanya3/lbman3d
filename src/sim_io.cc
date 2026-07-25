@@ -12,11 +12,16 @@
 #include "lattice_stencil.h"
 
 #include "analysis/disclination.h"
+#include "mpi/mpi_context.h"
+
 using namespace Params;
 
 SimIO::SimIO()
 {
-    log_file_.open("lbm.log", std::ios::out);
+    // Only the root rank owns the log file — every rank would otherwise open
+    // and truncate the same path, corrupting each other's output.
+    if (MPIContext::IsRoot())
+        log_file_.open("lbm.log", std::ios::out);
 }
 
 SimIO::~SimIO() {
@@ -25,6 +30,7 @@ SimIO::~SimIO() {
 }
 
 void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_info) {
+    if (!MPIContext::IsRoot()) return;
     compat::println(log_file_, "Hybrid Lattice Boltzmann simulation for 3D active nematics\n");
     compat::println(log_file_, "##########################################################");
     compat::println(log_file_, "#####################   Parameters   #####################");
@@ -65,13 +71,16 @@ void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_i
     compat::println(log_file_, "  MU (linear friction) = {}", MU);
     compat::println(log_file_, "");
     compat::println(log_file_, "##########################################################");
+    #ifdef LBM_ENABLE_MPI
+    compat::println(log_file_, "NOTE: Defect detection and export are disabled in MPI builds (not yet implemented).");
+    #endif
 }
 
 bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy) {
     double mass = 0.0, px = 0.0, py = 0.0, pz=0, ke=0.0, e1 = 0.0, e2 = 0.0;
 
     #pragma omp parallel for schedule(static) default(shared) \
-        reduction(+:mass,px,py,pz,e1,e2) num_threads(kNumOMPThreads)
+        reduction(+:mass,px,py,pz,ke,e1,e2) num_threads(kNumOMPThreads)
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
@@ -95,12 +104,50 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
         }
     }
     int num_disclinations = df.disclinations.size();
+    double te = ke + nematic_energy;
 
-    compat::println(log_file_, "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, Kinetic Energy: {}, Total Energy: {}, Relative Error: {}, NumDisclinations: {}",
-                    time_step, mass, px, py, pz, ke, ke + nematic_energy, e1/e2, num_disclinations);
-    std::flush(log_file_);
-    if (std::isnan(mass) || std::isnan(px) || std::isnan(py) || std::isnan(pz)) {
-        compat::println(log_file_, "DIVERGED at time step {} — aborting.", time_step);
+    double global_mass, global_px, global_py, global_pz, global_ke, global_te, global_e1, global_e2;
+    int global_num_disclinations;
+
+    // Collective — every rank must call these, even though only the root
+    // rank below actually writes the result to the log file.
+    MPIContext::SumDoubles(&mass, &global_mass);
+    MPIContext::SumDoubles(&px, &global_px);
+    MPIContext::SumDoubles(&py, &global_py);
+    MPIContext::SumDoubles(&pz, &global_pz);
+    MPIContext::SumDoubles(&ke, &global_ke);
+    MPIContext::SumDoubles(&te, &global_te);
+    MPIContext::SumDoubles(&e1, &global_e1);
+    MPIContext::SumDoubles(&e2, &global_e2);
+    MPIContext::SumInts(&num_disclinations, &global_num_disclinations); // This is currently incorrect, since a single disclination could span multiple ranks, but we will keep it for now.
+
+    // Divergence is derived from the globally-reduced quantities, so every
+    // rank reaches the same verdict and stays in lockstep — only the actual
+    // log writing below is root-only.
+    bool diverged = std::isnan(global_mass) || std::isnan(global_px) ||
+                     std::isnan(global_py) || std::isnan(global_pz);
+
+    if (MPIContext::IsRoot()) {
+        compat::println(
+            log_file_,
+            "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, "
+            "Kinetic Energy: {}, Total Energy: {}, Relative Error: {}, "
+            "NumDisclinations: {}",
+            time_step,
+            global_mass,
+            global_px,
+            global_py,
+            global_pz,
+            global_ke,
+            global_te,
+            global_e1/global_e2,
+            global_num_disclinations
+        );
+        std::flush(log_file_);
+    }
+    if (diverged) {
+        if (MPIContext::IsRoot())
+            compat::println(log_file_, "DIVERGED at time step {} — aborting.", time_step);
         return false;
     }
     return true;
@@ -177,7 +224,7 @@ void SimIO::ExportDistributionCSV(const FluidFields& ff,
 
 
 void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
-                         const std::string& path, int step) {
+                         const std::string& path, int step, const MPIContext& ctx, const LocalGrid& grid) {
     constexpr int kStepWidth = [] {
         int w = 1, n = kNumSteps - 1;
         while (n >= 10) { n /= 10; ++w; }
@@ -185,11 +232,11 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
     }();
     const std::string file_path = std::format("{}/lbm_{:0{}}.vtkhdf", path, step, kStepWidth);
 
-    ImageDataWriter writer(file_path);
+    ImageDataWriter writer(file_path, ctx);
 
     // --- PointData datasets, shape [nz, ny, nx] (z slowest, x fastest) ---
 
-    writer.WriteScalarField("rho", ff.rho.data());
+    writer.WriteScalarField("rho", ff.rho.data(), grid);
 
     if constexpr (Params::kDebugLogging) {
         // ff.f is laid out with i fastest-varying (host idx() layout), so we still
@@ -200,28 +247,30 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
                 for (int y = 0; y < ny; ++y)
                     for (int x = 0; x < nx; ++x)
                         buf[z * ny * nx + y * nx + x] = ff.f[idx(x, y, z, i)];
-            writer.WriteScalarField(std::format("f{}", i).c_str(), buf.data());
+            writer.WriteScalarField(std::format("f{}", i).c_str(), buf.data(), grid);
         }
     }
 
-    writer.WriteScalarField("order", af.order_.data());
+    writer.WriteScalarField("order", af.order_.data(), grid);
 
     // Velocity: three independent scalar fields, written directly from backing stores.
-    writer.WriteScalarField("ux", ff.ux.data());
-    writer.WriteScalarField("uy", ff.uy.data());
-    writer.WriteScalarField("uz", ff.uz.data());
+    writer.WriteScalarField("ux", ff.ux.data(), grid);
+    writer.WriteScalarField("uy", ff.uy.data(), grid);
+    writer.WriteScalarField("uz", ff.uz.data(), grid);
 
     // Director: AoS layout [nz, ny, nx, 3] (see dirIdx in analysis_fields.h) passes
     // straight through to WriteVectorField without repacking.
-    writer.WriteVectorField("director", af.director_.data());
+    writer.WriteVectorField("director", af.director_.data(), grid);
 
 }
 
 void SimIO::ExportDisclinations(
     const DefectFields& df,
     const std::string& path,
-    int step) 
-{
+    int step,
+    const MPIContext& ctx,
+    const LocalGrid&
+) {
     
     DisclinationMesh mesh;
 
@@ -236,7 +285,7 @@ void SimIO::ExportDisclinations(
     }();
     const std::string file_path = std::format("{}/disclinations_{:0{}}.vtkhdf", path, step, kStepWidth);
 
-    UnstructuredGridWriter writer(file_path);
+    UnstructuredGridWriter writer(file_path, ctx);
 
     writer.WriteTopology(mesh.Points(), mesh.Connectivity(),
                          mesh.Offsets(), mesh.CellTypes());
