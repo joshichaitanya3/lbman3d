@@ -71,6 +71,9 @@ void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_i
     compat::println(log_file_, "  MU (linear friction) = {}", MU);
     compat::println(log_file_, "");
     compat::println(log_file_, "##########################################################");
+    #ifdef LBM_ENABLE_MPI
+    compat::println(log_file_, "NOTE: Defect detection and export are disabled in MPI builds (not yet implemented).");
+    #endif
 }
 
 bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy) {
