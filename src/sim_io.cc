@@ -77,7 +77,7 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
     double mass = 0.0, px = 0.0, py = 0.0, pz=0, ke=0.0, e1 = 0.0, e2 = 0.0;
 
     #pragma omp parallel for schedule(static) default(shared) \
-        reduction(+:mass,px,py,pz,e1,e2) num_threads(kNumOMPThreads)
+        reduction(+:mass,px,py,pz,ke,e1,e2) num_threads(kNumOMPThreads)
     for (int z = 0; z < nz; ++z) {
         for (int y = 0; y < ny; ++y) {
             for (int x = 0; x < nx; ++x) {
