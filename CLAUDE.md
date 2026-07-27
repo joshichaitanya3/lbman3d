@@ -125,3 +125,19 @@ This split is invisible to callers since `__CUDA_ARCH__` branches inside the sam
 The code is designed with multi-GPU/multi-node MPI in mind. When adding features that touch neighbour lookups:
 - Use the ghost-value functions in `boundary_handler.h` (e.g., `SafeFetchAxisOffset`, `QAxisGhostPair`) rather than raw index arithmetic — these are the correct seam for future MPI halo-exchange insertion.
 - Do not hardcode assumptions that the entire domain fits in one contiguous block of memory.
+
+### Runtime grid dims and the optional `constexpr` fast path
+
+The MPI work (see `src/mpi/CLAUDE.md`) moves `idx`/`InDomain` off `physics_helpers.h`
+and onto `LocalGrid`, because uneven domain splits make `local_nx/ny/nz` **runtime**
+values decided at `mpirun` time — reversing the earlier decision that let them be
+`constexpr`. On CPU this is expected to be a wash: the dims are loop-invariant, so
+the compiler hoists the stride multiplies, and dropping the periodic `% nx` wrap from
+`idx` removes an integer modulo from the interior hot loop.
+
+If a single-process (non-MPI) interior-loop benchmark ever shows a real regression
+from the loss of `constexpr` folding, the escape hatch is to **template the solver on
+a static-dims policy**: one policy reads compile-time `Params::nx/ny/nz` (single
+process), another reads runtime `LocalGrid` dims (MPI). This is deliberately **not**
+built yet — it duplicates codegen and complicates the indexing seam, so add it only
+when a measurement justifies it, not preemptively.
