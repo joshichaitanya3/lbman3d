@@ -47,8 +47,18 @@ struct LocalGrid {
         return (x >= 0) && (x < local_nx) && (y >= 0) && (y < local_ny) && (z >= 0) && (z < local_nz);
     }
 
+    // Halo-inclusive bounds: owned cells plus the kHaloMPI-deep ghost layer on
+    // every face. This is the valid range for halo_idx, since pack/unpack and
+    // cross-rank streaming legitimately address ghost cells (InDomain, the
+    // owned-only check, would reject them).
+    inline CUDA_HOST_DEVICE bool InHaloDomain(int x, int y, int z) const {
+        return (x >= -kHaloMPI) && (x < local_nx + kHaloMPI)
+            && (y >= -kHaloMPI) && (y < local_ny + kHaloMPI)
+            && (z >= -kHaloMPI) && (z < local_nz + kHaloMPI);
+    }
+
     inline CUDA_HOST_DEVICE int halo_idx(int x, int y, int z, int i) const {
-        assert(InDomain(x, y, z) && "idx(x,y,z,i): coordinates out of domain");
+        assert(InHaloDomain(x, y, z) && "idx(x,y,z,i): coordinates out of halo-padded domain");
         assert(i >= 0 && i < Lattice::ndir && "idx(x,y,z,i): direction index out of range");
         #ifdef __CUDA_ARCH__
             return i * (local_nz+2*kHaloMPI) * (local_ny+2*kHaloMPI) * (local_nx+2*kHaloMPI) + halo_idx(x, y, z);
