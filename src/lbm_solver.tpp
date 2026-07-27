@@ -6,6 +6,7 @@
 #include <ranges>
 #include <cmath>
 #include "physics_helpers.h"
+#include "local_grid.h"
 
 using namespace Params;
 
@@ -32,23 +33,28 @@ LbmSolver<BC>::LbmSolver() {
 
 template<typename BC>
 void LbmSolver<BC>::Initialize(FluidFields& ff) const {
-    for (int z : std::views::iota(0, nz)) {
-        for (int y : std::views::iota(0, ny)) {
-            for (int x : std::views::iota(0, nx)) {
-                const double rhop = ff.rho[idx(x, y, z)];
-                const double uxp  = ff.ux[idx(x, y, z)];
-                const double uyp  = ff.uy[idx(x, y, z)];
-                const double uzp  = ff.uz[idx(x, y, z)];
+
+    const LocalGrid& g = ff.grid;
+
+    #pragma omp parallel for default(shared) num_threads(kNumOMPThreads)
+    for (int z : std::views::iota(0, g.local_nz)) {
+        for (int y : std::views::iota(0, g.local_ny)) {
+            for (int x : std::views::iota(0, g.local_nx)) {
+                const int idxp = g.halo_idx(x, y, z);
+                const double rhop = ff.rho[idxp];
+                const double uxp  =  ff.ux[idxp];
+                const double uyp  =  ff.uy[idxp];
+                const double uzp  =  ff.uz[idxp];
                 Vec3 up{uxp, uyp, uzp};
                 const double u2 = up.Dot(up);
                 for (int i : std::views::iota(0, Lattice::ndir)) {
-
+                const int idxfp = g.halo_idx(x, y, z, i);
                     Vec3 e_i{
                         static_cast<double>(Lattice::ex[i]),
                         static_cast<double>(Lattice::ey[i]),
                         static_cast<double>(Lattice::ez[i])
                     };
-                    ff.f[idx(x, y, z, i)] = Feq({rhop, up}, up.Dot(e_i), u2, Lattice::w[i]);
+                    ff.f[idxfp] = Feq({rhop, up}, up.Dot(e_i), u2, Lattice::w[i]);
                 }
             }
         }
@@ -82,18 +88,22 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
     //   independent single-axis reflections do not compose at shared edges/corners,
     //   violating mass conservation. An explicit HandleCorner override is needed (TODO).
 
+    const LocalGrid& g = ff.grid;
+
     #pragma omp parallel for default(shared) num_threads(kNumOMPThreads)
-    for (int z : std::views::iota(0, nz)) {
-        for (int y : std::views::iota(0, ny)) {
-            for (int x : std::views::iota(0, nx)) {
+    for (int z : std::views::iota(0, g.local_nz)) {
+        for (int y : std::views::iota(0, g.local_ny)) {
+            for (int x : std::views::iota(0, g.local_nx)) {
+
+                const int idxp = g.halo_idx(x, y, z);
 
                 // ── Compute Moments ──────────────────────────────────────────
                 // Accumulate ρ, ρu from f; velocity uses the half-step
                 // force correction (Guo forcing scheme).
                 Vec3 force{
-                    ff.fx[idx(x, y, z)],
-                    ff.fy[idx(x, y, z)],
-                    ff.fz[idx(x, y, z)]
+                    ff.fx[idxp],
+                    ff.fy[idxp],
+                    ff.fz[idxp]
                 };
                 Moments m = ComputeMoments(
                     ff.f.data(),
@@ -101,14 +111,15 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                     force,
                     Lattice::ex,
                     Lattice::ey,
-                    Lattice::ez
+                    Lattice::ez,
+                    g
                 );
                 
                 
-                ff.rho[idx(x, y, z)] = m.rho;
-                ff.ux[idx(x, y, z)]  = m.u.x;
-                ff.uy[idx(x, y, z)]  = m.u.y;
-                ff.uz[idx(x, y, z)]  = m.u.z;
+                ff.rho[idxp] = m.rho;
+                ff.ux[idxp]  = m.u.x;
+                ff.uy[idxp]  = m.u.y;
+                ff.uz[idxp]  = m.u.z;
                 const double uF =  m.u.Dot(force);
                 const double u2 = m.u.Dot(m.u);
                 for (int i : std::views::iota(0, Lattice::ndir)) {
@@ -120,35 +131,35 @@ void LbmSolver<BC>::LatticeBoltzmannStep(FluidFields& ff) const {
                     auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, e_i, Lattice::w[i]);
 
                     // ── Collision (BGK) ───────────────────────────────────────
-                    const double f_star = PointwiseBGKCollide(ff.f[idx(x, y, z, i)], feq, forcing_term);
+                    const double f_star = PointwiseBGKCollide(ff.f[g.halo_idx(x, y, z, i)], feq, forcing_term);
 
                     // ── Stream + Apply Boundary Conditions ───────────────────
                     const int dx = StreamXoff<BC>(x, Lattice::ex[i]);
                     const int dy = StreamYoff<BC>(y, Lattice::ey[i]);
                     const int dz = StreamZoff<BC>(z, Lattice::ez[i]);
-                    if (InDomain(dx, dy, dz)) {
-                        ff.f_new[idx(dx, dy, dz, i)] = f_star;
+                    if (g.InDomain(dx, dy, dz)) {
+                        ff.f_new[g.halo_idx(dx, dy, dz, i)] = f_star;
                     }
                     else {
                         double* f_new = ff.f_new.data();
 
                         if (dx < 0) {
-                            HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, Lattice::specX[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
+                            HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, Lattice::specX[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp, g);
                         }
                         else if (dx >= nx) {
-                            HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, Lattice::specX[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
+                            HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, Lattice::specX[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp, g);
                         }
                         if (dy < 0) {
-                            HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, Lattice::specY[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
+                            HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, Lattice::specY[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp, g);
                         }
                         else if (dy >= ny) {
-                            HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, Lattice::specY[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
+                            HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, Lattice::specY[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp, g);
                         }
                         if (dz < 0) {
-                            HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, Lattice::specZ[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
+                            HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, Lattice::specZ[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp, g);
                         }
                         else if (dz >= nz) {
-                            HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, Lattice::specZ[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp);
+                            HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, Lattice::specZ[i], f_star, m.rho, f_new, Lattice::ex, Lattice::ey, Lattice::ez, Lattice::w, Lattice::opp, g);
                         }
                     }
                 }
