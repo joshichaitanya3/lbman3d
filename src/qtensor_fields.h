@@ -8,6 +8,7 @@
 // Owns Q-tensor state: current and scratch (new) components.
 // Flat, row-major storage indexed via idx(x,y,z) from physics_helpers.h.
 struct QTensorFields {
+    LocalGrid grid;
     std::vector<double> qxx, qxy, qxz, qyy, qyz;
     std::vector<double> qxx_new, qxy_new, qxz_new, qyy_new, qyz_new;
 

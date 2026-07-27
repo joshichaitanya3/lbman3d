@@ -6,13 +6,13 @@
 
 using namespace Params;
 
-AnalysisFields::AnalysisFields() :
-    rho_past_(nx * ny * nz, kDensity),
-    ux_past_ (nx * ny * nz, 0.0),
-    uy_past_ (nx * ny * nz, 0.0),
-    uz_past_ (nx * ny * nz, 0.0),
-    order_   (nx * ny * nz, 0.0),
-    director_(nx * ny * nz * 3, 0.0)
+AnalysisFields::AnalysisFields(LocalGrid g) :
+    rho_past_(g.HaloVolume(), kDensity),
+    ux_past_ (g.HaloVolume(), 0.0),
+    uy_past_ (g.HaloVolume(), 0.0),
+    uz_past_ (g.HaloVolume(), 0.0),
+    order_   (g.HaloVolume(), 0.0),
+    director_(g.HaloVolume() * 3, 0.0)
 {}
 
 

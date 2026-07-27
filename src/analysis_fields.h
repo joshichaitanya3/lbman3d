@@ -73,12 +73,12 @@ double TotalNematicFreeEnergy(const QTensorFields& qf) {
 // structure — never touched by GPU code.
 struct AnalysisFields {
     // Previous-step snapshots for per-export diagnostics
+    LocalGrid grid;
     std::vector<double> rho_past_, ux_past_, uy_past_, uz_past_;
     // Order parameter and director fields populated by QtensorToOrderDirector
     std::vector<double> order_;
     std::vector<double> director_;  // AoS: [nz, ny, nx, 3]
-
-    AnalysisFields();
+    explicit AnalysisFields(LocalGrid g = LocalGrid::SingleRank());
 
 };
 

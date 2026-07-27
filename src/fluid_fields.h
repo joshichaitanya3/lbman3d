@@ -9,6 +9,7 @@
 // fx/fy/fz are the only write surface shared with QTensorSolver.
 // Flat, row-major storage indexed via idx(x,y,z[,i]) from physics_helpers.h.
 struct FluidFields {
+    LocalGrid grid;
     std::vector<double> f, f_new;
     std::vector<double> fx, fy, fz;
     std::vector<double> rho, ux, uy, uz;
