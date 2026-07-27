@@ -10,6 +10,7 @@
 #include <cassert>
 #include <params.h>
 #include "lattice_stencil.h"
+#include "local_grid.h"
 
 using namespace Params;
 
@@ -128,7 +129,8 @@ inline CUDA_HOST_DEVICE Moments ComputeMoments(
     Vec3 force,
     const int* ex,
     const int* ey,
-    const int* ez
+    const int* ez,
+    const LocalGrid& g
 ) {
     double rhop = 0.0;
     double uxp = 0.0;
@@ -136,7 +138,7 @@ inline CUDA_HOST_DEVICE Moments ComputeMoments(
     double uzp = 0.0;
     for (int i = 0; i < Lattice::ndir; ++i) {
 
-        double fi = f[idx(point.x, point.y, point.z, i)];
+        double fi = f[g.halo_idx(point.x, point.y, point.z, i)];
         rhop += fi;
         uxp += ex[i] * fi;
         uyp += ey[i] * fi;
