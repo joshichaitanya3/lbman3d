@@ -6,6 +6,7 @@
 
 #include "offsets.h"
 #include <params.h>
+#include "boundary.h"
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 #include "analysis_fields.h"
@@ -59,8 +60,8 @@ public:
     // Default: constant-alpha active nematic.
     // Supply a QTensorSolver subclass to override the activity model.
     explicit ActiveNematicSim(std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
-        : mpi_(),
-          grid_(LocalGrid::SingleRank()),
+        : mpi_(periodicity_by_axis<BC>),
+          grid_(mpi_.MakeLocalGrid()),
           halo_(grid_, mpi_),
           fluid_(grid_),
           qtensor_(grid_),
