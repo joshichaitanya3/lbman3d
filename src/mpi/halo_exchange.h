@@ -51,27 +51,29 @@ struct HaloExchange {
         for (int f : {4,5}) { send_buf_[f].resize(max_fields * max_xy); recv_buf_[f].resize(max_fields * max_xy); }
     }
 
+    // Owned coordinates are 0-based (0 .. local_n-1); halo_idx adds the ghost
+    // offset internally. Owned boundary planes are logical 0 / local_n-1.
     void PackFieldXY(double* field, size_t fieldIdx) {
-        for (int y = 1; y <= local_ny_; ++y) {     // owned range, once halos exist
-            for (int x = 1; x <= local_nx_; ++x) {
-                send_buf_[4][(max_xy * fieldIdx) + (y-1) * local_nx_ + x-1] = field[idx(x, y, 1)];
-                send_buf_[5][(max_xy * fieldIdx) + (y-1) * local_nx_ + x-1] = field[idx(x, y, local_nz_)];
+        for (int y = 0; y < local_ny_; ++y) {
+            for (int x = 0; x < local_nx_; ++x) {
+                send_buf_[4][(max_xy * fieldIdx) + y * local_nx_ + x] = field[grid_.halo_idx(x, y, 0)];
+                send_buf_[5][(max_xy * fieldIdx) + y * local_nx_ + x] = field[grid_.halo_idx(x, y, local_nz_ - 1)];
             }
         }
     }
     void PackFieldXZ(double* field, size_t fieldIdx) {
-        for (int z = 1; z <= local_nz_; ++z) {      // owned range, once halos exist
-            for (int x = 1; x <= local_nx_; ++x) {
-                send_buf_[2][(max_xz * fieldIdx) + (z-1) * local_nx_ + x-1] = field[idx(x, 1, z)];
-                send_buf_[3][(max_xz * fieldIdx) + (z-1) * local_nx_ + x-1] = field[idx(x, local_ny_, z)];
+        for (int z = 0; z < local_nz_; ++z) {
+            for (int x = 0; x < local_nx_; ++x) {
+                send_buf_[2][(max_xz * fieldIdx) + z * local_nx_ + x] = field[grid_.halo_idx(x, 0, z)];
+                send_buf_[3][(max_xz * fieldIdx) + z * local_nx_ + x] = field[grid_.halo_idx(x, local_ny_ - 1, z)];
             }
         }
     }
     void PackFieldYZ(double* field, size_t fieldIdx) {
-        for (int z = 1; z <= local_nz_; ++z) {      // owned range, once halos exist
-            for (int y = 1; y <= local_ny_; ++y) {
-                send_buf_[0][(max_yz * fieldIdx) + (z-1) * local_ny_ + y-1] = field[idx(1, y, z)];
-                send_buf_[1][(max_yz * fieldIdx) + (z-1) * local_ny_ + y-1] = field[idx(local_nx_, y, z)];
+        for (int z = 0; z < local_nz_; ++z) {
+            for (int y = 0; y < local_ny_; ++y) {
+                send_buf_[0][(max_yz * fieldIdx) + z * local_ny_ + y] = field[grid_.halo_idx(0, y, z)];
+                send_buf_[1][(max_yz * fieldIdx) + z * local_ny_ + y] = field[grid_.halo_idx(local_nx_ - 1, y, z)];
             }
         }
     }
@@ -82,27 +84,28 @@ struct HaloExchange {
         else             PackFieldXY(field, fieldIdx);
     }
 
+    // Ghost planes are the layer just outside owned: logical -1 / local_n.
     void UnpackFieldXY(double* field, size_t fieldIdx) {
-        for (int y = 1; y <= local_ny_; ++y) {      // owned range, once halos exist
-            for (int x = 1; x <= local_nx_; ++x) {
-                field[idx(x, y, 0)]          = recv_buf_[4][(max_xy * fieldIdx) + (y-1) * local_nx_ + x-1];
-                field[idx(x, y, local_nz_+1)] = recv_buf_[5][(max_xy * fieldIdx) + (y-1) * local_nx_ + x-1];
+        for (int y = 0; y < local_ny_; ++y) {
+            for (int x = 0; x < local_nx_; ++x) {
+                field[grid_.halo_idx(x, y, -1)]        = recv_buf_[4][(max_xy * fieldIdx) + y * local_nx_ + x];
+                field[grid_.halo_idx(x, y, local_nz_)] = recv_buf_[5][(max_xy * fieldIdx) + y * local_nx_ + x];
             }
         }
     }
     void UnpackFieldXZ(double* field, size_t fieldIdx) {
-        for (int z = 1; z <= local_nz_; ++z) {      // owned range, once halos exist
-            for (int x = 1; x <= local_nx_; ++x) {
-                field[idx(x, 0, z)]          = recv_buf_[2][(max_xz * fieldIdx) + (z-1) * local_nx_ + x-1];
-                field[idx(x, local_ny_+1, z)] = recv_buf_[3][(max_xz * fieldIdx) + (z-1) * local_nx_ + x-1];
+        for (int z = 0; z < local_nz_; ++z) {
+            for (int x = 0; x < local_nx_; ++x) {
+                field[grid_.halo_idx(x, -1, z)]        = recv_buf_[2][(max_xz * fieldIdx) + z * local_nx_ + x];
+                field[grid_.halo_idx(x, local_ny_, z)] = recv_buf_[3][(max_xz * fieldIdx) + z * local_nx_ + x];
             }
         }
     }
     void UnpackFieldYZ(double* field, size_t fieldIdx) {
-        for (int z = 1; z <= local_nz_; ++z) {      // owned range, once halos exist
-            for (int y = 1; y <= local_ny_; ++y) {
-                field[idx(0, y, z)]          = recv_buf_[0][(max_yz * fieldIdx) + (z-1) * local_ny_ + y-1];
-                field[idx(local_nx_+1, y, z)] = recv_buf_[1][(max_yz * fieldIdx) + (z-1) * local_ny_ + y-1];
+        for (int z = 0; z < local_nz_; ++z) {
+            for (int y = 0; y < local_ny_; ++y) {
+                field[grid_.halo_idx(-1, y, z)]        = recv_buf_[0][(max_yz * fieldIdx) + z * local_ny_ + y];
+                field[grid_.halo_idx(local_nx_, y, z)] = recv_buf_[1][(max_yz * fieldIdx) + z * local_ny_ + y];
             }
         }
     }
@@ -114,26 +117,26 @@ struct HaloExchange {
     }
 
     void PackLBMFieldXY(double* field, size_t fieldIdx) {
-        for (int y = 1; y <= local_ny_; ++y) {     // owned range, once halos exist
-            for (int x = 1; x <= local_nx_; ++x) {
-                send_buf_[4][(max_xy * fieldIdx) + (y-1) * local_nx_ + x-1] = field[idx(x, y, 1,          fieldIdx)];
-                send_buf_[5][(max_xy * fieldIdx) + (y-1) * local_nx_ + x-1] = field[idx(x, y, local_nz_,  fieldIdx)];
+        for (int y = 0; y < local_ny_; ++y) {
+            for (int x = 0; x < local_nx_; ++x) {
+                send_buf_[4][(max_xy * fieldIdx) + y * local_nx_ + x] = field[grid_.halo_idx(x, y, 0,             fieldIdx)];
+                send_buf_[5][(max_xy * fieldIdx) + y * local_nx_ + x] = field[grid_.halo_idx(x, y, local_nz_ - 1, fieldIdx)];
             }
         }
     }
     void PackLBMFieldXZ(double* field, size_t fieldIdx) {
-        for (int z = 1; z <= local_nz_; ++z) {
-            for (int x = 1; x <= local_nx_; ++x) {
-                send_buf_[2][(max_xz * fieldIdx) + (z-1) * local_nx_ + x-1] = field[idx(x, 1,          z, fieldIdx)];
-                send_buf_[3][(max_xz * fieldIdx) + (z-1) * local_nx_ + x-1] = field[idx(x, local_ny_,  z, fieldIdx)];
+        for (int z = 0; z < local_nz_; ++z) {
+            for (int x = 0; x < local_nx_; ++x) {
+                send_buf_[2][(max_xz * fieldIdx) + z * local_nx_ + x] = field[grid_.halo_idx(x, 0,             z, fieldIdx)];
+                send_buf_[3][(max_xz * fieldIdx) + z * local_nx_ + x] = field[grid_.halo_idx(x, local_ny_ - 1, z, fieldIdx)];
             }
         }
     }
     void PackLBMFieldYZ(double* field, size_t fieldIdx) {
-        for (int z = 1; z <= local_nz_; ++z) {
-            for (int y = 1; y <= local_ny_; ++y) {
-                send_buf_[0][(max_yz * fieldIdx) + (z-1) * local_ny_ + y-1] = field[idx(1,         y, z, fieldIdx)];
-                send_buf_[1][(max_yz * fieldIdx) + (z-1) * local_ny_ + y-1] = field[idx(local_nx_, y, z, fieldIdx)];
+        for (int z = 0; z < local_nz_; ++z) {
+            for (int y = 0; y < local_ny_; ++y) {
+                send_buf_[0][(max_yz * fieldIdx) + z * local_ny_ + y] = field[grid_.halo_idx(0,             y, z, fieldIdx)];
+                send_buf_[1][(max_yz * fieldIdx) + z * local_ny_ + y] = field[grid_.halo_idx(local_nx_ - 1, y, z, fieldIdx)];
             }
         }
     }
@@ -145,26 +148,26 @@ struct HaloExchange {
     }
 
     void UnpackLBMFieldXY(double* field, size_t fieldIdx) {
-        for (int y = 1; y <= local_ny_; ++y) {
-            for (int x = 1; x <= local_nx_; ++x) {
-                field[idx(x, y, 0,            fieldIdx)] = recv_buf_[4][(max_xy * fieldIdx) + (y-1) * local_nx_ + x-1];
-                field[idx(x, y, local_nz_+1,  fieldIdx)] = recv_buf_[5][(max_xy * fieldIdx) + (y-1) * local_nx_ + x-1];
+        for (int y = 0; y < local_ny_; ++y) {
+            for (int x = 0; x < local_nx_; ++x) {
+                field[grid_.halo_idx(x, y, -1,        fieldIdx)] = recv_buf_[4][(max_xy * fieldIdx) + y * local_nx_ + x];
+                field[grid_.halo_idx(x, y, local_nz_, fieldIdx)] = recv_buf_[5][(max_xy * fieldIdx) + y * local_nx_ + x];
             }
         }
     }
     void UnpackLBMFieldXZ(double* field, size_t fieldIdx) {
-        for (int z = 1; z <= local_nz_; ++z) {
-            for (int x = 1; x <= local_nx_; ++x) {
-                field[idx(x, 0,            z, fieldIdx)] = recv_buf_[2][(max_xz * fieldIdx) + (z-1) * local_nx_ + x-1];
-                field[idx(x, local_ny_+1,  z, fieldIdx)] = recv_buf_[3][(max_xz * fieldIdx) + (z-1) * local_nx_ + x-1];
+        for (int z = 0; z < local_nz_; ++z) {
+            for (int x = 0; x < local_nx_; ++x) {
+                field[grid_.halo_idx(x, -1,        z, fieldIdx)] = recv_buf_[2][(max_xz * fieldIdx) + z * local_nx_ + x];
+                field[grid_.halo_idx(x, local_ny_, z, fieldIdx)] = recv_buf_[3][(max_xz * fieldIdx) + z * local_nx_ + x];
             }
         }
     }
     void UnpackLBMFieldYZ(double* field, size_t fieldIdx) {
-        for (int z = 1; z <= local_nz_; ++z) {
-            for (int y = 1; y <= local_ny_; ++y) {
-                field[idx(0,            y, z, fieldIdx)] = recv_buf_[0][(max_yz * fieldIdx) + (z-1) * local_ny_ + y-1];
-                field[idx(local_nx_+1,  y, z, fieldIdx)] = recv_buf_[1][(max_yz * fieldIdx) + (z-1) * local_ny_ + y-1];
+        for (int z = 0; z < local_nz_; ++z) {
+            for (int y = 0; y < local_ny_; ++y) {
+                field[grid_.halo_idx(-1,        y, z, fieldIdx)] = recv_buf_[0][(max_yz * fieldIdx) + z * local_ny_ + y];
+                field[grid_.halo_idx(local_nx_, y, z, fieldIdx)] = recv_buf_[1][(max_yz * fieldIdx) + z * local_ny_ + y];
             }
         }
     }
