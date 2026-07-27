@@ -10,7 +10,7 @@
 #include "analysis/defect_fields.h"
 #include "physics_helpers.h"
 #include "lattice_stencil.h"
-
+#include "local_grid.h"
 #include "analysis/disclination.h"
 #include "mpi/mpi_context.h"
 
@@ -78,28 +78,30 @@ void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_i
 
 bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy) {
     double mass = 0.0, px = 0.0, py = 0.0, pz=0, ke=0.0, e1 = 0.0, e2 = 0.0;
+    const LocalGrid& g = ff.grid;
 
     #pragma omp parallel for schedule(static) default(shared) \
         reduction(+:mass,px,py,pz,ke,e1,e2) num_threads(kNumOMPThreads)
-    for (int z = 0; z < nz; ++z) {
-        for (int y = 0; y < ny; ++y) {
-            for (int x = 0; x < nx; ++x) {
-                mass += ff.rho[idx(x, y, z)];
-                px   += ff.rho[idx(x, y, z)] * ff.ux[idx(x, y, z)];
-                py   += ff.rho[idx(x, y, z)] * ff.uy[idx(x, y, z)];
-                pz   += ff.rho[idx(x, y, z)] * ff.uz[idx(x, y, z)];
-                ke   += 0.5 * ff.rho[idx(x, y, z)] * (ff.ux[idx(x, y, z)]*ff.ux[idx(x, y, z)] + 
-                                                 ff.uy[idx(x, y, z)]*ff.uy[idx(x, y, z)] + 
-                                                 ff.uz[idx(x, y, z)]*ff.uz[idx(x, y, z)]);
+    for (int z = 0; z < g.local_nz; ++z) {
+        for (int y = 0; y < g.local_ny; ++y) {
+            for (int x = 0; x < g.local_nx; ++x) {
+                const int idxp = g.halo_idx(x, y, z);
+                mass += ff.rho[idxp];
+                px   += ff.rho[idxp] * ff.ux[idxp];
+                py   += ff.rho[idxp] * ff.uy[idxp];
+                pz   += ff.rho[idxp] * ff.uz[idxp];
+                ke   += 0.5 * ff.rho[idxp] * (ff.ux[idxp]*ff.ux[idxp] + 
+                                                 ff.uy[idxp]*ff.uy[idxp] + 
+                                                 ff.uz[idxp]*ff.uz[idxp]);
 
-                e1   += (ff.ux[idx(x, y, z)]-af.ux_past_[idx(x, y, z)])*(ff.ux[idx(x, y, z)]-af.ux_past_[idx(x, y, z)])
-                        + (ff.uy[idx(x, y, z)]-af.uy_past_[idx(x, y, z)])*(ff.uy[idx(x, y, z)]-af.uy_past_[idx(x, y, z)])
-                        + (ff.uz[idx(x, y, z)]-af.uz_past_[idx(x, y, z)])*(ff.uz[idx(x, y, z)]-af.uz_past_[idx(x, y, z)]);
+                e1   += (ff.ux[idxp]-af.ux_past_[idxp])*(ff.ux[idxp]-af.ux_past_[idxp])
+                        + (ff.uy[idxp]-af.uy_past_[idxp])*(ff.uy[idxp]-af.uy_past_[idxp])
+                        + (ff.uz[idxp]-af.uz_past_[idxp])*(ff.uz[idxp]-af.uz_past_[idxp]);
 
-                e2   += ff.ux[idx(x, y, z)]*ff.ux[idx(x, y, z)] + ff.uy[idx(x, y, z)]*ff.uy[idx(x, y, z)]  + ff.uz[idx(x, y, z)]*ff.uz[idx(x, y, z)];
-                af.ux_past_[idx(x, y, z)] = ff.ux[idx(x, y, z)];
-                af.uy_past_[idx(x, y, z)] = ff.uy[idx(x, y, z)];
-                af.uz_past_[idx(x, y, z)] = ff.uz[idx(x, y, z)];
+                e2   += ff.ux[idxp]*ff.ux[idxp] + ff.uy[idxp]*ff.uy[idxp]  + ff.uz[idxp]*ff.uz[idxp];
+                af.ux_past_[idxp] = ff.ux[idxp];
+                af.uy_past_[idxp] = ff.uy[idxp];
+                af.uz_past_[idxp] = ff.uz[idxp];
             }
         }
     }
@@ -153,8 +155,18 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
     return true;
 }
 
-void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
-                   const std::string& path, int step) {
+void SimIO::ExportCSV(
+    [[maybe_unused]] const FluidFields& ff,
+    [[maybe_unused]] const QTensorFields& qf,
+    [[maybe_unused]] const std::string& path,
+    [[maybe_unused]] int step) {
+
+    #ifdef LBM_ENABLE_MPI
+    return; // MPI parallel CSV export is not implemented yet.
+    #else
+
+    LocalGrid& g = ff.grid;
+
     std::ofstream rho_file, ux_file, uy_file, uz_file;
     std::ofstream qxx_file, qxy_file, qxz_file, qyy_file, qyz_file;
 
@@ -172,54 +184,64 @@ void SimIO::ExportCSV(const FluidFields& ff, const QTensorFields& qf,
     if (!rho_file.is_open())
         throw std::runtime_error("Failed to open data file");
 
-    for (int z = 0; z < nz; ++z) {
-        for (int y = 0; y < ny; ++y) {
-            for (int x = 0; x < nx-1; ++x) {
-                compat::print(rho_file,  "{},", ff.rho[idx(x, y, z)]);
-                compat::print(ux_file,   "{},", ff.ux[idx(x, y, z)]);
-                compat::print(uy_file,   "{},", ff.uy[idx(x, y, z)]);
-                compat::print(uz_file,   "{},", ff.uz[idx(x, y, z)]);
-                compat::print(qxx_file,  "{},", qf.qxx[idx(x, y, z)]);
-                compat::print(qxy_file,  "{},", qf.qxy[idx(x, y, z)]);
-                compat::print(qxz_file,  "{},", qf.qxz[idx(x, y, z)]);
-                compat::print(qyy_file,  "{},", qf.qyy[idx(x, y, z)]);
-                compat::print(qyz_file,  "{},", qf.qyz[idx(x, y, z)]);                
+    for (int z = 0; z < g.local_nz; ++z) {
+        for (int y = 0; y < g.local_ny; ++y) {
+            for (int x = 0; x < g.local_nx-1; ++x) {
+                const int idxp = g.halo_idx(x, y, z);
+                compat::print(rho_file,  "{},", ff.rho[idxp]);
+                compat::print(ux_file,   "{},", ff.ux[idxp]);
+                compat::print(uy_file,   "{},", ff.uy[idxp]);
+                compat::print(uz_file,   "{},", ff.uz[idxp]);
+                compat::print(qxx_file,  "{},", qf.qxx[idxp]);
+                compat::print(qxy_file,  "{},", qf.qxy[idxp]);
+                compat::print(qxz_file,  "{},", qf.qxz[idxp]);
+                compat::print(qyy_file,  "{},", qf.qyy[idxp]);
+                compat::print(qyz_file,  "{},", qf.qyz[idxp]);                
             }
-            compat::print(rho_file,  "{}\n", ff.rho[idx(nx-1, y, z)]);
-            compat::print(ux_file,   "{}\n", ff.ux[idx(nx-1, y, z)]);
-            compat::print(uy_file,   "{}\n", ff.uy[idx(nx-1, y, z)]);
-            compat::print(uz_file,   "{}\n", ff.uz[idx(nx-1, y, z)]);
-            compat::print(qxx_file,  "{}\n", qf.qxx[idx(nx-1, y, z)]);
-            compat::print(qxy_file,  "{}\n", qf.qxy[idx(nx-1, y, z)]);
-            compat::print(qxz_file,  "{}\n", qf.qxz[idx(nx-1, y, z)]);
-            compat::print(qyy_file,  "{}\n", qf.qyy[idx(nx-1, y, z)]);
-            compat::print(qyz_file,  "{}\n", qf.qyz[idx(nx-1, y, z)]);
+            const int idxp = g.halo_idx(g.local_nx-1, y, z);
+            compat::print(rho_file,  "{}\n", ff.rho[idxp]);
+            compat::print(ux_file,   "{}\n", ff.ux[idxp]);
+            compat::print(uy_file,   "{}\n", ff.uy[idxp]);
+            compat::print(uz_file,   "{}\n", ff.uz[idxp]);
+            compat::print(qxx_file,  "{}\n", qf.qxx[idxp]);
+            compat::print(qxy_file,  "{}\n", qf.qxy[idxp]);
+            compat::print(qxz_file,  "{}\n", qf.qxz[idxp]);
+            compat::print(qyy_file,  "{}\n", qf.qyy[idxp]);
+            compat::print(qyz_file,  "{}\n", qf.qyz[idxp]);
         }
     }
 
     if constexpr (Params::kDebugLogging) {
         ExportDistributionCSV(ff, path, step);
     }
+    #endif
 }
 
-void SimIO::ExportDistributionCSV(const FluidFields& ff,
-                                const std::string& path, int step) {
+void SimIO::ExportDistributionCSV(
+    [[maybe_unused]] const FluidFields& ff,
+    [[maybe_unused]] const std::string& path,
+    [[maybe_unused]] int step) {
+    #ifdef LBM_ENABLE_MPI
+    return; // MPI parallel CSV export is not implemented yet.
+    #else
+    LocalGrid& g = ff.grid;
     std::ofstream f_file;
     for (int i : std::views::iota(0, Lattice::ndir)) {
         f_file.open(compat::format("{}/f_{}_{}.csv", path, i, step), std::ios::out);
         if (!f_file.is_open())
             throw std::runtime_error("Failed to open data file");
 
-        for (int z = 0; z < nz; ++z) {
-            for (int y = 0; y < ny; ++y) {
-                for (int x = 0; x < nx-1; ++x) {
-                    compat::print(f_file, "{},", ff.f[idx(x, y, z, i)]);
+        for (int z = 0; z < g.local_nz; ++z) {
+            for (int y = 0; y < g.local_ny; ++y) {
+                for (int x = 0; x < g.local_nx-1; ++x) {
+                    compat::print(f_file, "{},", ff.f[g.halo_idx(x, y, z, i)]);
                 }
-                compat::print(f_file, "{}\n", ff.f[idx(nx-1, y, z, i)]);
+                compat::print(f_file, "{}\n", ff.f[g.halo_idx(g.local_nx-1, y, z, i)]);
             }
         }
         f_file.close();
     }
+    #endif
 }
 
 
@@ -230,6 +252,8 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
         while (n >= 10) { n /= 10; ++w; }
         return w;
     }();
+    const LocalGrid& g = ff.grid;
+
     const std::string file_path = std::format("{}/lbm_{:0{}}.vtkhdf", path, step, kStepWidth);
 
     ImageDataWriter writer(file_path, ctx);
@@ -241,12 +265,12 @@ void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
     if constexpr (Params::kDebugLogging) {
         // ff.f is laid out with i fastest-varying (host idx() layout), so we still
         // need a scratch buffer per direction with the export's [z,y,x] layout.
-        std::vector<double> buf(nx * ny * nz);
+        std::vector<double> buf(g.HaloVolume());
         for (int i = 0; i < Lattice::ndir; i++) {
-            for (int z = 0; z < nz; ++z)
-                for (int y = 0; y < ny; ++y)
-                    for (int x = 0; x < nx; ++x)
-                        buf[z * ny * nx + y * nx + x] = ff.f[idx(x, y, z, i)];
+            for (int z = 0; z < g.local_nz; ++z)
+                for (int y = 0; y < g.local_ny; ++y)
+                    for (int x = 0; x < g.local_nx; ++x)
+                        buf[g.halo_idx(x, y, z)] = ff.f[g.halo_idx(x, y, z, i)];
             writer.WriteScalarField(std::format("f{}", i).c_str(), buf.data(), grid);
         }
     }
