@@ -127,4 +127,11 @@ struct ChannelConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 using PeriodicBC = FullyPeriodicConfig;
 
+template <typename BCConfig>
+inline constexpr std::array<int, 3> periodicity_by_axis = {
+    static_cast<int>(std::is_same_v<typename BCConfig::XLo::UBC, Periodic>),
+    static_cast<int>(std::is_same_v<typename BCConfig::YLo::UBC, Periodic>),
+    static_cast<int>(std::is_same_v<typename BCConfig::ZLo::UBC, Periodic>),
+};
+
 #endif // LBM_AN_BOUNDARY_H_
