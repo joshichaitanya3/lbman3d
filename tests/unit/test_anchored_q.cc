@@ -2,6 +2,7 @@
 #include "boundary.h"
 #include "boundary_handler.h"
 #include "analysis_fields.h"
+#include "local_grid.h"
 #include <numbers>
 #include <vector>
 /*
@@ -68,10 +69,11 @@ TEST(AnchoredQ, GradientUniformField) {
     constexpr double q0 = 0.42;
     std::vector<double> q(nx * ny * nz, q0);
 
+    LocalGrid g = LocalGrid::SingleRank();
     for (int z = 0; z < nz; ++z)
     for (int y = 0; y < ny; ++y)
     for (int x = 0; x < nx; ++x) {
-        auto d = QGradientAndLaplacian<QComp::XX, FullyPeriodicConfig>(q.data(), x, y, z);
+        auto d = QGradientAndLaplacian<QComp::XX, FullyPeriodicConfig>(q.data(), x, y, z, g);
         EXPECT_NEAR(d.dx, 0.0, std::numeric_limits<double>::epsilon()) << "Periodic at (" << x << "," << y << "," << z << ")";
         EXPECT_NEAR(d.dy, 0.0, std::numeric_limits<double>::epsilon()) << "Periodic at (" << x << "," << y << "," << z << ")";
         EXPECT_NEAR(d.dz, 0.0, std::numeric_limits<double>::epsilon()) << "Periodic at (" << x << "," << y << "," << z << ")";
@@ -82,7 +84,7 @@ TEST(AnchoredQ, GradientUniformField) {
     for (int z = 0; z < nz; ++z)
     for (int y = 0; y < ny; ++y)
     for (int x = 0; x < nx; ++x) {
-        auto d = QGradientAndLaplacian<QComp::XX, ChannelConfig>(q.data(), x, y, z);
+        auto d = QGradientAndLaplacian<QComp::XX, ChannelConfig>(q.data(), x, y, z, g);
         EXPECT_NEAR(d.dx, 0.0, std::numeric_limits<double>::epsilon()) << "Neumann at (" << x << "," << y << "," << z << ")";
         EXPECT_NEAR(d.dy, 0.0, std::numeric_limits<double>::epsilon()) << "Neumann at (" << x << "," << y << "," << z << ")";
         EXPECT_NEAR(d.dz, 0.0, std::numeric_limits<double>::epsilon()) << "Neumann at (" << x << "," << y << "," << z << ")";
@@ -93,15 +95,16 @@ TEST(AnchoredQ, GradientUniformField) {
 TEST(AnchoredQ, GradientLinearField) {
     constexpr double scale = 0.01;
     std::vector<double> q(nx * ny * nz);
+    LocalGrid g = LocalGrid::SingleRank();
     for (int z = 0; z < nz; ++z)
     for (int y = 0; y < ny; ++y)
     for (int x = 0; x < nx; ++x)
-        q[idx(x, y, z)] = scale * x;
+        q[g.halo_idx(x, y, z)] = scale * x;
 
     // Interior point: central difference is exact for linear functions.
     // Periodic wrapping at edges is irrelevant for this interior query.
     const int x = nx / 2, y = ny / 2, z = nz / 2;
-    auto d = QGradientAndLaplacian<QComp::XX, FullyPeriodicConfig>(q.data(), x, y, z);
+    auto d = QGradientAndLaplacian<QComp::XX, FullyPeriodicConfig>(q.data(), x, y, z, g);
     EXPECT_DOUBLE_EQ(d.dx, scale);
     EXPECT_NEAR(d.dy, 0.0, std::numeric_limits<double>::epsilon());
     EXPECT_NEAR(d.dz, 0.0, std::numeric_limits<double>::epsilon());
@@ -111,14 +114,15 @@ TEST(AnchoredQ, GradientLinearField) {
 TEST(AnchoredQ, LaplacianQuadratic) {
     constexpr double scale = 0.01;
     std::vector<double> q(nx * ny * nz);
+    LocalGrid g = LocalGrid::SingleRank();
     for (int z = 0; z < nz; ++z)
     for (int y = 0; y < ny; ++y)
     for (int x = 0; x < nx; ++x)
-        q[idx(x, y, z)] = scale * x * x;
+        q[g.halo_idx(x, y, z)] = scale * x * x;
 
     // 7-point stencil is exact for degree-2 polynomials: ∇²(scale·x²) = 2·scale.
     const int x = nx / 2, y = ny / 2, z = nz / 2;
-    auto d = QGradientAndLaplacian<QComp::XX, FullyPeriodicConfig>(q.data(), x, y, z);
+    auto d = QGradientAndLaplacian<QComp::XX, FullyPeriodicConfig>(q.data(), x, y, z, g);
     // 7 FP operations on values ~0.1-0.25 accumulate ~4e-16 cancellation error;
     // EXPECT_DOUBLE_EQ (4 ULPs ≈ 1.4e-17) is too tight here.
     EXPECT_NEAR(d.lap, 2.0 * scale, 1e-14);

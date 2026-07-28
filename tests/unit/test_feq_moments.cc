@@ -2,6 +2,7 @@
 #include "params.h"
 #include "lattice_stencil.h"
 #include "physics_helpers.h"
+#include "local_grid.h"
 #include <vector>
 #include <random>
 
@@ -118,13 +119,15 @@ TEST(FeqMoments, MomentsRoundtrip) {
             f[i] = feq;
         }
 
+        LocalGrid g = LocalGrid::SingleRank();
         Moments m2 = ComputeMoments(
             f,
             {0,0,0},
             {0.0, 0.0, 0.0},
             ex,
             ey,
-            ez
+            ez,
+            g
         );
 
         EXPECT_NEAR(m2.rho, rho, 1e-15);
@@ -154,13 +157,16 @@ TEST(FeqMoments, GuoHalfStepCorrection) {
             f[i] = rho*w[i]; // For zero velocity, f[i] = rho*w[i]
         }
 
+        LocalGrid g = LocalGrid::SingleRank();
+
         Moments m = ComputeMoments(
             f,
             {0,0,0},
             {force_x, 0.0, 0.0},
             ex,
             ey,
-            ez
+            ez,
+            g
         );
 
         EXPECT_NEAR(m.u.x, 0.5 * force_x * DT / rho , 1e-12);
