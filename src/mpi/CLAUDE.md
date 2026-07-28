@@ -102,6 +102,26 @@ correct insertion point for MPI halo exchange — they already operate on values
 rather than raw indices, which makes them compatible with halo buffers without
 touching the physics kernels.
 
+### Two halo structs, not one
+
+The Q-tensor / passive-stress halo (owned → ghost, star-stencil) and the LBM
+post-push-stream halo (ghost → owned, per-population crossing subset, wall-
+corner skip) share **no** run-time state and evolve at different rates: the
+LBM buffers will need to widen per-axis when the multi-axis corner sweep
+lands (PR VI step 3b), which the Q-tensor exchange has no use for. They live
+in separate files:
+
+- `mpi/halo_exchange_qtensor.h` → `struct HaloExchangeQTensor` (see
+  `ExchangeQTensor` and `ExchangePassiveStresses`).
+- `mpi/halo_exchange_lbm.h` → `struct HaloExchangeLBM` (see `ExchangeLBM`,
+  the `PackLBM*` / `UnpackLBM*` primitives, and `SkipUnpack*`).
+
+`ActiveNematicSim` and the MPI tests hold one instance of each. The small
+duplication in each ctor (cart-shift + max_dim buffer sizing, six lines)
+is deliberate — factoring it out would re-tangle the two APIs the split is
+meant to keep separate. This also keeps the LBM struct fully decoupled from
+Q-tensor fields, matching the project-wide design principle.
+
 ## PR VI implementation plan — distributed streaming & LBM halo exchange
 
 Landing PR VI is three ordered steps (each unblocks the next):
@@ -202,6 +222,57 @@ Landing PR VI is three ordered steps (each unblocks the next):
    at step 0 and by the post-stream exchange every step after. Ghost cells of
    `f` are write-only from the kernel's view, so garbage there is harmless.
 
+### Post-stream LBM exchange: three non-obvious invariants
+
+Discovered the hard way while getting the n=2 Poiseuille run green. All three
+are enforced in `HaloExchange::ExchangeLBM` and its `PackLBM*` / `UnpackLBM*`
+helpers; each one is a distinct silent failure mode if broken.
+
+1. **Pack from GHOST, unpack into OWNED.** This is the reverse of the
+   Q-tensor / passive-stress halo (which fills ghosts from the neighbour's
+   owned so FD stencils can read them). Because push streaming has *already*
+   deposited outgoing crossings into our ghosts, and the neighbour needs them
+   at its owned boundary for the *next* step's collision. Reusing the
+   Q-tensor pattern for LBM (pack owned → unpack ghost, which is what the
+   first implementation did) is a null exchange: nothing valid moves across
+   the seam, so owned-boundary crossing-dir slots stay at their step-0
+   equilibrium forever and mass drains rapidly.
+
+2. **Only the crossing subset (5 dirs per face), not all 15.** Sending all
+   15 dirs stomps owned-boundary slots at non-crossing dirs (already correct
+   from local streaming) with whatever unrelated value the neighbour's ghost
+   holds there. Use `Lattice::missingXLo/XHi/YLo/YHi/ZLo/ZHi` — the same
+   arrays that name "populations missing at a wall of this face" (ex/ey/ez
+   sign coincides with what a push crossing writes into the ghost).
+
+3. **Skip unpack at cells where a physical wall bounce wrote the same slot.**
+   At a seam-touching cell that also sits on an orthogonal physical wall
+   (e.g. Poiseuille's Y walls at `y=0`/`y=ny-1` combined with the X seam),
+   the local `HandleBoundaryPoint` writes `f_new[opp[i]]` (NoSlip / MovingWall)
+   or `f_new[spec_axis[i]]` (SpecularReflection) into a *missing-crossing-dir*
+   slot at the owned boundary. That value is the physically correct one —
+   the pop reversed off the wall, never crossed the seam. The neighbour's
+   ghost slot for that dir was never written by streaming (its source is
+   below the wall) and holds zero. If the exchange unpacks anyway, it
+   overwrites the valid wall-bounce with zero → immediate mass loss.
+
+   `SkipUnpackYZ/XZ/XY` gate the write on `is_wall_[face] && at_wall_position
+   && sign(e_axis[dir]) == wall-facing`. `HaloExchange` takes an
+   `is_wall_by_face<BC>` array at construction (analogous to
+   `periodicity_by_axis<BC>` for `MPIContext`). The predicate is the same
+   for NoSlip and SpecularReflection: both flip the wall-normal ey/ez sign,
+   so the **set** of "into" dirs is identical (only the individual mappings
+   differ). MovingWall shares NoSlip's opp mapping.
+
+Also, orthogonal to (3): **skip pack/send/recv/unpack entirely on unsplit
+axes** (`dims[d]==1`). Plan A wraps unsplit periodic axes locally during
+streaming, so their ghosts are never written; a walled unsplit axis has
+`neighbor_lo/hi == MPI_PROC_NULL` so recv is a no-op and `recv_buf_` retains
+its initial zero. In either case, unpacking would clobber valid
+locally-wrapped or locally-bounced owned values with zeros. The `split[d]`
+gate in `ExchangeLBM` closes this off cheaply (one runtime branch per axis,
+hoisted out of the k-loop).
+
 ### Push vs. pull: why we stream with push
 
 Both push and pull are **two-lattice** schemes (`f`, `f_new`; equal DRAM
@@ -251,3 +322,55 @@ failures to a single exit code. See `tests/mpi/mpi_test_main.cc`. CTest runs
 these with `${MPIEXEC_EXECUTABLE}` (set by `find_package(MPI)`) rather than
 hardcoding `mpirun`. Use `ctest -V` to see individual GoogleTest names inside
 the mpirun invocation.
+
+### Do not use `gtest_discover_tests` for MPI targets
+
+`gtest_discover_tests` runs the built binary at build time (without a
+launcher) to enumerate test cases. For MPI targets that either aborts (see
+next item on static-init) or executes as a lone singleton, and the test
+registration itself becomes flaky. Use plain `add_test(NAME … COMMAND
+${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} N $<TARGET_FILE:...>)` and set
+include dirs / link libs manually — the pattern used by `test_halo_exchange`,
+`test_exchange_correctness`, etc. The `lbm_add_test(...)` helper in
+`tests/CMakeLists.txt` embeds `gtest_discover_tests`, so it is safe only for
+non-MPI (unit / integration) targets.
+
+### Launcher/runtime MPI mismatch — the silent singleton trap
+
+`find_package(MPI)` resolves `MPIEXEC_EXECUTABLE` and the MPI runtime libs
+independently. On a machine with more than one MPI installation (e.g., a
+system Open MPI plus a ParaView-bundled MPI), CMake can pick a launcher from
+one and libs from the other. The symptoms:
+
+- Every MPI test "passes" under ctest, but the runs are actually two
+  independent singleton processes (each prints its own full GoogleTest
+  banner in the ctest log — a giveaway).
+- `world_size == 1` on both ranks, `MPI_Dims_create` returns `{1,1,1}`,
+  no decomposition happens, and any `world_size == 1 → return` early-out in
+  `ExchangeLBM` / `ExchangeQTensor` masks bugs entirely.
+- Directly invoking `mpirun -n 2 ./test_xyz` from the shell reproduces
+  the real failure (because now launcher and runtime match).
+
+The `mpi` preset in `CMakePresets.json` pins `MPIEXEC_EXECUTABLE=/usr/bin/mpiexec`
+to avoid this. If reconfiguring an existing build directory, override with
+`-DMPIEXEC_EXECUTABLE=…`. Cross-check with `ldd $(which test_xyz) | grep mpi`
+vs `which mpiexec` — the paths should be from the same install.
+
+### Static-init and MPIContext: don't construct fixtures pre-`main`
+
+`MPIContext` calls `MPI_Init` in its constructor if MPI is not already
+initialized (its `owns_mpi_` flag handles the reverse case — being
+constructed *after* `main` initialized MPI — but not this one). A
+GoogleTest fixture that holds a `static inline` value member gets *dynamically
+initialized at program startup*, **before** `main()` runs. So an MPIContext
+constructed inside that fixture calls `MPI_Init` first; then
+`mpi_test_main.cc`'s `main` unconditionally calls `MPI_Init` again → Open MPI
+aborts with "MPI has detected that this process has attempted to initialize
+MPI more than once". Compounded with `gtest_discover_tests` (which invokes
+the binary at build time without a launcher), this fails the *build*, not
+just the test.
+
+The fix: allocate the fixture lazily in `SetUpTestSuite()` — a
+`static std::unique_ptr<Bench> sim;` at fixture scope, `sim = std::make_unique<Bench>()`
+in `SetUpTestSuite` (runs after `main`'s `MPI_Init`), `sim.reset()` in
+`TearDownTestSuite`. See `tests/mpi/test_poiseuille_mpi.cc` for the pattern.
