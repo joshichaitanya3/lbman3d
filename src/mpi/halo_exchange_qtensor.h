@@ -1,18 +1,27 @@
-#ifndef LBM_AN_MPI_HALO_EXCHANGE_H_
-#define LBM_AN_MPI_HALO_EXCHANGE_H_
+#ifndef LBM_AN_MPI_HALO_EXCHANGE_QTENSOR_H_
+#define LBM_AN_MPI_HALO_EXCHANGE_QTENSOR_H_
 
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 #include "local_grid.h"
 #include "mpi_context.h"
+
 #ifdef LBM_ENABLE_MPI
 #include <mpi.h>
 #include <vector>
-#include <algorithm>
-#include "lattice_stencil.h"
-#include "physics_helpers.h"
 
-struct HaloExchange {
+// Halo exchange for the Q-tensor + passive-stress FD stencils.
+//
+// Direction: rank r packs its OWNED boundary planes, sends them to the
+// neighbour, and the neighbour unpacks into its GHOST layer. This is the
+// star-stencil convention: each rank fills its own ghosts with the
+// neighbour's owned values that its FD stencils need to read. Every field is
+// scalar; the LBM per-population exchange runs in the opposite direction
+// (ghost -> owned) and lives in halo_exchange_lbm.h.
+//
+// Buffer sizing: ExchangePassiveStresses packs the most fields (5 Q + 5 P);
+// kMaxFields=10 covers it. ExchangeQTensor packs 8 (5 Q + 3 velocity).
+struct HaloExchangeQTensor {
     MPI_Comm   cart_comm_;
     int        world_size_;
     int        neighbor_lo_[3], neighbor_hi_[3];
@@ -23,32 +32,32 @@ struct HaloExchange {
     size_t max_yz;
     size_t max_xz;
     size_t max_xy;
-    size_t max_fields = std::max(Lattice::ndir, 8); // 8 fields for Q-tensor+velocity, 5 fields for passive stress, and ndir fields (unoptimized) for LBM
+    static constexpr size_t kMaxFields = 10;
 
-    explicit HaloExchange(LocalGrid g = LocalGrid::SingleRank()) :
+    explicit HaloExchangeQTensor(LocalGrid g = LocalGrid::SingleRank()) :
         grid_(g)
     {}
 
-    explicit HaloExchange(const LocalGrid& grid, const MPIContext& mpi)
+    explicit HaloExchangeQTensor(const LocalGrid& grid, const MPIContext& mpi)
         : cart_comm_(mpi.cart_comm),
-        world_size_(mpi.world_size),
-        grid_(grid),
-        local_nx_(grid_.local_nx),
-        local_ny_(grid_.local_ny),
-        local_nz_(grid_.local_nz)
+          world_size_(mpi.world_size),
+          grid_(grid),
+          local_nx_(grid_.local_nx),
+          local_ny_(grid_.local_ny),
+          local_nz_(grid_.local_nz)
     {
         for (int d = 0; d < 3; ++d)
             MPI_Cart_shift(cart_comm_, d, 1, &neighbor_lo_[d], &neighbor_hi_[d]);
 
-        // Buffer size = largest possible face area across all ranks, times maximum # of fields
+        // Buffer size = largest possible face area across all ranks × kMaxFields
         auto max_dim = [](int global, int n) { return (global + n - 1) / n; };
         max_yz = max_dim(Params::ny, mpi.dims[1]) * max_dim(Params::nz, mpi.dims[2]);
         max_xz = max_dim(Params::nx, mpi.dims[0]) * max_dim(Params::nz, mpi.dims[2]);
         max_xy = max_dim(Params::nx, mpi.dims[0]) * max_dim(Params::ny, mpi.dims[1]);
         // faces: 0=lo-x, 1=hi-x, 2=lo-y, 3=hi-y, 4=lo-z, 5=hi-z
-        for (int f : {0,1}) { send_buf_[f].resize(max_fields * max_yz); recv_buf_[f].resize(max_fields * max_yz); }
-        for (int f : {2,3}) { send_buf_[f].resize(max_fields * max_xz); recv_buf_[f].resize(max_fields * max_xz); }
-        for (int f : {4,5}) { send_buf_[f].resize(max_fields * max_xy); recv_buf_[f].resize(max_fields * max_xy); }
+        for (int f : {0,1}) { send_buf_[f].resize(kMaxFields * max_yz); recv_buf_[f].resize(kMaxFields * max_yz); }
+        for (int f : {2,3}) { send_buf_[f].resize(kMaxFields * max_xz); recv_buf_[f].resize(kMaxFields * max_xz); }
+        for (int f : {4,5}) { send_buf_[f].resize(kMaxFields * max_xy); recv_buf_[f].resize(kMaxFields * max_xy); }
     }
 
     // Owned coordinates are 0-based (0 .. local_n-1); halo_idx adds the ghost
@@ -116,82 +125,18 @@ struct HaloExchange {
         else             UnpackFieldXY(field, fieldIdx);
     }
 
-    void PackLBMFieldXY(double* field, size_t fieldIdx) {
-        for (int y = 0; y < local_ny_; ++y) {
-            for (int x = 0; x < local_nx_; ++x) {
-                send_buf_[4][(max_xy * fieldIdx) + y * local_nx_ + x] = field[grid_.halo_idx(x, y, 0,             fieldIdx)];
-                send_buf_[5][(max_xy * fieldIdx) + y * local_nx_ + x] = field[grid_.halo_idx(x, y, local_nz_ - 1, fieldIdx)];
-            }
-        }
-    }
-    void PackLBMFieldXZ(double* field, size_t fieldIdx) {
-        for (int z = 0; z < local_nz_; ++z) {
-            for (int x = 0; x < local_nx_; ++x) {
-                send_buf_[2][(max_xz * fieldIdx) + z * local_nx_ + x] = field[grid_.halo_idx(x, 0,             z, fieldIdx)];
-                send_buf_[3][(max_xz * fieldIdx) + z * local_nx_ + x] = field[grid_.halo_idx(x, local_ny_ - 1, z, fieldIdx)];
-            }
-        }
-    }
-    void PackLBMFieldYZ(double* field, size_t fieldIdx) {
-        for (int z = 0; z < local_nz_; ++z) {
-            for (int y = 0; y < local_ny_; ++y) {
-                send_buf_[0][(max_yz * fieldIdx) + z * local_ny_ + y] = field[grid_.halo_idx(0,             y, z, fieldIdx)];
-                send_buf_[1][(max_yz * fieldIdx) + z * local_ny_ + y] = field[grid_.halo_idx(local_nx_ - 1, y, z, fieldIdx)];
-            }
-        }
-    }
-
-    void PackLBMField(double* field, size_t dir, int d) {
-        if      (d == 0) PackLBMFieldYZ(field, dir);
-        else if (d == 1) PackLBMFieldXZ(field, dir);
-        else             PackLBMFieldXY(field, dir);
-    }
-
-    void UnpackLBMFieldXY(double* field, size_t fieldIdx) {
-        for (int y = 0; y < local_ny_; ++y) {
-            for (int x = 0; x < local_nx_; ++x) {
-                field[grid_.halo_idx(x, y, -1,        fieldIdx)] = recv_buf_[4][(max_xy * fieldIdx) + y * local_nx_ + x];
-                field[grid_.halo_idx(x, y, local_nz_, fieldIdx)] = recv_buf_[5][(max_xy * fieldIdx) + y * local_nx_ + x];
-            }
-        }
-    }
-    void UnpackLBMFieldXZ(double* field, size_t fieldIdx) {
-        for (int z = 0; z < local_nz_; ++z) {
-            for (int x = 0; x < local_nx_; ++x) {
-                field[grid_.halo_idx(x, -1,        z, fieldIdx)] = recv_buf_[2][(max_xz * fieldIdx) + z * local_nx_ + x];
-                field[grid_.halo_idx(x, local_ny_, z, fieldIdx)] = recv_buf_[3][(max_xz * fieldIdx) + z * local_nx_ + x];
-            }
-        }
-    }
-    void UnpackLBMFieldYZ(double* field, size_t fieldIdx) {
-        for (int z = 0; z < local_nz_; ++z) {
-            for (int y = 0; y < local_ny_; ++y) {
-                field[grid_.halo_idx(-1,        y, z, fieldIdx)] = recv_buf_[0][(max_yz * fieldIdx) + z * local_ny_ + y];
-                field[grid_.halo_idx(local_nx_, y, z, fieldIdx)] = recv_buf_[1][(max_yz * fieldIdx) + z * local_ny_ + y];
-            }
-        }
-    }
-
-    void UnpackLBMField(double* field, size_t dir, int d) {
-        if      (d == 0) UnpackLBMFieldYZ(field, dir);
-        else if (d == 1) UnpackLBMFieldXZ(field, dir);
-        else             UnpackLBMFieldXY(field, dir);
-    }
-
     void ExchangeQTensor(QTensorFields& qf, FluidFields& ff) {
-
         if (world_size_ == 1) return;
         MPI_Request reqs[12];   // 3 axes × (2 sends + 2 recvs)
         int n = 0;
 
-        std::vector<int> face_size{
-            static_cast<int>(max_fields * max_yz),
-            static_cast<int>(max_fields * max_xz),
-            static_cast<int>(max_fields * max_xy)
+        const int face_size[3] = {
+            static_cast<int>(kMaxFields * max_yz),
+            static_cast<int>(kMaxFields * max_xz),
+            static_cast<int>(kMaxFields * max_xy)
         };
-        
+
         for (int d = 0; d < 3; ++d) {
-            
             size_t fieldIdx = 0;
             PackField(qf.qxx.data(), fieldIdx++, d);
             PackField(qf.qxy.data(), fieldIdx++, d);
@@ -222,19 +167,19 @@ struct HaloExchange {
             UnpackField(ff.uz.data() , fieldIdx++, d);
         }
     }
+
     void ExchangePassiveStresses(QTensorFields& qf) {
         if (world_size_ == 1) return;
-        MPI_Request reqs[12];   // 3 axes × (2 sends + 2 recvs)
+        MPI_Request reqs[12];
         int n = 0;
 
-        std::vector<int> face_size{
-            static_cast<int>(max_fields * max_yz),
-            static_cast<int>(max_fields * max_xz),
-            static_cast<int>(max_fields * max_xy)
+        const int face_size[3] = {
+            static_cast<int>(kMaxFields * max_yz),
+            static_cast<int>(kMaxFields * max_xz),
+            static_cast<int>(kMaxFields * max_xy)
         };
-        
+
         for (int d = 0; d < 3; ++d) {
-            
             size_t fieldIdx = 0;
             PackField(qf.qxx.data(), fieldIdx++, d);
             PackField(qf.qxy.data(), fieldIdx++, d);
@@ -247,13 +192,12 @@ struct HaloExchange {
             PackField(qf.Pyy.data(), fieldIdx++, d);
             PackField(qf.Pyz.data(), fieldIdx++, d);
 
-
             MPI_Irecv(recv_buf_[2*d].data()  , face_size[d], MPI_DOUBLE, neighbor_lo_[d], d+3, cart_comm_, &reqs[n++]);
             MPI_Irecv(recv_buf_[2*d+1].data(), face_size[d], MPI_DOUBLE, neighbor_hi_[d], d  , cart_comm_, &reqs[n++]);
             MPI_Isend(send_buf_[2*d].data()  , face_size[d], MPI_DOUBLE, neighbor_lo_[d], d  , cart_comm_, &reqs[n++]);
             MPI_Isend(send_buf_[2*d+1].data(), face_size[d], MPI_DOUBLE, neighbor_hi_[d], d+3, cart_comm_, &reqs[n++]);
         }
-        
+
         MPI_Waitall(12, reqs, MPI_STATUSES_IGNORE);
 
         for (int d = 0; d < 3; ++d) {
@@ -268,47 +212,20 @@ struct HaloExchange {
             UnpackField(qf.Pxz.data(), fieldIdx++, d);
             UnpackField(qf.Pyy.data(), fieldIdx++, d);
             UnpackField(qf.Pyz.data(), fieldIdx++, d);
-
         }
-    } 
-    void ExchangeLBM(FluidFields& ff) {
-        if (world_size_ == 1) return;
-        MPI_Request reqs[12];
-        int n = 0;
-
-        std::vector<int> face_size{
-            static_cast<int>(max_fields * max_yz),
-            static_cast<int>(max_fields * max_xz),
-            static_cast<int>(max_fields * max_xy)
-        };
-
-        for (int d = 0; d < 3; ++d) {
-            for (size_t dir = 0; dir < static_cast<size_t>(Lattice::ndir); ++dir)
-                PackLBMField(ff.f.data(), dir, d);
-
-            MPI_Irecv(recv_buf_[2*d].data()  , face_size[d], MPI_DOUBLE, neighbor_lo_[d], d+3, cart_comm_, &reqs[n++]);
-            MPI_Irecv(recv_buf_[2*d+1].data(), face_size[d], MPI_DOUBLE, neighbor_hi_[d], d  , cart_comm_, &reqs[n++]);
-            MPI_Isend(send_buf_[2*d].data()  , face_size[d], MPI_DOUBLE, neighbor_lo_[d], d  , cart_comm_, &reqs[n++]);
-            MPI_Isend(send_buf_[2*d+1].data(), face_size[d], MPI_DOUBLE, neighbor_hi_[d], d+3, cart_comm_, &reqs[n++]);
-        }
-        MPI_Waitall(12, reqs, MPI_STATUSES_IGNORE);
-
-        for (int d = 0; d < 3; ++d)
-            for (size_t dir = 0; dir < static_cast<size_t>(Lattice::ndir); ++dir)
-                UnpackLBMField(ff.f.data(), dir, d);
     }
 };
 
 #else
 
-struct HaloExchange {
-    explicit HaloExchange(LocalGrid = LocalGrid::SingleRank()) {}
-    explicit HaloExchange(const LocalGrid&, const MPIContext&) {}
+struct HaloExchangeQTensor {
+    explicit HaloExchangeQTensor(LocalGrid = LocalGrid::SingleRank()) {}
+    explicit HaloExchangeQTensor(const LocalGrid&, const MPIContext&) {}
 
     void ExchangeQTensor(QTensorFields&, FluidFields&) {}
     void ExchangePassiveStresses(QTensorFields&) {}
-    void ExchangeLBM(FluidFields&) {}
 };
 
 #endif
-#endif // LBM_AN_MPI_HALO_EXCHANGE_H_
+
+#endif // LBM_AN_MPI_HALO_EXCHANGE_QTENSOR_H_
