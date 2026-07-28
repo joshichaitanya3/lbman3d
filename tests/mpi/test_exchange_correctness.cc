@@ -1,18 +1,14 @@
 #include <mpi.h>
 #include <gtest/gtest.h>
 #include "mpi/mpi_context.h"
-#include "mpi/halo_exchange.h"
-#include <array>
-#include <set>
-#include <vector>
+#include "mpi/halo_exchange_qtensor.h"
 #include "params.h"
-#include "physics_helpers.h"
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 
-TEST(HaloExchange, ExchangeSendsCorrectFace) {
+TEST(HaloExchangeQTensor, ExchangeSendsCorrectFace) {
     MPIContext mpi;
-    HaloExchange halo(mpi.MakeLocalGrid(), mpi);
+    HaloExchangeQTensor halo(mpi.MakeLocalGrid(), mpi);
 
     FluidFields ff;
     QTensorFields qf;

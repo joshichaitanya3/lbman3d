@@ -14,22 +14,62 @@ if(LBM_ENABLE_MPI)
         COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4
                 $<TARGET_FILE:test_mpi_context>)
 
-    add_executable(test_halo_exchange
-        test_halo_exchange.cc
+    add_executable(test_halo_exchange_qtensor
+        test_halo_exchange_qtensor.cc
         mpi_test_main.cc
         ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
         ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
     )
-    target_link_libraries(test_halo_exchange PRIVATE MPI::MPI_CXX GTest::gtest)
-    target_include_directories(test_halo_exchange PRIVATE
+    target_link_libraries(test_halo_exchange_qtensor PRIVATE MPI::MPI_CXX GTest::gtest)
+    target_include_directories(test_halo_exchange_qtensor PRIVATE
         ${CMAKE_SOURCE_DIR}/tests/params/unit   # shadows src/params.h with 8×8×8 grid
         ${CMAKE_SOURCE_DIR}/src/
     )
-    target_compile_definitions(test_halo_exchange PRIVATE LBM_ENABLE_MPI)
+    target_compile_definitions(test_halo_exchange_qtensor PRIVATE LBM_ENABLE_MPI)
 
-    add_test(NAME mpi_halo_np1
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1
-                $<TARGET_FILE:test_halo_exchange>)
+    add_test(NAME mpi_halo_qtensor_np2
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+                $<TARGET_FILE:test_halo_exchange_qtensor>)
+
+    add_executable(test_halo_exchange_lbm
+        test_halo_exchange_lbm.cc
+        mpi_test_main.cc
+        ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
+        ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
+    )
+    target_link_libraries(test_halo_exchange_lbm PRIVATE MPI::MPI_CXX GTest::gtest)
+    target_include_directories(test_halo_exchange_lbm PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/params/unit   # shadows src/params.h with 8×8×8 grid
+        ${CMAKE_SOURCE_DIR}/src/
+    )
+    target_compile_definitions(test_halo_exchange_lbm PRIVATE LBM_ENABLE_MPI)
+
+    add_test(NAME mpi_halo_lbm_np2
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+                $<TARGET_FILE:test_halo_exchange_lbm>)
+
+    # PR VI step 3b — multi-axis corner sweep. Currently a failing test
+    # (single-axis face exchange doesn't route corner ghosts). Marked
+    # WILL_FAIL TRUE so ctest reports it "as expected". When 3b lands and the
+    # test passes, ctest will report "unexpected pass" — that's the cue to
+    # remove the WILL_FAIL property.
+    add_executable(test_corner_sweep
+        test_corner_sweep.cc
+        mpi_test_main.cc
+        ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
+        ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
+    )
+    target_link_libraries(test_corner_sweep PRIVATE MPI::MPI_CXX GTest::gtest)
+    target_include_directories(test_corner_sweep PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/params/unit   # shadows src/params.h with 8×8×8 grid
+        ${CMAKE_SOURCE_DIR}/src/
+    )
+    target_compile_definitions(test_corner_sweep PRIVATE LBM_ENABLE_MPI)
+
+    add_test(NAME mpi_corner_sweep_np8
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 8
+                $<TARGET_FILE:test_corner_sweep>)
+    set_tests_properties(mpi_corner_sweep_np8 PROPERTIES WILL_FAIL TRUE)
 
     add_executable(test_exchange_correctness
         test_exchange_correctness.cc
@@ -44,9 +84,34 @@ if(LBM_ENABLE_MPI)
     )
     target_compile_definitions(test_exchange_correctness PRIVATE LBM_ENABLE_MPI)
 
-    add_test(NAME mpi_halo_np2
+    add_test(NAME mpi_halo_exchange_np2
         COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
                 $<TARGET_FILE:test_exchange_correctness>)
+
+    add_executable(test_poiseuille_mpi
+        test_poiseuille_mpi.cc
+        mpi_test_main.cc
+        ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
+        ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
+    )
+    target_link_libraries(test_poiseuille_mpi PRIVATE MPI::MPI_CXX GTest::gtest)
+    target_include_directories(test_poiseuille_mpi PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/params/poiseuille   # shadows src/params.h
+        ${CMAKE_SOURCE_DIR}/src/
+    )
+    target_compile_definitions(test_poiseuille_mpi PRIVATE LBM_ENABLE_MPI)
+    # device_fields.h pulls in format_compat.h; match the format backend the
+    # rest of the build uses.
+    if(HAVE_STD_FORMAT)
+        target_compile_definitions(test_poiseuille_mpi PRIVATE HAVE_STD_FORMAT)
+    else()
+        target_link_libraries(test_poiseuille_mpi PRIVATE fmt::fmt)
+    endif()
+
+    add_test(NAME mpi_poiseuille_np2
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+                $<TARGET_FILE:test_poiseuille_mpi>)
+
     # np=2 exchange round-trip deferred to PR VII when idx() covers halo coordinates
 
     add_executable(test_vtkhdf_write
