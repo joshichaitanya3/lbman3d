@@ -1,0 +1,41 @@
+name: MPI Tests
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: configure
+      run: |
+        sudo apt update
+        sudo apt install libhdf5-dev libopenmpi-dev openmpi-bin
+    - name: cache-deps
+      uses: actions/cache@v4
+      with:
+        path: build-mpi/_deps
+        key: ${{ runner.os }}-mpi-deps-${{ hashFiles('CMakeLists.txt') }}
+    - name: make
+      run: |
+        # LBM_BUILD_UNIT_TESTS=OFF: unit_tests are covered in unit-tests.yml and
+        # need a Debug build for idx()'s asserts anyway. LBM_FORCE_CPU=ON: runners
+        # don't have CUDA. MPIEXEC_PREFLAGS=--oversubscribe lets
+        # mpi_corner_sweep_np8 launch 8 ranks on a 2–4-core runner.
+        cmake -B build-mpi -DLBM_FORCE_CPU=ON -DLBM_ENABLE_MPI=ON \
+              -DCMAKE_BUILD_TYPE=Release -DLBM_BUILD_UNIT_TESTS=OFF \
+              -DMPIEXEC_PREFLAGS=--oversubscribe
+        cmake --build build-mpi
+    - name: test
+      run: |
+        # ctest -R "mpi_" targets tests registered with the mpi_ prefix in
+        # tests/mpi/CMakeLists.txt — the whole MPI test suite and nothing else.
+        # Non-MPI integration tests remain the responsibility of integration-tests.yml.
+        cd build-mpi
+        ctest -R "mpi_" --output-on-failure --timeout 300
