@@ -66,13 +66,21 @@ struct HaloExchangeLBM {
         }
 
         // Buffer size = largest possible face area across all ranks × kCrossingDirs.
-        // For the multi-axis corner sweep (PR VI step 3b) these will grow along
-        // the sweep — widened in transverse axes that haven't been visited yet.
-        // Keep the sizing here so 3b only touches this file.
+        // Sweep is z -> y -> x, so the face-area widening rule (each ghost cell
+        // packed by the first sweep-axis on which it lies outside owned) gives:
+        //   z-face (XY plane, first hop):  widened in x AND y  → (max_nx + 2h)(max_ny + 2h)
+        //   y-face (XZ plane, second hop): widened in x only   → (max_nx + 2h) max_nz
+        //   x-face (YZ plane, third hop):  no widening         → max_ny max_nz
+        // Across a seam the transverse dims always match (only the split axis
+        // differs between neighbours), so per-hop slot indexing uses local_n
+        // safely even under uneven splits.
+        const int h = grid_.kHaloMPI;
         auto max_dim = [](int global, int n) { return (global + n - 1) / n; };
+        const size_t max_nx_w = max_dim(Params::nx, mpi.dims[0]) + 2*h;
+        const size_t max_ny_w = max_dim(Params::ny, mpi.dims[1]) + 2*h;
         max_yz = max_dim(Params::ny, mpi.dims[1]) * max_dim(Params::nz, mpi.dims[2]);
-        max_xz = max_dim(Params::nx, mpi.dims[0]) * max_dim(Params::nz, mpi.dims[2]);
-        max_xy = max_dim(Params::nx, mpi.dims[0]) * max_dim(Params::ny, mpi.dims[1]);
+        max_xz = max_nx_w                          * max_dim(Params::nz, mpi.dims[2]);
+        max_xy = max_nx_w                          * max_ny_w;
         // faces: 0=lo-x, 1=hi-x, 2=lo-y, 3=hi-y, 4=lo-z, 5=hi-z
         for (int f : {0,1}) { send_buf_[f].resize(kCrossingDirs * max_yz); recv_buf_[f].resize(kCrossingDirs * max_yz); }
         for (int f : {2,3}) { send_buf_[f].resize(kCrossingDirs * max_xz); recv_buf_[f].resize(kCrossingDirs * max_xz); }
@@ -117,6 +125,94 @@ struct HaloExchangeLBM {
         for (int y = 0; y < local_ny_; ++y)
             for (int x = 0; x < local_nx_; ++x)
                 send_buf_[5][max_xy * k + y * local_nx_ + x] = field[grid_.halo_idx(x, y, local_nz_, dir)];
+    }
+
+    // Widened variants for the multi-axis corner sweep (PR VI step 3b).
+    // Sweep order: z -> y -> x. Per the invariant "each ghost cell is packed
+    // by the first sweep-axis on which it lies outside owned", the widening
+    // shrinks along the sweep:
+    //   z-hop (XY face): widened in BOTH x and y transverse   (used first)
+    //   y-hop (XZ face): widened in x only, z already swept   (used second)
+    //   x-hop (YZ face): owned-only in both                   (uses the plain
+    //                                                         PackLBMLoYZ/HiYZ
+    //                                                         above, no need
+    //                                                         for a widened
+    //                                                         variant)
+    // Widening in an unsplit transverse axis reads stale-zero ghost cells and
+    // is harmless: the receiver writes those zeros into its own (unread)
+    // ghost cells on that axis. A tighter version would gate widening on
+    // dims_[transverse]>1; leaving that as a later optimization.
+
+    // z-hop: XY face, widened in x AND y.
+    void PackLBMLoXY_wideXY(double* field, size_t dir, int k) {
+        const int h = grid_.kHaloMPI;
+        const int row_stride = local_nx_ + 2*h;
+        for (int y = -h; y < local_ny_ + h; ++y)
+            for (int x = -h; x < local_nx_ + h; ++x)
+                send_buf_[4][max_xy * k + (y + h) * row_stride + (x + h)]
+                    = field[grid_.halo_idx(x, y, -1, dir)];
+    }
+    void PackLBMHiXY_wideXY(double* field, size_t dir, int k) {
+        const int h = grid_.kHaloMPI;
+        const int row_stride = local_nx_ + 2*h;
+        for (int y = -h; y < local_ny_ + h; ++y)
+            for (int x = -h; x < local_nx_ + h; ++x)
+                send_buf_[5][max_xy * k + (y + h) * row_stride + (x + h)]
+                    = field[grid_.halo_idx(x, y, local_nz_, dir)];
+    }
+    void UnpackLBMLoXY_wideXY(double* field, size_t dir, int k) {
+        const int h = grid_.kHaloMPI;
+        const int row_stride = local_nx_ + 2*h;
+        for (int y = -h; y < local_ny_ + h; ++y)
+            for (int x = -h; x < local_nx_ + h; ++x)
+                if (!SkipUnpackXY(dir, x, y))
+                    field[grid_.halo_idx(x, y, 0, dir)]
+                        = recv_buf_[4][max_xy * k + (y + h) * row_stride + (x + h)];
+    }
+    void UnpackLBMHiXY_wideXY(double* field, size_t dir, int k) {
+        const int h = grid_.kHaloMPI;
+        const int row_stride = local_nx_ + 2*h;
+        for (int y = -h; y < local_ny_ + h; ++y)
+            for (int x = -h; x < local_nx_ + h; ++x)
+                if (!SkipUnpackXY(dir, x, y))
+                    field[grid_.halo_idx(x, y, local_nz_ - 1, dir)]
+                        = recv_buf_[5][max_xy * k + (y + h) * row_stride + (x + h)];
+    }
+
+    // y-hop: XZ face, widened in x only (z is owned since it was swept first).
+    void PackLBMLoXZ_wideX(double* field, size_t dir, int k) {
+        const int h = grid_.kHaloMPI;
+        const int row_stride = local_nx_ + 2*h;
+        for (int z = 0; z < local_nz_; ++z)
+            for (int x = -h; x < local_nx_ + h; ++x)
+                send_buf_[2][max_xz * k + z * row_stride + (x + h)]
+                    = field[grid_.halo_idx(x, -1, z, dir)];
+    }
+    void PackLBMHiXZ_wideX(double* field, size_t dir, int k) {
+        const int h = grid_.kHaloMPI;
+        const int row_stride = local_nx_ + 2*h;
+        for (int z = 0; z < local_nz_; ++z)
+            for (int x = -h; x < local_nx_ + h; ++x)
+                send_buf_[3][max_xz * k + z * row_stride + (x + h)]
+                    = field[grid_.halo_idx(x, local_ny_, z, dir)];
+    }
+    void UnpackLBMLoXZ_wideX(double* field, size_t dir, int k) {
+        const int h = grid_.kHaloMPI;
+        const int row_stride = local_nx_ + 2*h;
+        for (int z = 0; z < local_nz_; ++z)
+            for (int x = -h; x < local_nx_ + h; ++x)
+                if (!SkipUnpackXZ(dir, x, z))
+                    field[grid_.halo_idx(x, 0, z, dir)]
+                        = recv_buf_[2][max_xz * k + z * row_stride + (x + h)];
+    }
+    void UnpackLBMHiXZ_wideX(double* field, size_t dir, int k) {
+        const int h = grid_.kHaloMPI;
+        const int row_stride = local_nx_ + 2*h;
+        for (int z = 0; z < local_nz_; ++z)
+            for (int x = -h; x < local_nx_ + h; ++x)
+                if (!SkipUnpackXZ(dir, x, z))
+                    field[grid_.halo_idx(x, local_ny_ - 1, z, dir)]
+                        = recv_buf_[3][max_xz * k + z * row_stride + (x + h)];
     }
 
     // Skip-rules for unpacks at corner cells: a physical wall's local bounce
@@ -198,69 +294,94 @@ struct HaloExchangeLBM {
                     field[grid_.halo_idx(x, y, local_nz_ - 1, dir)] = recv_buf_[5][max_xy * k + y * local_nx_ + x];
     }
 
+    // Sequential axis sweep z -> y -> x. Each hop must complete before the
+    // next, because the y-hop pack reads cells the z-hop unpack just wrote,
+    // and likewise the x-hop reads what y-hop wrote. Body-diagonal pops
+    // (dirs 7..14) enter the sweep at whichever axis their crossing places
+    // them outside owned first, and are consumed at the axis whose owned
+    // face they land in. Plan A: axes with dims_[d]==1 wrap locally at
+    // streaming — skip pack/exchange/unpack for those.
     void ExchangeLBM(FluidFields& ff) {
         if (world_size_ == 1) return;
 
-        // Plan A: unsplit axes (dims_[d]==1) wrap locally during streaming,
-        // so their ghosts hold no valid data and their owned boundaries are
-        // already correct. Skip pack/send/recv/unpack on those axes entirely
-        // — otherwise the unpack (with an empty recv_buf) would overwrite
-        // valid locally-wrapped values with zeros.
         const bool split[3] = { dims_[0] > 1, dims_[1] > 1, dims_[2] > 1 };
+        double* f = ff.f.data();
 
-        MPI_Request reqs[12];
-        int n = 0;
-
-        const int face_size[3] = {
-            kCrossingDirs * static_cast<int>(max_yz),
-            kCrossingDirs * static_cast<int>(max_xz),
-            kCrossingDirs * static_cast<int>(max_xy)
+        // A PROC_NULL neighbour means the corresponding face is a physical
+        // wall edge (non-periodic axis with this rank at the domain boundary).
+        // The local wall bounce has already written the correct value into
+        // the same slot at the owned boundary cell, so unpacking would just
+        // stomp it with zeros (the recv from PROC_NULL leaves recv_buf_
+        // untouched). Guard each side's unpack with this gate. This is the
+        // "on-axis" companion to SkipUnpack{YZ,XZ,XY}'s transverse-wall skip.
+        const bool recv_lo[3] = {
+            neighbor_lo_[0] != MPI_PROC_NULL,
+            neighbor_lo_[1] != MPI_PROC_NULL,
+            neighbor_lo_[2] != MPI_PROC_NULL,
+        };
+        const bool recv_hi[3] = {
+            neighbor_hi_[0] != MPI_PROC_NULL,
+            neighbor_hi_[1] != MPI_PROC_NULL,
+            neighbor_hi_[2] != MPI_PROC_NULL,
         };
 
-        double* f = ff.f.data();
-        for (int k = 0; k < kCrossingDirs; ++k) {
-            if (split[0]) {
+        // ---- z-hop (first): XY face, widened in both x and y ----
+        if (split[2]) {
+            for (int k = 0; k < kCrossingDirs; ++k) {
+                PackLBMLoXY_wideXY(f, Lattice::missingZHi[k], k);
+                PackLBMHiXY_wideXY(f, Lattice::missingZLo[k], k);
+            }
+            SendrecvAxis(2);
+            for (int k = 0; k < kCrossingDirs; ++k) {
+                if (recv_lo[2]) UnpackLBMLoXY_wideXY(f, Lattice::missingZLo[k], k);
+                if (recv_hi[2]) UnpackLBMHiXY_wideXY(f, Lattice::missingZHi[k], k);
+            }
+        }
+
+        // ---- y-hop (second): XZ face, widened in x only ----
+        if (split[1]) {
+            for (int k = 0; k < kCrossingDirs; ++k) {
+                PackLBMLoXZ_wideX(f, Lattice::missingYHi[k], k);
+                PackLBMHiXZ_wideX(f, Lattice::missingYLo[k], k);
+            }
+            SendrecvAxis(1);
+            for (int k = 0; k < kCrossingDirs; ++k) {
+                if (recv_lo[1]) UnpackLBMLoXZ_wideX(f, Lattice::missingYLo[k], k);
+                if (recv_hi[1]) UnpackLBMHiXZ_wideX(f, Lattice::missingYHi[k], k);
+            }
+        }
+
+        // ---- x-hop (third): YZ face, owned only (identical to the plain
+        // 3a face exchange — reuses the unwidened primitives) ----
+        if (split[0]) {
+            for (int k = 0; k < kCrossingDirs; ++k) {
                 PackLBMLoYZ(f, Lattice::missingXHi[k], k);
                 PackLBMHiYZ(f, Lattice::missingXLo[k], k);
             }
-            if (split[1]) {
-                PackLBMLoXZ(f, Lattice::missingYHi[k], k);
-                PackLBMHiXZ(f, Lattice::missingYLo[k], k);
-            }
-            if (split[2]) {
-                PackLBMLoXY(f, Lattice::missingZHi[k], k);
-                PackLBMHiXY(f, Lattice::missingZLo[k], k);
+            SendrecvAxis(0);
+            for (int k = 0; k < kCrossingDirs; ++k) {
+                if (recv_lo[0]) UnpackLBMLoYZ(f, Lattice::missingXLo[k], k);
+                if (recv_hi[0]) UnpackLBMHiYZ(f, Lattice::missingXHi[k], k);
             }
         }
+    }
 
-        for (int d = 0; d < 3; ++d) {
-            if (!split[d]) continue;
-            MPI_Irecv(recv_buf_[2*d].data()  , face_size[d], MPI_DOUBLE, neighbor_lo_[d], d+3, cart_comm_, &reqs[n++]);
-            MPI_Irecv(recv_buf_[2*d+1].data(), face_size[d], MPI_DOUBLE, neighbor_hi_[d], d  , cart_comm_, &reqs[n++]);
-            MPI_Isend(send_buf_[2*d].data()  , face_size[d], MPI_DOUBLE, neighbor_lo_[d], d  , cart_comm_, &reqs[n++]);
-            MPI_Isend(send_buf_[2*d+1].data(), face_size[d], MPI_DOUBLE, neighbor_hi_[d], d+3, cart_comm_, &reqs[n++]);
-        }
-        MPI_Waitall(n, reqs, MPI_STATUSES_IGNORE);
-
-        // recv_buf_[0]/lo-x-recv holds the -x neighbour's hi-x GHOST — dirs
-        // with ex>0 = missingXLo — which land in our owned lo-x boundary.
-        // recv_buf_[1]/hi-x-recv symmetric with missingXHi at owned hi-x. y/z
-        // follow the same pattern. SkipUnpack* elides overwrites at wall
-        // corners where a local bounce has already set the same dir slot.
-        for (int k = 0; k < kCrossingDirs; ++k) {
-            if (split[0]) {
-                UnpackLBMLoYZ(f, Lattice::missingXLo[k], k);
-                UnpackLBMHiYZ(f, Lattice::missingXHi[k], k);
-            }
-            if (split[1]) {
-                UnpackLBMLoXZ(f, Lattice::missingYLo[k], k);
-                UnpackLBMHiXZ(f, Lattice::missingYHi[k], k);
-            }
-            if (split[2]) {
-                UnpackLBMLoXY(f, Lattice::missingZLo[k], k);
-                UnpackLBMHiXY(f, Lattice::missingZHi[k], k);
-            }
-        }
+    // Post + wait for one axis's face exchange. `d` selects the axis (0=x,
+    // 1=y, 2=z). recv_buf_/send_buf_[2*d]   -> lo-face against neighbor_lo_.
+    //                 recv_buf_/send_buf_[2*d+1] -> hi-face against neighbor_hi_.
+    void SendrecvAxis(int d) {
+        const int face_size_area[3] = {
+            static_cast<int>(max_yz),
+            static_cast<int>(max_xz),
+            static_cast<int>(max_xy)
+        };
+        const int face_size = kCrossingDirs * face_size_area[d];
+        MPI_Request reqs[4];
+        MPI_Irecv(recv_buf_[2*d].data()  , face_size, MPI_DOUBLE, neighbor_lo_[d], d+3, cart_comm_, &reqs[0]);
+        MPI_Irecv(recv_buf_[2*d+1].data(), face_size, MPI_DOUBLE, neighbor_hi_[d], d  , cart_comm_, &reqs[1]);
+        MPI_Isend(send_buf_[2*d].data()  , face_size, MPI_DOUBLE, neighbor_lo_[d], d  , cart_comm_, &reqs[2]);
+        MPI_Isend(send_buf_[2*d+1].data(), face_size, MPI_DOUBLE, neighbor_hi_[d], d+3, cart_comm_, &reqs[3]);
+        MPI_Waitall(4, reqs, MPI_STATUSES_IGNORE);
     }
 };
 
