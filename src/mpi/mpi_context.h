@@ -2,10 +2,10 @@
 #define LBM_AN_MPI_MPI_CONTEXT_H_
 
 #include "local_grid.h"
+#include <array>
 #ifdef LBM_ENABLE_MPI
 #include <mpi.h>
 #include <algorithm>
-#include <array>
 
 struct MPIContext {
     bool owns_mpi_; // Did we start this MPI instance?
@@ -105,6 +105,11 @@ struct MPIContext {
     int world_rank = 0, world_size = 1;
     int dims[3]   = {1, 1, 1};
     int coords[3] = {0, 0, 0};
+
+    // Accepts (and ignores) the periods array so the non-MPI stub matches the
+    // signature of the LBM_ENABLE_MPI ctor — callers can pass
+    // `periodicity_by_axis<BC>` unconditionally.
+    explicit MPIContext(std::array<int, 3> = {1, 1, 1}) {}
 
     static void SumDoubles(double* local_sum, double* global_sum) {
         *global_sum = *local_sum;
