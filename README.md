@@ -3,10 +3,13 @@
 [![Build](https://github.com/joshichaitanya3/lbman3d/actions/workflows/build.yml/badge.svg)](https://github.com/joshichaitanya3/lbman3d/actions/workflows/build.yml)
 [![Unit Tests](https://github.com/joshichaitanya3/lbman3d/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/joshichaitanya3/lbman3d/actions/workflows/unit-tests.yml)
 [![Integration Tests](https://github.com/joshichaitanya3/lbman3d/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/joshichaitanya3/lbman3d/actions/workflows/integration-tests.yml)
+[![MPI Tests](https://github.com/joshichaitanya3/lbman3d/actions/workflows/mpi-tests.yml/badge.svg)](https://github.com/joshichaitanya3/lbman3d/actions/workflows/mpi-tests.yml)
 
 Lattice Boltzmann Method-based solver for 3D Active Nematics
 
 The flow equation is solved using a D3Q15 scheme. The Q-tensor equation is solved using a simple finite-difference scheme.
+
+> **v0.2.0**: CPU MPI parallelisation with domain decomposition. See [MPI (CPU only, v0.2.0)](#mpi-cpu-only-v020). GPU-aware MPI is planned for v0.3.0.
 
 ## Dependencies
 
@@ -17,7 +20,7 @@ The flow equation is solved using a D3Q15 scheme. The Q-tensor equation is solve
 | OpenMP | — | Usually bundled with the compiler |
 | HDF5 | any recent | C library only; **parallel HDF5** required for MPI builds (see below) |
 | CUDA Toolkit | optional | Enables the GPU-accelerated path; auto-detected by CMake if present (see `-DLBM_FORCE_CPU` under [Building](#building)) |
-| MPI | optional | Required for the experimental MPI-parallel path; see [MPI (experimental)](#mpi-experimental) |
+| MPI | optional | Required for the CPU MPI-parallel path; see [MPI (CPU only, v0.2.0)](#mpi-cpu-only-v020) |
 
 ### Installing HDF5
 
@@ -38,9 +41,11 @@ brew install hdf5
 
 For MPI builds, install the **parallel HDF5** variant instead. On Debian/Ubuntu:
 ```bash
-sudo apt install libhdf5-mpi-dev libopenmpi-dev
+sudo apt install libhdf5-openmpi-dev libopenmpi-dev
 ```
-On other platforms, install an MPI implementation (OpenMPI or MPICH) and the corresponding parallel HDF5 package. CMake will automatically prefer the parallel HDF5 when `-DLBM_ENABLE_MPI=ON` is set.
+(there's also `libhdf5-mpich-dev` if you prefer MPICH.) On other platforms, install an MPI implementation (OpenMPI or MPICH) and the corresponding parallel HDF5 package.
+
+CMake prefers the parallel HDF5 when `-DLBM_ENABLE_MPI=ON` is set, but on distros that keep both serial and parallel HDF5 installed side by side (Debian/Ubuntu, Fedora), CMake may pick the serial one first and abort with a hint. Point it at the parallel install with `-DHDF5_ROOT=<path>` — see the [MPI section](#mpi-cpu-only-v020) for concrete paths.
 
 ## Configuration
 
@@ -128,22 +133,61 @@ cmake --build build -j$(nproc)
 
 The GPU path is fully featured: it supports all boundary condition types and computes the full passive and active stress contributions. It is physics-equivalent to the CPU path.
 
-### MPI (experimental)
+### MPI (CPU only, v0.2.0)
 
-MPI parallelisation is a work in progress. To build with it enabled:
+CPU-side MPI parallelisation is fully wired: domain decomposition via
+`MPI_Dims_create` (with a post-permute to align the largest split with the
+largest axis), cross-rank halo exchange for the Q-tensor / passive-stress
+stencils and the LBM populations (including a sequential axis sweep to route
+D3Q15 body-diagonal directions across multi-axis decompositions), and
+parallel HDF5 output. Physics-equivalent to the serial CPU path — mass
+conservation is verified to machine precision over thousands of steps under
+`mpi_poiseuille_np2`, and the 2×2×2 corner-sweep test (`mpi_corner_sweep_np8`)
+delivers body-diagonal pops to the correct diagonal rank.
+
+**GPU-aware MPI is not in v0.2.0** — multi-GPU / multi-node CUDA support is
+planned for v0.3.0. GPU builds continue to work in the single-machine mode
+from v0.1.0.
+
+**Build**:
 
 ```bash
-cmake -B build -DLBM_ENABLE_MPI=ON
-cmake --build build -j$(nproc)
+cmake -B build-mpi -DLBM_ENABLE_MPI=ON -DLBM_FORCE_CPU=ON
+cmake --build build-mpi -j$(nproc)
 ```
 
-Requires parallel HDF5 and an MPI implementation (see [Installing HDF5](#installing-hdf5)). Run with:
+On distros that keep both serial and parallel HDF5 installed, point CMake at
+the parallel install explicitly:
 
 ```bash
-mpirun -n 4 ./build/main
+# Ubuntu with libhdf5-openmpi-dev:
+cmake -B build-mpi -DLBM_ENABLE_MPI=ON \
+      -DHDF5_ROOT=/usr/lib/x86_64-linux-gnu/hdf5/openmpi
+
+# Fedora / RHEL: check `pkg-config --variable=libdir hdf5-openmpi` for the
+# right path.
 ```
 
-Domain decomposition across ranks is not yet active — the MPI infrastructure (halo exchange, collective I/O, global diagnostics) is being wired up incrementally. Single-rank MPI runs are correct; multi-rank runs will produce the same result as serial for now.
+**Run**:
+
+```bash
+mpirun -n 4 ./build-mpi/main
+```
+
+For hybrid MPI+OpenMP on a single node, the default OpenMPI binding pins
+each rank to a single core, which defeats OpenMP within each rank. Give each
+rank a chunk of cores explicitly:
+
+```bash
+# 2 ranks, 8 OpenMP threads/rank, each rank pinned to 8 physical cores:
+mpirun -n 2 --map-by socket:PE=8 --bind-to core \
+       -x OMP_PROC_BIND=close -x OMP_PLACES=cores \
+       ./build-mpi/main
+```
+
+See [`src/mpi/CLAUDE.md`](src/mpi/CLAUDE.md) for the full MPI implementation
+notes: three-invariant post-stream LBM exchange contract, launcher/runtime
+pitfalls, and guidance for hybrid P/E-core desktop CPUs.
 
 ## Testing
 
