@@ -8,10 +8,10 @@ if(LBM_ENABLE_MPI)
     target_compile_definitions(test_mpi_context PRIVATE LBM_ENABLE_MPI)
 
     add_test(NAME mpi_context_np1
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 1
                 $<TARGET_FILE:test_mpi_context>)
     add_test(NAME mpi_context_np4
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 4
                 $<TARGET_FILE:test_mpi_context>)
 
     add_executable(test_halo_exchange_qtensor
@@ -28,7 +28,7 @@ if(LBM_ENABLE_MPI)
     target_compile_definitions(test_halo_exchange_qtensor PRIVATE LBM_ENABLE_MPI)
 
     add_test(NAME mpi_halo_qtensor_np2
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
                 $<TARGET_FILE:test_halo_exchange_qtensor>)
 
     add_executable(test_halo_exchange_lbm
@@ -45,7 +45,7 @@ if(LBM_ENABLE_MPI)
     target_compile_definitions(test_halo_exchange_lbm PRIVATE LBM_ENABLE_MPI)
 
     add_test(NAME mpi_halo_lbm_np2
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
                 $<TARGET_FILE:test_halo_exchange_lbm>)
 
     # PR VI step 3b — multi-axis corner sweep (z -> y -> x). Body-diagonal
@@ -65,7 +65,7 @@ if(LBM_ENABLE_MPI)
     target_compile_definitions(test_corner_sweep PRIVATE LBM_ENABLE_MPI)
 
     add_test(NAME mpi_corner_sweep_np8
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 8
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 8
                 $<TARGET_FILE:test_corner_sweep>)
 
     add_executable(test_exchange_correctness
@@ -82,7 +82,7 @@ if(LBM_ENABLE_MPI)
     target_compile_definitions(test_exchange_correctness PRIVATE LBM_ENABLE_MPI)
 
     add_test(NAME mpi_halo_exchange_np2
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
                 $<TARGET_FILE:test_exchange_correctness>)
 
     add_executable(test_poiseuille_mpi
@@ -106,7 +106,7 @@ if(LBM_ENABLE_MPI)
     endif()
 
     add_test(NAME mpi_poiseuille_np2
-        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
                 $<TARGET_FILE:test_poiseuille_mpi>)
 
     # np=2 exchange round-trip deferred to PR VII when idx() covers halo coordinates
@@ -127,7 +127,7 @@ if(LBM_ENABLE_MPI)
     # np=5: uneven split (8 cells / 5 ranks) — exercises shared-chunk writes
     foreach(np 1 2 3 5)
         add_test(NAME vtkhdf_write_np${np}
-            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${np}
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} ${np}
                     $<TARGET_FILE:test_vtkhdf_write>)
     endforeach()
 
