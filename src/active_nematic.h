@@ -59,6 +59,12 @@ class ActiveNematicSim {
     }
     int num_files_exported = 0;
 public:
+    // Expose mpi_/grid_ for reporting (benchmark banners, log lines). The
+    // fields are const-refs so callers can query world_size/dims/local_n*
+    // without depending on the internals being non-const.
+    const MPIContext& mpi() const { return mpi_; }
+    const LocalGrid&  grid() const { return grid_; }
+
     // Default: constant-alpha active nematic.
     // Supply a QTensorSolver subclass to override the activity model.
     explicit ActiveNematicSim(std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
