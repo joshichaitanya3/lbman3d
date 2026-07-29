@@ -61,7 +61,9 @@ TEST(TestIdx, InDomainEdgeCases) {
     EXPECT_TRUE(g.InDomain(nx-1, ny-1, nz-1));
     EXPECT_FALSE(g.InDomain(-1, 0, 0));
     EXPECT_FALSE(g.InDomain(nx, 0, 0));
-    ASSERT_DEATH({g.halo_idx(-1, 0, 0, 0);}, "out of domain");
+    // The halo_idx assertion message reads "out of halo-padded domain" —
+    // match that substring rather than the pre-halo "out of domain" wording.
+    ASSERT_DEATH({g.halo_idx(-1, 0, 0, 0);}, "out of halo-padded domain");
 }
 
 // Halo-padded layout: with a ghost layer the owned coordinates shift by
