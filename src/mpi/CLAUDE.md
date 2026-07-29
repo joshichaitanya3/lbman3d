@@ -307,7 +307,7 @@ Mark each PR done as it merges to `dev`.
 | III | done | `HaloExchange` class: pack/unpack buffers, `ExchangeQTensor` / `ExchangePassiveStresses` / `ExchangeLBM`; single-rank no-op |
 | IV | done | Wire `HaloExchange` into the three-phase timestep: before Q update, between phases 1–2, before LBM step |
 | V | done | Global reductions in `SimIO`: `MPI_Allreduce` for diagnostics; parallel HDF5 export with collective MPI-IO |
-| VI | — | Actual decomposition: `LocalGrid::FromMpiContext`; uneven-split arithmetic; `CheckMinSubdomainSize`; `idx()`/`InDomain` move onto `LocalGrid` (runtime local dims, no modulo wrap); loop bounds switch to local dims; pack/unpack tests now runnable |
+| VI | done | Actual decomposition: `LocalGrid::FromMpiContext`; uneven-split arithmetic; `CheckMinSubdomainSize`; `idx()`/`InDomain` move onto `LocalGrid` (runtime local dims, no modulo wrap); loop bounds switch to local dims; pack/unpack tests now runnable |
 | VII | — | GPU-aware path: CUDA-aware MPI or pinned-buffer staging; isolated to `HaloExchange`; `CheckGpuMemory`; decomposition already validated on CPU |
 
 PRs III–V are single-rank no-ops that wire infrastructure before decomposition exists.
@@ -374,3 +374,67 @@ The fix: allocate the fixture lazily in `SetUpTestSuite()` — a
 `static std::unique_ptr<Bench> sim;` at fixture scope, `sim = std::make_unique<Bench>()`
 in `SetUpTestSuite` (runs after `main`'s `MPI_Init`), `sim.reset()` in
 `TearDownTestSuite`. See `tests/mpi/test_poiseuille_mpi.cc` for the pattern.
+
+## Launching MPI runs — CPU binding and OpenMP interaction
+
+This code is hybrid MPI+OpenMP: each MPI rank spawns `Params::kNumOMPThreads`
+OpenMP threads via the `num_threads(kNumOMPThreads)` clause. That means the
+launcher must give each rank *enough physical cores to place those threads*.
+The default OpenMPI binding is aggressive — `--bind-to core` for `np ≤ 2`,
+which pins each rank to a **single** core. All 8 OMP threads then contend for
+that one core, and the run is roughly single-threaded per rank.
+
+Diagnostic: `time mpirun -n N ./bin` reports `user`/`wall`. Their ratio is
+average cores in use across the whole job. If it's near 1× per rank instead
+of `kNumOMPThreads×`, binding is the culprit.
+
+**Baseline invocation** for a single-node benchmark:
+
+```
+mpirun -n N --map-by socket:PE=T --bind-to core \
+       -x OMP_PROC_BIND=close -x OMP_PLACES=cores \
+       ./build-mpi/benchmark
+```
+
+`PE=T` reserves `T` cores per rank (set to `kNumOMPThreads`). `--bind-to
+core` pins each rank inside that slot. `OMP_PROC_BIND=close`/`OMP_PLACES=cores`
+keeps each rank's OMP threads on those specific cores, avoiding cross-rank
+thread migration that would trash L2.
+
+`--bind-to none` is a lazy fallback (lets the OS scheduler pick), and works
+when `N × T ≤ physical cores` on a symmetric machine, but is generally
+worse than `--map-by socket:PE=T` because the OS may migrate threads.
+
+### Heterogeneous (P/E) CPUs
+
+Consumer Intel chips since Alder Lake mix Performance-cores and Efficient-cores,
+with cores 0..(nP−1) typically the P-cores and the remaining IDs the E-cores.
+Check with:
+
+```
+cat /sys/devices/cpu_core/cpus     # P-core IDs
+cat /sys/devices/cpu_atom/cpus     # E-core IDs
+```
+
+The gotcha: `--map-by socket:PE=T --bind-to core` allocates cores in
+increasing ID order, so on a 20-core Core Ultra 7 (8 P + 12 E) an `np=2` run
+gives rank 0 all 8 P-cores and rank 1 all 8 E-cores. E-cores are ~1.5–2×
+slower per core than P-cores, and every halo exchange is a synchronization
+point — so **wall time is dominated by the slower rank**. Serial 8-thread
+runs on P-cores only and looks artificially fast next to any MPI run that
+straddles the P/E boundary.
+
+Two workable options on such machines:
+
+1. **P-cores only**: reduce `kNumOMPThreads` so `np × kNumOMPThreads ≤ nP`
+   and pin ranks into the P-core range. E.g. on 8P/12E with `np=2`:
+   `kNumOMPThreads=4`, `--map-by socket:PE=4 --bind-to core` places rank 0
+   on P-cores 0–3 and rank 1 on P-cores 4–7. This gives clean scaling
+   numbers, at the cost of leaving E-cores idle.
+
+2. **Symmetric P/E per rank via a rankfile**: give each rank the same number
+   of P-cores and the same number of E-cores. Complex to write but fair.
+
+For a real HPC node (homogeneous cores, uniform clocks), option (1) is
+unnecessary — `--map-by socket:PE=T` alone suffices. The P/E trap is a
+development-machine annoyance, not a production concern.
