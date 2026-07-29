@@ -48,11 +48,9 @@ if(LBM_ENABLE_MPI)
         COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
                 $<TARGET_FILE:test_halo_exchange_lbm>)
 
-    # PR VI step 3b — multi-axis corner sweep. Currently a failing test
-    # (single-axis face exchange doesn't route corner ghosts). Marked
-    # WILL_FAIL TRUE so ctest reports it "as expected". When 3b lands and the
-    # test passes, ctest will report "unexpected pass" — that's the cue to
-    # remove the WILL_FAIL property.
+    # PR VI step 3b — multi-axis corner sweep (z -> y -> x). Body-diagonal
+    # pops routed via the sequential axis sweep must arrive at the diagonal
+    # rank's owned origin.
     add_executable(test_corner_sweep
         test_corner_sweep.cc
         mpi_test_main.cc
@@ -69,7 +67,6 @@ if(LBM_ENABLE_MPI)
     add_test(NAME mpi_corner_sweep_np8
         COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 8
                 $<TARGET_FILE:test_corner_sweep>)
-    set_tests_properties(mpi_corner_sweep_np8 PROPERTIES WILL_FAIL TRUE)
 
     add_executable(test_exchange_correctness
         test_exchange_correctness.cc

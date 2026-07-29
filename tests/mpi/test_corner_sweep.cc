@@ -71,15 +71,21 @@ TEST(CornerSweep, Dir7GhostDeliveredToDiagonalOrigin) {
 
 // Negative assertion — passes-when-expected-to-fail guard.
 //
-// Same seed as above; all other slots stay at FluidFields's default zero, so
-// the face exchange runs but shuttles zeros around (no accidental non-zero
-// traffic). After ExchangeLBM, the ONLY non-zero slot allowed on this rank is
-// our owned (0,0,0) dir 7 (received from the diagonal neighbour) plus our own
-// corner-ghost seed (untouched). Any other non-zero slot is a mis-route bug.
+// Same seed as above; all other slots stay at FluidFields's default zero.
+// After ExchangeLBM, iterate every OWNED cell (x,y,z ∈ owned range) and
+// every direction — only (0,0,0) at dir 7 should be non-zero. All other
+// owned slots must be exactly zero. Any non-zero elsewhere means a rogue
+// mis-route lands data at a cell the sweep should never have written.
 //
-// Under step 3a this passes trivially (nothing moves). It exists to catch a
-// buggy 3b that duplicates the pop to a wrong rank or a wrong destination
-// slot on the right rank.
+// Note we intentionally check only owned cells and skip the ghost/halo
+// layer: a correct sweep leaves legitimate transverse-ghost intermediates
+// there (they are the pop-in-flight between hops, or the rank's own
+// original seed). Those are not mis-routes and would false-alarm a
+// whole-buffer sentinel scan.
+//
+// Under step 3a this passes trivially (nothing moves). Its job is to catch
+// a 3b implementation that scribbles seed values into owned cells other
+// than the correct diagonal-mirror.
 TEST(CornerSweep, Dir7SweepTouchesNoOtherSlot) {
     MPIContext mpi;
     if (mpi.world_size != 8) GTEST_SKIP() << "requires np=8 (2×2×2 decomposition)";
@@ -90,17 +96,19 @@ TEST(CornerSweep, Dir7SweepTouchesNoOtherSlot) {
     FluidFields ff(grid);   // f defaults to 0 everywhere
 
     const double seed = 42.0 + 100.0 * mpi.world_rank;
-    const int seeded_idx = grid.halo_idx(grid.local_nx, grid.local_ny, grid.local_nz, /*dir=*/7);
-    ff.f[seeded_idx] = seed;
+    ff.f[grid.halo_idx(grid.local_nx, grid.local_ny, grid.local_nz, /*dir=*/7)] = seed;
 
     halo.ExchangeLBM(ff);
 
-    const int owned_origin_dir7 = grid.halo_idx(0, 0, 0, /*dir=*/7);
-    int stray_non_zero = 0;
-    for (int i = 0; i < static_cast<int>(ff.f.size()); ++i) {
-        if (i == owned_origin_dir7 || i == seeded_idx) continue;
-        if (ff.f[i] != 0.0) ++stray_non_zero;
-    }
-    EXPECT_EQ(stray_non_zero, 0) << "rank " << mpi.world_rank << " saw "
-                                 << stray_non_zero << " non-zero slots outside the diagonal-mirror + seed";
+    int stray = 0;
+    for (int z = 0; z < grid.local_nz; ++z)
+        for (int y = 0; y < grid.local_ny; ++y)
+            for (int x = 0; x < grid.local_nx; ++x)
+                for (int dir = 0; dir < Lattice::ndir; ++dir) {
+                    if (x == 0 && y == 0 && z == 0 && dir == 7) continue;
+                    if (ff.f[grid.halo_idx(x, y, z, dir)] != 0.0) ++stray;
+                }
+    EXPECT_EQ(stray, 0) << "rank " << mpi.world_rank
+                        << " saw " << stray
+                        << " non-zero owned slots outside the diagonal-mirror";
 }
