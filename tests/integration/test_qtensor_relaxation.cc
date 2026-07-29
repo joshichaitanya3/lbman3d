@@ -38,11 +38,11 @@ void ZeroActivitySolver<BC>::Initialize(QTensorFields& qf) const {
     for (int z : std::views::iota(0, nz)) {
         for (int y : std::views::iota(0, ny)) {
             for (int x : std::views::iota(0, nx)) {
-                qf.qxx[idx(x, y, z)] = 0.33 + noise_dist(gen);
-                qf.qxy[idx(x, y, z)] = noise_dist(gen);
-                qf.qxz[idx(x, y, z)] = noise_dist(gen);
-                qf.qyy[idx(x, y, z)] = -0.15 + noise_dist(gen);
-                qf.qyz[idx(x, y, z)] = noise_dist(gen);
+                qf.qxx[qf.grid.halo_idx(x, y, z)] = 0.33 + noise_dist(gen);
+                qf.qxy[qf.grid.halo_idx(x, y, z)] = noise_dist(gen);
+                qf.qxz[qf.grid.halo_idx(x, y, z)] = noise_dist(gen);
+                qf.qyy[qf.grid.halo_idx(x, y, z)] = -0.15 + noise_dist(gen);
+                qf.qyz[qf.grid.halo_idx(x, y, z)] = noise_dist(gen);
             }
         }
     }

@@ -6,6 +6,7 @@
 
 #include "offsets.h"
 #include <params.h>
+#include "boundary.h"
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 #include "analysis_fields.h"
@@ -18,7 +19,8 @@
 #include "device_solver.h"
 #include "local_grid.h"
 #include "mpi/mpi_context.h"
-#include "mpi/halo_exchange.h"
+#include "mpi/halo_exchange_lbm.h"
+#include "mpi/halo_exchange_qtensor.h"
 
 enum ExportFormat { CSV, VTKHDF };
 
@@ -31,10 +33,11 @@ enum ExportFormat { CSV, VTKHDF };
 // To run without any Q-tensor dynamics use LbmSolver directly.
 template<typename BC>
 class ActiveNematicSim {
-    MPIContext     mpi_; // Needs to be the first member
-    LocalGrid      grid_;
-    HaloExchange   halo_;
-    FluidFields    fluid_;
+    MPIContext         mpi_; // Needs to be the first member
+    LocalGrid          grid_;
+    HaloExchangeQTensor qtensor_halo_;
+    HaloExchangeLBM    lbm_halo_;
+    FluidFields        fluid_;
     QTensorFields  qtensor_;
     DeviceFields   d_fields_;
     DeviceSolver<BC> d_solver_;
@@ -56,12 +59,19 @@ class ActiveNematicSim {
     }
     int num_files_exported = 0;
 public:
+    // Expose mpi_/grid_ for reporting (benchmark banners, log lines). The
+    // fields are const-refs so callers can query world_size/dims/local_n*
+    // without depending on the internals being non-const.
+    const MPIContext& mpi() const { return mpi_; }
+    const LocalGrid&  grid() const { return grid_; }
+
     // Default: constant-alpha active nematic.
     // Supply a QTensorSolver subclass to override the activity model.
     explicit ActiveNematicSim(std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
-        : mpi_(),
-          grid_(LocalGrid::SingleRank()),
-          halo_(grid_, mpi_),
+        : mpi_(periodicity_by_axis<BC>),
+          grid_(mpi_.MakeLocalGrid()),
+          qtensor_halo_(grid_, mpi_),
+          lbm_halo_(grid_, mpi_, is_wall_by_face<BC>),
           fluid_(grid_),
           qtensor_(grid_),
           d_fields_(grid_),
@@ -69,17 +79,17 @@ public:
                                  : std::make_unique<QTensorSolver<BC>>())
     {
         Initialize();
-        io_.LogSetupSummary(BC::name, InitializeComputeBackend());
+        io_.LogSetupSummary(BC::name, InitializeComputeBackend(mpi_));
     }
 
     void QTensorStep() {
         #ifdef SIM_WITH_CUDA
         d_solver_.QTensorStep(d_fields_);
         #else
-        halo_.ExchangeQTensor(qtensor_, fluid_);
+        qtensor_halo_.ExchangeQTensor(qtensor_, fluid_);
         qtensor_solver_->StepAndSetupBodyForce(qtensor_, fluid_);
 
-        halo_.ExchangePassiveStresses(qtensor_);
+        qtensor_halo_.ExchangePassiveStresses(qtensor_);
         qtensor_solver_->SetActiveStressAndComputeBodyForce(fluid_, qtensor_);
         #endif
     }
@@ -87,8 +97,8 @@ public:
         #ifdef SIM_WITH_CUDA
         d_solver_.LBMStep(d_fields_);
         #else
-        halo_.ExchangeLBM(fluid_);
         lbm_.LatticeBoltzmannStep(fluid_);
+        lbm_halo_.ExchangeLBM(fluid_);
         #endif
     }
     // Q-tensor FD step + active force + LBM step.

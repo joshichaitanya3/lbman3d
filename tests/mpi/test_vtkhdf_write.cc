@@ -89,7 +89,7 @@ TEST(VTKHDFWrite, VectorFieldRoundtrip) {
                                                    (grid.offset_y + y + 1) *
                                                    (grid.offset_z + z + 1));
                 for (int i = 0; i < kComponents; ++i)
-                    field[grid.halo_idx(x, y, z, i)] = base * (i + 1);
+                    field[grid.halo_dirIdx(x, y, z, i)] = base * (i + 1);
             }
 
     const std::string path = unique_path("vector");

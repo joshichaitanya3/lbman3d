@@ -6,7 +6,7 @@
 #include <algorithm>
 #include "local_grid.h"
 
-std::string InitializeComputeBackend() {
+std::string InitializeComputeBackend(const MPIContext& mpi) {
     checkCudaErrors(cudaSetDevice(0));
 
     int device_id = 0;
@@ -29,11 +29,14 @@ std::string InitializeComputeBackend() {
         "      global memory: {:.1f} MiB\n"
         "        free memory: {:.1f} MiB\n"
         "   asyncEngineCount: {}\n"
-        "   canMapHostMemory: {}\n",
+        "   canMapHostMemory: {}\n"
+        "    MPI world_size: {}\n"
+        "         MPI dims: [{}, {}, {}]\n",
         device_id, props.name, props.multiProcessorCount,
         props.major, props.minor,
         props.totalGlobalMem / bytesPerMiB, free_mem / bytesPerMiB,
-        props.asyncEngineCount, props.canMapHostMemory);
+        props.asyncEngineCount, props.canMapHostMemory,
+        mpi.world_size, mpi.dims[0], mpi.dims[1], mpi.dims[2]);
 }
 
 DeviceFields::DeviceFields(LocalGrid g) :

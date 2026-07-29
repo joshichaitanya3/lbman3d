@@ -6,6 +6,7 @@
 #include "qtensor_fields.h"
 #include "physics_helpers.h"
 #include "offsets.h"
+#include "local_grid.h"
 
 double HalfTrQ2(
     double Qxx,
@@ -38,26 +39,29 @@ double NematicFreeEnergyDensity(
 template<typename BC>
 double TotalNematicFreeEnergy(const QTensorFields& qf) {
     double total = 0.0;
+
+    const LocalGrid& g = qf.grid;
     #pragma omp parallel for default(shared) num_threads(Params::kNumOMPThreads) \
         schedule(static) reduction(+:total)
-    for (int z = 0; z < Params::nz; ++z) {
-        for (int y = 0; y < Params::ny; ++y) {
-            for (int x = 0; x < Params::nx; ++x) {
+    for (int z = 0; z < g.local_nz; ++z) {
+        for (int y = 0; y < g.local_ny; ++y) {
+            for (int x = 0; x < g.local_nx; ++x) {
+                const int idxp = g.halo_idx(x, y, z);
                 const int xm = QXoff<BC>(x, -1), xp = QXoff<BC>(x, 1);
                 const int ym = QYoff<BC>(y, -1), yp = QYoff<BC>(y, 1);
                 const int zm = QZoff<BC>(z, -1), zp = QZoff<BC>(z, 1);
 
-                const double Qxx = qf.qxx[idx(x, y, z)];
-                const double Qxy = qf.qxy[idx(x, y, z)];
-                const double Qxz = qf.qxz[idx(x, y, z)];
-                const double Qyy = qf.qyy[idx(x, y, z)];
-                const double Qyz = qf.qyz[idx(x, y, z)];
+                const double Qxx = qf.qxx[idxp];
+                const double Qxy = qf.qxy[idxp];
+                const double Qxz = qf.qxz[idxp];
+                const double Qyy = qf.qyy[idxp];
+                const double Qyz = qf.qyz[idxp];
 
-                const double lap_Qxx = qf.qxx[idx(xp,y,z)] + qf.qxx[idx(xm,y,z)] + qf.qxx[idx(x,yp,z)] + qf.qxx[idx(x,ym,z)] + qf.qxx[idx(x,y,zp)] + qf.qxx[idx(x,y,zm)] - 6.0*Qxx;
-                const double lap_Qxy = qf.qxy[idx(xp,y,z)] + qf.qxy[idx(xm,y,z)] + qf.qxy[idx(x,yp,z)] + qf.qxy[idx(x,ym,z)] + qf.qxy[idx(x,y,zp)] + qf.qxy[idx(x,y,zm)] - 6.0*Qxy;
-                const double lap_Qxz = qf.qxz[idx(xp,y,z)] + qf.qxz[idx(xm,y,z)] + qf.qxz[idx(x,yp,z)] + qf.qxz[idx(x,ym,z)] + qf.qxz[idx(x,y,zp)] + qf.qxz[idx(x,y,zm)] - 6.0*Qxz;
-                const double lap_Qyy = qf.qyy[idx(xp,y,z)] + qf.qyy[idx(xm,y,z)] + qf.qyy[idx(x,yp,z)] + qf.qyy[idx(x,ym,z)] + qf.qyy[idx(x,y,zp)] + qf.qyy[idx(x,y,zm)] - 6.0*Qyy;
-                const double lap_Qyz = qf.qyz[idx(xp,y,z)] + qf.qyz[idx(xm,y,z)] + qf.qyz[idx(x,yp,z)] + qf.qyz[idx(x,ym,z)] + qf.qyz[idx(x,y,zp)] + qf.qyz[idx(x,y,zm)] - 6.0*Qyz;
+                const double lap_Qxx = qf.qxx[g.halo_idx(xp,y,z)] + qf.qxx[g.halo_idx(xm,y,z)] + qf.qxx[g.halo_idx(x,yp,z)] + qf.qxx[g.halo_idx(x,ym,z)] + qf.qxx[g.halo_idx(x,y,zp)] + qf.qxx[g.halo_idx(x,y,zm)] - 6.0*Qxx;
+                const double lap_Qxy = qf.qxy[g.halo_idx(xp,y,z)] + qf.qxy[g.halo_idx(xm,y,z)] + qf.qxy[g.halo_idx(x,yp,z)] + qf.qxy[g.halo_idx(x,ym,z)] + qf.qxy[g.halo_idx(x,y,zp)] + qf.qxy[g.halo_idx(x,y,zm)] - 6.0*Qxy;
+                const double lap_Qxz = qf.qxz[g.halo_idx(xp,y,z)] + qf.qxz[g.halo_idx(xm,y,z)] + qf.qxz[g.halo_idx(x,yp,z)] + qf.qxz[g.halo_idx(x,ym,z)] + qf.qxz[g.halo_idx(x,y,zp)] + qf.qxz[g.halo_idx(x,y,zm)] - 6.0*Qxz;
+                const double lap_Qyy = qf.qyy[g.halo_idx(xp,y,z)] + qf.qyy[g.halo_idx(xm,y,z)] + qf.qyy[g.halo_idx(x,yp,z)] + qf.qyy[g.halo_idx(x,ym,z)] + qf.qyy[g.halo_idx(x,y,zp)] + qf.qyy[g.halo_idx(x,y,zm)] - 6.0*Qyy;
+                const double lap_Qyz = qf.qyz[g.halo_idx(xp,y,z)] + qf.qyz[g.halo_idx(xm,y,z)] + qf.qyz[g.halo_idx(x,yp,z)] + qf.qyz[g.halo_idx(x,ym,z)] + qf.qyz[g.halo_idx(x,y,zp)] + qf.qyz[g.halo_idx(x,y,zm)] - 6.0*Qyz;
 
                 total += NematicFreeEnergyDensity(Qxx, Qxy, Qxz, Qyy, Qyz,
                                                    lap_Qxx, lap_Qxy, lap_Qxz, lap_Qyy, lap_Qyz);
@@ -68,17 +72,17 @@ double TotalNematicFreeEnergy(const QTensorFields& qf) {
 }
 
 // Owns analysis state: director vector, scalar order, and past density+velocity
-// Flat, row-major storage indexed via idx(x,y,z) from physics_helpers.h
+// Flat, row-major storage indexed via g.halo_idx(x,y,z) from physics_helpers.h
 // (director_ uses dirIdx(x,y,z,c) instead — see above). Purely a host/CPU
 // structure — never touched by GPU code.
 struct AnalysisFields {
     // Previous-step snapshots for per-export diagnostics
+    LocalGrid grid;
     std::vector<double> rho_past_, ux_past_, uy_past_, uz_past_;
     // Order parameter and director fields populated by QtensorToOrderDirector
     std::vector<double> order_;
     std::vector<double> director_;  // AoS: [nz, ny, nx, 3]
-
-    AnalysisFields();
+    explicit AnalysisFields(LocalGrid g = LocalGrid::SingleRank());
 
 };
 
@@ -87,7 +91,7 @@ struct AnalysisFields {
 // export can pass the buffer straight through via WriteVectorField, and so
 // defect-finding code (which reads the full 3-vector at each point) gets all
 // 3 components contiguous. c is the director component (0=x, 1=y, 2=z).
-// Not idx(x,y,z,i) from physics_helpers.h: that assumes an ndir-sized last
+// Not g.halo_idx(x,y,z,i) from physics_helpers.h: that assumes an ndir-sized last
 // dimension, not 3.
 inline int dirIdx(int x, int y, int z, int c) {
     return (((z + Params::nz) % Params::nz) * Params::ny * Params::nx

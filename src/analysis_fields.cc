@@ -6,13 +6,14 @@
 
 using namespace Params;
 
-AnalysisFields::AnalysisFields() :
-    rho_past_(nx * ny * nz, kDensity),
-    ux_past_ (nx * ny * nz, 0.0),
-    uy_past_ (nx * ny * nz, 0.0),
-    uz_past_ (nx * ny * nz, 0.0),
-    order_   (nx * ny * nz, 0.0),
-    director_(nx * ny * nz * 3, 0.0)
+AnalysisFields::AnalysisFields(LocalGrid g) :
+    grid    (g),
+    rho_past_(g.HaloVolume(), kDensity),
+    ux_past_ (g.HaloVolume(), 0.0),
+    uy_past_ (g.HaloVolume(), 0.0),
+    uz_past_ (g.HaloVolume(), 0.0),
+    order_   (g.HaloVolume(), 0.0),
+    director_(g.HaloVolume() * 3, 0.0)
 {}
 
 
@@ -58,15 +59,17 @@ double NematicFreeEnergyDensity(
 
 void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
 
+    const LocalGrid& g = qf.grid;
     // #pragma omp parallel for num_threads(kNumOMPThreads) schedule(static)
-    for (int z = 0; z < nz; ++z) {
-        for (int y = 0; y < ny; ++y) {
-            for (int x = 0; x < nx; ++x) {
-                const double Qxx = qf.qxx[idx(x, y, z)];
-                const double Qxy = qf.qxy[idx(x, y, z)];
-                const double Qxz = qf.qxz[idx(x, y, z)];
-                const double Qyy = qf.qyy[idx(x, y, z)];
-                const double Qyz = qf.qyz[idx(x, y, z)];
+    for (int z = 0; z < g.local_nz; ++z) {
+        for (int y = 0; y < g.local_ny; ++y) {
+            for (int x = 0; x < g.local_nx; ++x) {
+                const int idxp = g.halo_idx(x, y, z);
+                const double Qxx = qf.qxx[idxp];
+                const double Qxy = qf.qxy[idxp];
+                const double Qxz = qf.qxz[idxp];
+                const double Qyy = qf.qyy[idxp];
+                const double Qyz = qf.qyz[idxp];
                 const double p = HalfTrQ2(Qxx, Qxy, Qxz, Qyy, Qyz);
                 const double q = DetQ(Qxx, Qxy, Qxz, Qyy, Qyz);
 
@@ -81,11 +84,10 @@ void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
                 nhatx *= norm_inv;
                 nhaty *= norm_inv;
                 nhatz *= norm_inv;
-
-                af.director_[dirIdx(x, y, z, 0)] = nhatx;
-                af.director_[dirIdx(x, y, z, 1)] = nhaty;
-                af.director_[dirIdx(x, y, z, 2)] = nhatz;
-                af.order_[idx(x, y, z)] = S;
+                af.director_[g.halo_dirIdx(x, y, z, 0)] = nhatx;
+                af.director_[g.halo_dirIdx(x, y, z, 1)] = nhaty;
+                af.director_[g.halo_dirIdx(x, y, z, 2)] = nhatz;
+                af.order_[idxp] = S;
             }
         }
     }

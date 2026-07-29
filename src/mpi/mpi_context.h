@@ -2,9 +2,10 @@
 #define LBM_AN_MPI_MPI_CONTEXT_H_
 
 #include "local_grid.h"
+#include <array>
 #ifdef LBM_ENABLE_MPI
 #include <mpi.h>
-#include <array>
+#include <algorithm>
 
 struct MPIContext {
     bool owns_mpi_; // Did we start this MPI instance?
@@ -27,6 +28,19 @@ struct MPIContext {
 
         dims[0] = dims[1] = dims[2] = 0;              // 0 = let MPI decide
         MPI_Dims_create(world_size, 3, dims);
+        // MPI_Dims_create only balances factors and does not see Params::n{x,y,z};
+        // for a non-cube grid its default (largest factor on axis 0) is
+        // surface-to-volume suboptimal. Permute the returned factors so the
+        // largest split lands on the axis with the largest global dimension.
+        // Stable sort preserves the original axis order on ties, so a cube
+        // grid keeps MPI's default assignment.
+        {
+            int global[3] = {Params::nx, Params::ny, Params::nz};
+            int order[3]  = {0, 1, 2};
+            std::stable_sort(order, order+3, [&](int a, int b) { return global[a] > global[b]; });
+            int tmp[3] = {dims[0], dims[1], dims[2]};
+            for (int i = 0; i < 3; ++i) dims[order[i]] = tmp[i];
+        }
 
         int reorder = 1;                               // allow topology-aware rank assignment
         MPI_Cart_create(MPI_COMM_WORLD, 3, dims, periods.data(), reorder, &cart_comm);
@@ -91,6 +105,11 @@ struct MPIContext {
     int world_rank = 0, world_size = 1;
     int dims[3]   = {1, 1, 1};
     int coords[3] = {0, 0, 0};
+
+    // Accepts (and ignores) the periods array so the non-MPI stub matches the
+    // signature of the LBM_ENABLE_MPI ctor — callers can pass
+    // `periodicity_by_axis<BC>` unconditionally.
+    explicit MPIContext(std::array<int, 3> = {1, 1, 1}) {}
 
     static void SumDoubles(double* local_sum, double* global_sum) {
         *global_sum = *local_sum;

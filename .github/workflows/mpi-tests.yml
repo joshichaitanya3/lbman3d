@@ -1,0 +1,48 @@
+name: MPI Tests
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: configure
+      run: |
+        sudo apt update
+        # libhdf5-openmpi-dev is the MPI-enabled HDF5 build on Ubuntu; the
+        # root CMakeLists FATAL_ERROR's if a serial HDF5 is picked up under
+        # LBM_ENABLE_MPI=ON. libhdf5-dev (serial) is intentionally *not*
+        # installed so the wrong one can't be selected.
+        sudo apt install libhdf5-openmpi-dev libopenmpi-dev openmpi-bin
+    - name: cache-deps
+      uses: actions/cache@v4
+      with:
+        path: build-mpi/_deps
+        key: ${{ runner.os }}-mpi-deps-${{ hashFiles('CMakeLists.txt') }}
+    - name: make
+      run: |
+        # LBM_BUILD_UNIT_TESTS=OFF: unit_tests are covered in unit-tests.yml and
+        # need a Debug build for idx()'s asserts anyway. LBM_FORCE_CPU=ON: runners
+        # don't have CUDA. MPIEXEC_PREFLAGS=--oversubscribe lets
+        # mpi_corner_sweep_np8 launch 8 ranks on a 2–4-core runner.
+        # HDF5_ROOT points at Ubuntu's parallel HDF5 install path — matches
+        # the hint in the FATAL_ERROR message in the root CMakeLists.
+        cmake -B build-mpi -DLBM_FORCE_CPU=ON -DLBM_ENABLE_MPI=ON \
+              -DCMAKE_BUILD_TYPE=Release -DLBM_BUILD_UNIT_TESTS=OFF \
+              -DHDF5_ROOT=/usr/lib/x86_64-linux-gnu/hdf5/openmpi \
+              -DMPIEXEC_PREFLAGS=--oversubscribe
+        cmake --build build-mpi
+    - name: test
+      run: |
+        # ctest -R "mpi_" targets tests registered with the mpi_ prefix in
+        # tests/mpi/CMakeLists.txt — the whole MPI test suite and nothing else.
+        # Non-MPI integration tests remain the responsibility of integration-tests.yml.
+        cd build-mpi
+        ctest -R "mpi_" --output-on-failure --timeout 300

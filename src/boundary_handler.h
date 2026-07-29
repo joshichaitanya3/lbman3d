@@ -8,6 +8,7 @@
 #include "physics_helpers.h"
 #include "qtensor_types.h"
 #include "offsets.h"
+#include "local_grid.h"
 
 using namespace Params;
 
@@ -170,7 +171,7 @@ inline CUDA_HOST_DEVICE double VelocityAxisGradient(
 // plain data aggregate with no access-pattern-specific logic).
 template<typename BCConfig>
 inline CUDA_HOST_DEVICE GradTensor VelocityGradientTensor(
-    const double* ux, const double* uy, const double* uz, int x, int y, int z
+    const double* ux, const double* uy, const double* uz, int x, int y, int z, const LocalGrid& g
 ) {
     using XLoU = typename BCConfig::XLo::UBC;
     using XHiU = typename BCConfig::XHi::UBC;
@@ -186,21 +187,21 @@ inline CUDA_HOST_DEVICE GradTensor VelocityGradientTensor(
     const int zm = SafeFetchAxisOffset<ZLoU, ZHiU>(z, -1, nz);
     const int zp = SafeFetchAxisOffset<ZLoU, ZHiU>(z, +1, nz);
 
-    const double ux0 = ux[idx(x, y, z)];
-    const double uy0 = uy[idx(x, y, z)];
-    const double uz0 = uz[idx(x, y, z)];
+    const double ux0 = ux[g.halo_idx(x, y, z)];
+    const double uy0 = uy[g.halo_idx(x, y, z)];
+    const double uz0 = uz[g.halo_idx(x, y, z)];
 
     return GradTensor{
-        VelocityAxisGradient<Axis::X, XLoU, XHiU>(x, nx, ux[idx(xm, y, z)], ux0, ux[idx(xp, y, z)], true),
-        VelocityAxisGradient<Axis::X, YLoU, YHiU>(y, ny, ux[idx(x, ym, z)], ux0, ux[idx(x, yp, z)], false),
-        VelocityAxisGradient<Axis::X, ZLoU, ZHiU>(z, nz, ux[idx(x, y, zm)], ux0, ux[idx(x, y, zp)], false),
+        VelocityAxisGradient<Axis::X, XLoU, XHiU>(x, nx, ux[g.halo_idx(xm, y, z)], ux0, ux[g.halo_idx(xp, y, z)], true),
+        VelocityAxisGradient<Axis::X, YLoU, YHiU>(y, ny, ux[g.halo_idx(x, ym, z)], ux0, ux[g.halo_idx(x, yp, z)], false),
+        VelocityAxisGradient<Axis::X, ZLoU, ZHiU>(z, nz, ux[g.halo_idx(x, y, zm)], ux0, ux[g.halo_idx(x, y, zp)], false),
 
-        VelocityAxisGradient<Axis::Y, XLoU, XHiU>(x, nx, uy[idx(xm, y, z)], uy0, uy[idx(xp, y, z)], false),
-        VelocityAxisGradient<Axis::Y, YLoU, YHiU>(y, ny, uy[idx(x, ym, z)], uy0, uy[idx(x, yp, z)], true),
-        VelocityAxisGradient<Axis::Y, ZLoU, ZHiU>(z, nz, uy[idx(x, y, zm)], uy0, uy[idx(x, y, zp)], false),
+        VelocityAxisGradient<Axis::Y, XLoU, XHiU>(x, nx, uy[g.halo_idx(xm, y, z)], uy0, uy[g.halo_idx(xp, y, z)], false),
+        VelocityAxisGradient<Axis::Y, YLoU, YHiU>(y, ny, uy[g.halo_idx(x, ym, z)], uy0, uy[g.halo_idx(x, yp, z)], true),
+        VelocityAxisGradient<Axis::Y, ZLoU, ZHiU>(z, nz, uy[g.halo_idx(x, y, zm)], uy0, uy[g.halo_idx(x, y, zp)], false),
 
-        VelocityAxisGradient<Axis::Z, XLoU, XHiU>(x, nx, uz[idx(xm, y, z)], uz0, uz[idx(xp, y, z)], false),
-        VelocityAxisGradient<Axis::Z, YLoU, YHiU>(y, ny, uz[idx(x, ym, z)], uz0, uz[idx(x, yp, z)], false)
+        VelocityAxisGradient<Axis::Z, XLoU, XHiU>(x, nx, uz[g.halo_idx(xm, y, z)], uz0, uz[g.halo_idx(xp, y, z)], false),
+        VelocityAxisGradient<Axis::Z, YLoU, YHiU>(y, ny, uz[g.halo_idx(x, ym, z)], uz0, uz[g.halo_idx(x, yp, z)], false)
     };
 }
 
@@ -281,7 +282,7 @@ inline CUDA_HOST_DEVICE NeighborPair QAxisGhostPair(
 // component C at (x,y,z), wall-aware via QGhost/QAxisGhostPair above rather
 // than offsets.h's Neumann-only QXoff/QYoff/QZoff clamp.
 template<QComp C, typename BCConfig>
-inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, int y, int z) {
+inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, int y, int z, const LocalGrid& g) {
     using XLoQ = typename BCConfig::XLo::QBC;
     using XHiQ = typename BCConfig::XHi::QBC;
     using YLoQ = typename BCConfig::YLo::QBC;
@@ -296,11 +297,11 @@ inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, in
     const int zm = SafeFetchAxisOffset<ZLoQ, ZHiQ>(z, -1, nz);
     const int zp = SafeFetchAxisOffset<ZLoQ, ZHiQ>(z, +1, nz);
 
-    const double q0 = q[idx(x, y, z)];
+    const double q0 = q[g.halo_idx(x, y, z)];
 
-    const NeighborPair px = QAxisGhostPair<C, XLoQ, XHiQ>(x, nx, q[idx(xm, y, z)], q0, q[idx(xp, y, z)]);
-    const NeighborPair py = QAxisGhostPair<C, YLoQ, YHiQ>(y, ny, q[idx(x, ym, z)], q0, q[idx(x, yp, z)]);
-    const NeighborPair pz = QAxisGhostPair<C, ZLoQ, ZHiQ>(z, nz, q[idx(x, y, zm)], q0, q[idx(x, y, zp)]);
+    const NeighborPair px = QAxisGhostPair<C, XLoQ, XHiQ>(x, nx, q[g.halo_idx(xm, y, z)], q0, q[g.halo_idx(xp, y, z)]);
+    const NeighborPair py = QAxisGhostPair<C, YLoQ, YHiQ>(y, ny, q[g.halo_idx(x, ym, z)], q0, q[g.halo_idx(x, yp, z)]);
+    const NeighborPair pz = QAxisGhostPair<C, ZLoQ, ZHiQ>(z, nz, q[g.halo_idx(x, y, zm)], q0, q[g.halo_idx(x, y, zp)]);
 
     return QDerivs{
         (px.plus - px.minus) / 2.0,
@@ -319,7 +320,8 @@ inline CUDA_HOST_DEVICE Vec3 PassiveStressDivergence(
     const double* pyz,
     const int x,
     const int y,
-    const int z
+    const int z,
+    const LocalGrid& g
 ) {
 
     const int xm = QXoff<BCConfig>(x, -1);
@@ -330,18 +332,18 @@ inline CUDA_HOST_DEVICE Vec3 PassiveStressDivergence(
     const int zp = QZoff<BCConfig>(z, +1);
 
     // Now, add the passive stress and friction
-    double fx = ((pxx[idx(xp, y, z)] - pxx[idx(xm, y, z)])/2.0
-                        + (pxy[idx(x, yp, z)] - pxy[idx(x, ym, z)])/2.0
-                        + (pxz[idx(x, y, zp)] - pxz[idx(x, y, zm)])/2.0);
+    double fx = ((pxx[g.halo_idx(xp, y, z)] - pxx[g.halo_idx(xm, y, z)])/2.0
+                        + (pxy[g.halo_idx(x, yp, z)] - pxy[g.halo_idx(x, ym, z)])/2.0
+                        + (pxz[g.halo_idx(x, y, zp)] - pxz[g.halo_idx(x, y, zm)])/2.0);
 
-    double fy = ((pxy[idx(xp, y, z)] - pxy[idx(xm, y, z)])/2.0
-                        + (pyy[idx(x, yp, z)] - pyy[idx(x, ym, z)])/2.0
-                        + (pyz[idx(x, y, zp)] - pyz[idx(x, y, zm)])/2.0);
+    double fy = ((pxy[g.halo_idx(xp, y, z)] - pxy[g.halo_idx(xm, y, z)])/2.0
+                        + (pyy[g.halo_idx(x, yp, z)] - pyy[g.halo_idx(x, ym, z)])/2.0
+                        + (pyz[g.halo_idx(x, y, zp)] - pyz[g.halo_idx(x, y, zm)])/2.0);
 
-    double fz = ((pxz[idx(xp, y, z)] - pxz[idx(xm, y, z)])/2.0
-                        + (pyz[idx(x, yp, z)] - pyz[idx(x, ym, z)])/2.0
-                        - (pxx[idx(x, y, zp)] - pxx[idx(x, y, zm)])/2.0
-                        - (pyy[idx(x, y, zp)] - pyy[idx(x, y, zm)])/2.0); // Since Pzz = -(Pxx + Pyy)
+    double fz = ((pxz[g.halo_idx(xp, y, z)] - pxz[g.halo_idx(xm, y, z)])/2.0
+                        + (pyz[g.halo_idx(x, yp, z)] - pyz[g.halo_idx(x, ym, z)])/2.0
+                        - (pxx[g.halo_idx(x, y, zp)] - pxx[g.halo_idx(x, y, zm)])/2.0
+                        - (pyy[g.halo_idx(x, y, zp)] - pyy[g.halo_idx(x, y, zm)])/2.0); // Since Pzz = -(Pxx + Pyy)
     
     return {fx, fy, fz};
 }
@@ -360,7 +362,7 @@ inline CUDA_HOST_DEVICE void HandleBoundaryPoint(
     int x, int y, int z, int i, int i_refl, double f_star, double rhop,
     double* f_new,
     const int* ex, const int* ey, const int* ez,
-    const double* w, const int* opp
+    const double* w, const int* opp, const LocalGrid& g
 ) {
     using U = typename WallSpec::UBC;
     if constexpr (std::is_same_v<U, Periodic>) {
@@ -370,13 +372,13 @@ inline CUDA_HOST_DEVICE void HandleBoundaryPoint(
         return;
     }
     else if constexpr (std::is_same_v<U, SpecularReflection>) {
-        f_new[idx(x, y, z, i_refl)] = f_star;
+        f_new[g.halo_idx(x, y, z, i_refl)] = f_star;
     }
     else {
         constexpr Vec3 U_wall{wallVx<U>(), wallVy<U>(), wallVz<U>()};
         const int m = opp[i];
         const Vec3 e_m{static_cast<double>(ex[m]), static_cast<double>(ey[m]), static_cast<double>(ez[m])};
-        f_new[idx(x, y, z, m)] = f_star + kCs2InvTimes2 * rhop * w[m] * e_m.Dot(U_wall);
+        f_new[g.halo_idx(x, y, z, m)] = f_star + kCs2InvTimes2 * rhop * w[m] * e_m.Dot(U_wall);
     }
 }
 
