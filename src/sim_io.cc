@@ -165,7 +165,7 @@ void SimIO::ExportCSV(
     return; // MPI parallel CSV export is not implemented yet.
     #else
 
-    LocalGrid& g = ff.grid;
+    const LocalGrid& g = ff.grid;
 
     std::ofstream rho_file, ux_file, uy_file, uz_file;
     std::ofstream qxx_file, qxy_file, qxz_file, qyy_file, qyz_file;
@@ -224,7 +224,7 @@ void SimIO::ExportDistributionCSV(
     #ifdef LBM_ENABLE_MPI
     return; // MPI parallel CSV export is not implemented yet.
     #else
-    LocalGrid& g = ff.grid;
+    const LocalGrid& g = ff.grid;
     std::ofstream f_file;
     for (int i : std::views::iota(0, Lattice::ndir)) {
         f_file.open(compat::format("{}/f_{}_{}.csv", path, i, step), std::ios::out);
