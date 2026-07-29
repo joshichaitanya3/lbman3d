@@ -3,6 +3,7 @@
 
 #include <string>
 #include <params.h>
+#include "mpi/mpi_context.h"
 
 #ifdef SIM_WITH_CUDA
 
@@ -14,9 +15,10 @@
 #include "local_grid.h"
 
 // Selects the CUDA device to use (device 0) and returns a human-readable,
-// multi-line description of it (name, compute capability, memory, ...) for
-// logging. Call once, before touching any other CUDA API.
-std::string InitializeComputeBackend();
+// multi-line description of it (name, compute capability, memory, ...) plus
+// the MPI decomposition (world size, dims split) for logging. Call once,
+// before touching any other CUDA API.
+std::string InitializeComputeBackend(const MPIContext& mpi);
 
 struct DeviceFields {
     // int gpu_id;
@@ -51,8 +53,11 @@ struct DeviceFields {
 #include "format_compat.h"
 #include "local_grid.h"
 
-inline std::string InitializeComputeBackend() {
-    return compat::format("CPU (OpenMP, kNumOMPThreads = {})", Params::kNumOMPThreads);
+inline std::string InitializeComputeBackend(const MPIContext& mpi) {
+    return compat::format(
+        "CPU (OpenMP kNumOMPThreads = {}, MPI world_size = {}, dims = [{}, {}, {}])",
+        Params::kNumOMPThreads, mpi.world_size,
+        mpi.dims[0], mpi.dims[1], mpi.dims[2]);
 }
 
 struct DeviceFields {

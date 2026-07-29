@@ -73,7 +73,7 @@ public:
                                  : std::make_unique<QTensorSolver<BC>>())
     {
         Initialize();
-        io_.LogSetupSummary(BC::name, InitializeComputeBackend());
+        io_.LogSetupSummary(BC::name, InitializeComputeBackend(mpi_));
     }
 
     void QTensorStep() {
