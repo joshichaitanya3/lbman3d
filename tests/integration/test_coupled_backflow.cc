@@ -9,6 +9,7 @@
 #include "lbm_solver.h"
 #include "qtensor_solver.h"
 #include "analysis_fields.h"
+#include "local_grid.h"
 
 #include <vector>
 #include <numeric>
@@ -73,11 +74,11 @@ public:
         for (int z : std::views::iota(0, nz)) {
             for (int y : std::views::iota(0, ny)) {
                 for (int x : std::views::iota(0, nx)) {
-                    qf.qxx[idx(x, y, z)] = 0.33 + noise_dist(gen);
-                    qf.qxy[idx(x, y, z)] = noise_dist(gen);
-                    qf.qxz[idx(x, y, z)] = noise_dist(gen);
-                    qf.qyy[idx(x, y, z)] = -0.15 + noise_dist(gen);
-                    qf.qyz[idx(x, y, z)] = noise_dist(gen);
+                    qf.qxx[qf.grid.halo_idx(x, y, z)] = 0.33 + noise_dist(gen);
+                    qf.qxy[qf.grid.halo_idx(x, y, z)] = noise_dist(gen);
+                    qf.qxz[qf.grid.halo_idx(x, y, z)] = noise_dist(gen);
+                    qf.qyy[qf.grid.halo_idx(x, y, z)] = -0.15 + noise_dist(gen);
+                    qf.qyz[qf.grid.halo_idx(x, y, z)] = noise_dist(gen);
                 }
             }
         }
@@ -86,6 +87,7 @@ public:
 
 template<typename BC>
 class CoupledSim {
+    LocalGrid     grid_;
     FluidFields   fluid_;
     QTensorFields qtensor_;
     LbmSolver<BC> lbm_;
@@ -96,7 +98,12 @@ class CoupledSim {
 
 public:
     explicit CoupledSim(std::unique_ptr<QTensorSolver<BC>> solver)
-        : qtensor_solver_(std::move(solver))
+        :
+            grid_(LocalGrid::SingleRank()),
+            fluid_(grid_),
+            qtensor_(grid_),
+            qtensor_solver_(std::move(solver)),
+            d_fields_(grid_)
     {
         lbm_.Initialize(fluid_);
         qtensor_solver_->Initialize(qtensor_);
@@ -126,17 +133,30 @@ public:
 
     double TotalMass() {
         SyncToHost();
-        return std::accumulate(fluid_.rho.begin(), fluid_.rho.end(), 0.0);
+        double mass = 0.0;
+        for (int z : std::views::iota(0, nz)) {
+            for (int y : std::views::iota(0, ny)) {
+                for (int x : std::views::iota(0, nx)) {
+                    mass += fluid_.rho[grid_.halo_idx(x, y, z)];
+                }
+            }
+        }
+        return mass;
     }
 
     double KineticEnergy() {
         SyncToHost();
         double ke = 0.0;
-        for (int i : std::views::iota(0, nx*ny*nz)) {
-            ke += 0.5 * fluid_.rho[i] * (fluid_.ux[i]*fluid_.ux[i]
-                                       + fluid_.uy[i]*fluid_.uy[i]
-                                       + fluid_.uz[i]*fluid_.uz[i]);
+        for (int z : std::views::iota(0, nz)) {
+            for (int y : std::views::iota(0, ny)) {
+                for (int x : std::views::iota(0, nx)) {
+                    ke += 0.5 * fluid_.rho[grid_.halo_idx(x, y, z)] * (fluid_.ux[grid_.halo_idx(x, y, z)]*fluid_.ux[grid_.halo_idx(x, y, z)]
+                                       + fluid_.uy[grid_.halo_idx(x, y, z)]*fluid_.uy[grid_.halo_idx(x, y, z)]
+                                       + fluid_.uz[grid_.halo_idx(x, y, z)]*fluid_.uz[grid_.halo_idx(x, y, z)]);
+                }
+            }
         }
+        
         return ke;
     }
 
@@ -150,11 +170,15 @@ public:
     double MaxSpeed() {
         SyncToHost();
         double m = 0.0;
-        for (int i : std::views::iota(0, nx*ny*nz)) {
-            const double s = std::sqrt(fluid_.ux[i]*fluid_.ux[i]
-                                     + fluid_.uy[i]*fluid_.uy[i]
-                                     + fluid_.uz[i]*fluid_.uz[i]);
-            if (s > m) m = s;
+        for (int z : std::views::iota(0, nz)) {
+            for (int y : std::views::iota(0, ny)) {
+                for (int x : std::views::iota(0, nx)) {
+                    const double s = std::sqrt(fluid_.ux[grid_.halo_idx(x, y, z)]*fluid_.ux[grid_.halo_idx(x, y, z)]
+                                     + fluid_.uy[grid_.halo_idx(x, y, z)]*fluid_.uy[grid_.halo_idx(x, y, z)]
+                                     + fluid_.uz[grid_.halo_idx(x, y, z)]*fluid_.uz[grid_.halo_idx(x, y, z)]);
+                    if (s > m) m = s;
+                }
+            }
         }
         return m;
     }
