@@ -156,13 +156,21 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const double Hyy = L * lap_Qyy - ld * Qyy - B * Q2_yy;
     const double Hyz = L * lap_Qyz - ld * Qyz - B * Q2_yz;
     
-    // Add the advective counter part of the back-flow to the body force, H:\nabla Q
+    // Add the advective counter part of the back-flow to the body force, -H:\nabla Q
     // since this does not come from the divergence of the stress tensor.
     // The backflow from the divergence will be added to this by SetActiveStressAndComputeBodyForce
+    //
+    // H:\nabla_k Q sums over all nine index pairs. With H_zz = -(H_xx + H_yy)
+    // and \partial_k Q_zz = -(\partial_k Q_xx + \partial_k Q_yy), the zz pair
+    // expands to H_xx dQ_xx + H_xx dQ_yy + H_yy dQ_xx + H_yy dQ_yy, so
+    //   H:\nabla_k Q = 2(H_xx dQ_xx + H_yy dQ_yy + H_xy dQ_xy + H_xz dQ_xz + H_yz dQ_yz)
+    //                  + H_xx dQ_yy + H_yy dQ_xx
+    // Same contraction pattern as Q:H below and Q:\nabla^2 Q in analysis_fields.cc's
+    // TotalNematicFreeEnergy. Guarded by tests/unit/test_backflow_contraction.cc.
 
-    advective_backflow.x = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) + Hxx*Qyyx + Hyy*Qxxx;
-    advective_backflow.y = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) + Hxx*Qyyy + Hyy*Qxxy;
-    advective_backflow.z = -2.0 * (Hxx*Qxxz + Hxy*Qxyz + Hxz*Qxzz + Hyy*Qyyz + Hyz*Qyzz) + Hxx*Qyyz + Hyy*Qxxz;
+    advective_backflow.x = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) - Hxx*Qyyx - Hyy*Qxxx;
+    advective_backflow.y = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) - Hxx*Qyyy - Hyy*Qxxy;
+    advective_backflow.z = -2.0 * (Hxx*Qxxz + Hxy*Qxyz + Hxz*Qxzz + Hyy*Qyyz + Hyz*Qyzz) - Hxx*Qyyz - Hyy*Qxxz;
 
     // Now, update the nematic stress tensor
 
