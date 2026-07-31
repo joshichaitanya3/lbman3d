@@ -23,6 +23,7 @@ std::string InitializeComputeBackend(const MPIContext& mpi);
 struct DeviceFields {
     // int gpu_id;
     // cudaStream_t stream;
+    LocalGrid grid;
     thrust::device_vector<double> d_f, d_f_new;
     thrust::device_vector<double> d_rho, d_ux, d_uy, d_uz;
     thrust::device_vector<double> d_force_x, d_force_y, d_force_z;
