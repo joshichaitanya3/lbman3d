@@ -19,10 +19,25 @@ void DeviceSolver<BC>::Initialize(DeviceFields& df) {
 
 }
 
+// Launch config sized from the field's LocalGrid, so a future MPI+GPU path
+// (PR VII) can shrink to per-rank local dims without touching kernel code.
+// Named kernel_grid/kernel_block (not grid/block) so the CUDA launch geometry
+// stays visually distinct from LocalGrid / df.grid at every call site.
+static dim3 KernelGrid(const LocalGrid& g) {
+    return dim3{
+        static_cast<unsigned>((g.local_nx + kBlockX - 1) / kBlockX),
+        static_cast<unsigned>((g.local_ny + kBlockY - 1) / kBlockY),
+        static_cast<unsigned>((g.local_nz + kBlockZ - 1) / kBlockZ)
+    };
+}
+
 template<typename BC>
 void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
 
-    GpuQTensorStep<BC><<<grid_, block_>>>(
+    const dim3 kernel_block{kBlockX, kBlockY, kBlockZ};
+    const dim3 kernel_grid = KernelGrid(df.grid);
+
+    GpuQTensorStep<BC><<<kernel_grid, kernel_block>>>(
         df.d_qxx.data().get(),
         df.d_qxy.data().get(),
         df.d_qxz.data().get(),
@@ -43,7 +58,8 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
         df.d_Pxy.data().get(),
         df.d_Pxz.data().get(),
         df.d_Pyy.data().get(),
-        df.d_Pyz.data().get()
+        df.d_Pyz.data().get(),
+        df.grid
     );
     checkCudaErrors(cudaGetLastError());
 
@@ -53,7 +69,7 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
     df.d_qyy.swap(df.d_qyy_new);
     df.d_qyz.swap(df.d_qyz_new);
 
-    GpuComputeBodyForce<BC><<<grid_, block_>>>(
+    GpuComputeBodyForce<BC><<<kernel_grid, kernel_block>>>(
         df.d_qxx.data().get(),
         df.d_qxy.data().get(),
         df.d_qxz.data().get(),
@@ -69,7 +85,8 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
         df.d_Pxy.data().get(),
         df.d_Pxz.data().get(),
         df.d_Pyy.data().get(),
-        df.d_Pyz.data().get()
+        df.d_Pyz.data().get(),
+        df.grid
     );
     checkCudaErrors(cudaGetLastError());
 }
@@ -77,7 +94,10 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
 template<typename BC>
 void DeviceSolver<BC>::LBMStep(DeviceFields& df) {
 
-    GpuCollideAndStream<BC><<<grid_, block_>>>(
+    const dim3 kernel_block{kBlockX, kBlockY, kBlockZ};
+    const dim3 kernel_grid = KernelGrid(df.grid);
+
+    GpuCollideAndStream<BC><<<kernel_grid, kernel_block>>>(
         df.d_f.data().get(),
         df.d_f_new.data().get(),
         df.d_force_x.data().get(),
@@ -86,7 +106,8 @@ void DeviceSolver<BC>::LBMStep(DeviceFields& df) {
         df.d_rho.data().get(),
         df.d_ux.data().get(),
         df.d_uy.data().get(),
-        df.d_uz.data().get()
+        df.d_uz.data().get(),
+        df.grid
     );
     checkCudaErrors(cudaGetLastError());
 
