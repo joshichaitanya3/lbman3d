@@ -17,6 +17,7 @@ tests/
 │   ├── poiseuille/params.h      # 32×16×4, ALPHA=0, tuned TAUF
 │   ├── qtrelax/params.h         # 16×16×16, ALPHA=0, A=0 B=-0.3 C=0.3
 │   ├── bc_check/params.h        # 16×8×8, ALPHA=0
+│   ├── coupled/params.h         # 16×16×16, ALPHA=0, MU=0, DT=0.05 (production DT)
 │   └── active/params.h          # 24×12×12, ALPHA=0.04
 ├── unit/
 │   ├── CMakeLists.txt
@@ -26,13 +27,15 @@ tests/
 │   ├── test_offsets.cc
 │   ├── test_boundary_handler.cc
 │   ├── test_anchored_q.cc
+│   ├── test_backflow_contraction.cc
 │   └── test_idx.cc
 └── integration/
     ├── CMakeLists.txt
     ├── test_poiseuille.cc        # A1: Poiseuille flow
     ├── test_qt_relaxation.cc     # A2: Q-tensor Beris-Edwards relaxation
     ├── test_bc_combinations.cc   # A3: BC wall/anchoring verification
-    └── test_active_mass.cc       # A4: Active nematic mass conservation
+    ├── test_active_mass.cc       # A4: Active nematic mass conservation
+    └── test_coupled_backflow.cc  # A7: coupled Q <-> flow loop (production DT)
 ```
 
 ## The params-shadowing mechanism
@@ -132,6 +135,16 @@ No params needed (only touches `lattice_stencil.h` arrays). Tests:
 - **GradientLinearField**: exact gradient `0.01` for `qxx(x) = 0.01*x` with periodic BC
 - **LaplacianQuadratic**: `∑ 7-point stencil = 2*scale` for `qxx(x) = scale*x²` (stencil exact for degree-2 polynomials)
 
+### `test_backflow_contraction.cc` — `PointwiseStepAndSetupBodyForce` backflow term
+
+Builds its reference from the nine-index-pair definition of `-H:∇Q` (reconstructing the `zz` components from the trace condition) rather than from `model.h`'s grouped algebra, so it cannot be satisfied by copying the implementation.
+
+- **CrossTermSignCounterexample**: with `Q = 0` the molecular field reduces to `L∇²Q`, so `lap_xx = 1/L` gives exactly `H_xx = 1`; a single gradient `∂_x Q_yy = 1` then isolates one cross term. `H_zz = -1`, `∂_x Q_zz = -1` ⇒ `-H:∇_x Q = -1`. A dropped sign on the cross terms returns `+1`.
+- **MirroredCrossTermSignCounterexample**: the mirrored term, `H_yy` against `∂_x Q_xx`
+- **MatchesNineComponentContractionGeneralQ**: nonzero `Q` (so bulk LdG terms contribute to `H`) with all five gradient components nonzero in all three directions; checks all three force components
+- **VanishesForZeroMolecularField**: `H = 0` ⇒ zero backflow regardless of gradients
+- **LinearInGradientsAtFixedH**: scaling `∇Q` at fixed `H` scales the force
+
 ### `test_idx.cc` — index function
 
 - **Uniqueness**: all `nx*ny*nz` values of `idx(x,y,z)` are distinct (fill a `std::set`, check size)
@@ -214,6 +227,29 @@ No params needed (only touches `lattice_stencil.h` arrays). Tests:
 ### A5 (additional): equation of state sanity
 
 After `lbm.Initialize(ff)`, before any steps: `ff.rho[i] ≈ Params::RHO` everywhere and `ff.ux[i] ≈ 0` everywhere. Zero steps needed — tests initialization consistency.
+
+### A7: `test_coupled_backflow.cc` — coupled Q ↔ flow loop
+
+**Purpose**: Exercise the round trip `Q → body force (backflow + passive stress) → flow → advection/co-rotation of Q`. Every other integration test drives exactly one solver (A1 is LBM-only, A2 is Q-only at zero velocity, A3 zeroes the body force via `ZeroActivitySolver`), so nothing else covers the coupling.
+
+**params dir**: `coupled` — the only test running at the production `DT = 0.05`; all others use `DT = 1.0`. `ALPHA = 0`, `MU = 0`, 16³, `FullyPeriodicConfig`.
+
+**Setup**: Construct `FluidFields`, `QTensorFields`, `LbmSolver` and a `DistortedICSolver` subclass (seeds `qxx = 0.33 + noise`, `qyy = -0.15 + noise`, `std::mt19937(42)`). Run both solvers per step in `ActiveNematicSim::Step()` order: Q step then LBM step. Fluid starts at rest, so all flow is backflow-driven.
+
+**Run**: 2000 steps, checkpoint every 100.
+
+**Verification**:
+1. **Mass conservation**: `∑ρ_t / ∑ρ_0 ≈ 1.0` to `1e-10`. Note `∑ρ_0 = nx·ny·nz·kDensity`, *not* `RHO` — `FluidFields` seeds `rho` with `kDensity` (`src/fluid_fields.cc:11`) and `LbmSolver::Initialize` only reads `ff.rho` (`src/lbm_solver.tpp:38`).
+2. **Backflow drives flow**: kinetic energy starts at 0 and becomes nonzero, else the coupling is untested and the rest is vacuous.
+3. **Kinetic energy does not grow after the transient** and **flow decays** (`KE_final/KE_1 < 0.5`). These are the regression guards for the backflow contraction sign — see below.
+4. **Total energy does not grow** / **relaxes over the run**: valid coupled-loop coverage, but *not* sensitive to the backflow sign (see below).
+5. **Stays in the low-Mach regime**: max speed `< 0.1`.
+
+**Why kinetic and not total energy**: measured on this scenario, the nematic free energy changes by O(2.4) over the run while kinetic energy is O(6e-6) — five orders of magnitude smaller — so a total-energy bound cannot resolve injection at the backflow scale, and does in fact pass with a backflow sign error present. Kinetic energy discriminates cleanly: correct sign decays `5.56e-6 → 1.30e-6`; wrong sign is sustained, rising to `7.00e-6` and ending near `6.6e-6`. The pointwise algebra is guarded exactly by `tests/unit/test_backflow_contraction.cc`.
+
+**Do not use `EXPECT_TRUE(std::isfinite(x))` for divergence checks here.** Release sets `-Ofast`, which implies `-ffinite-math-only` and folds `std::isnan`/`std::isfinite` to a constant, so such an assertion silently passes on a diverged run. `EXPECT_NEAR` compares `fabs(a-b) <= tol`, which is false for NaN, so it still fails correctly.
+
+**Expected runtime**: ~4.5 s Debug, ~0.6 s Release.
 
 ### A6 (additional): rotational symmetry of Q-tensor dynamics
 

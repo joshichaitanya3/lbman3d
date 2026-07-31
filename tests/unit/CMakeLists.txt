@@ -7,6 +7,7 @@ add_executable(unit_tests
     test_idx.cc
     test_offsets.cc
     test_anchored_q.cc
+    test_backflow_contraction.cc
     # Add more test files as needed
 )
 

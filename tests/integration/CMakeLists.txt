@@ -35,3 +35,16 @@ target_sources(bc_combinations_test
 )
 
 lbm_add_test(bc_combinations_test bc_check)
+
+add_executable(coupled_backflow_test
+    test_coupled_backflow.cc
+)
+
+target_sources(coupled_backflow_test
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
+    ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
+    ${CMAKE_SOURCE_DIR}/src/analysis_fields.cc
+)
+
+lbm_add_test(coupled_backflow_test coupled)
