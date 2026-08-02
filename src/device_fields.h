@@ -33,11 +33,17 @@ struct DeviceFields {
     thrust::device_vector<double> d_qyy, d_qyy_new;
     thrust::device_vector<double> d_qyz, d_qyz_new;
 
-    thrust::device_vector<double> d_Pxx;
-    thrust::device_vector<double> d_Pxy;
-    thrust::device_vector<double> d_Pxz;
-    thrust::device_vector<double> d_Pyy;
-    thrust::device_vector<double> d_Pyz;
+    thrust::device_vector<double> d_Sigma_xx;
+    thrust::device_vector<double> d_Sigma_xy;
+    thrust::device_vector<double> d_Sigma_xz;
+    thrust::device_vector<double> d_Sigma_yy;
+    thrust::device_vector<double> d_Sigma_yz;
+
+    // Antisymmetric (torque-carrying) part of the nematic stress, upper
+    // triangle only; see QTensorFields::Tau_xy/Tau_xz/Tau_yz
+    thrust::device_vector<double> d_Tau_xy;
+    thrust::device_vector<double> d_Tau_xz;
+    thrust::device_vector<double> d_Tau_yz;
 
     explicit DeviceFields(LocalGrid g = LocalGrid::SingleRank());
 
