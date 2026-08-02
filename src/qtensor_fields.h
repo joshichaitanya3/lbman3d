@@ -12,8 +12,14 @@ struct QTensorFields {
     std::vector<double> qxx, qxy, qxz, qyy, qyz;
     std::vector<double> qxx_new, qxy_new, qxz_new, qyy_new, qyz_new;
 
-    // Nematic stress tensor (active + passive)
-    std::vector<double> Pxx, Pxy, Pxz, Pyy, Pyz;
+    // Nematic stress tensor (active + passive), symmetric-traceless part
+    std::vector<double> Sigma_xx, Sigma_xy, Sigma_xz, Sigma_yy, Sigma_yz;
+
+    // Antisymmetric (torque-carrying) part QH - HQ, upper triangle only:
+    // T_yx = -Tau_xy, T_zx = -Tau_xz, T_zy = -Tau_yz; the diagonal vanishes. Stored
+    // apart from Sigma_xx..Sigma_yz because the row convention f_alpha = d_beta
+    // Pi_alpha,beta needs those lower-triangle signs.
+    std::vector<double> Tau_xy, Tau_xz, Tau_yz;
 
     explicit QTensorFields(LocalGrid g = LocalGrid::SingleRank());
 

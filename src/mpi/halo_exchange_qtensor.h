@@ -19,8 +19,11 @@
 // scalar; the LBM per-population exchange runs in the opposite direction
 // (ghost -> owned) and lives in halo_exchange_lbm.h.
 //
-// Buffer sizing: ExchangePassiveStresses packs the most fields (5 Q + 5 P);
-// kMaxFields=10 covers it. ExchangeQTensor packs 8 (5 Q + 3 velocity).
+// Buffer sizing: ExchangePassiveStresses packs the most fields — 13, being
+// 5 Q +  5 symmetric stress Sigma + 3 antisymmetric stress tau; kMaxFields=13 covers
+// it. ExchangeQTensor packs 8 (5 Q + 3 velocity). Bump kMaxFields whenever a
+// field is added to either exchange: the buffers are sized kMaxFields × face
+// area, so an extra PackField would write past the end.
 struct HaloExchangeQTensor {
     MPI_Comm   cart_comm_;
     int        world_size_;
@@ -32,7 +35,7 @@ struct HaloExchangeQTensor {
     size_t max_yz;
     size_t max_xz;
     size_t max_xy;
-    static constexpr size_t kMaxFields = 10;
+    static constexpr size_t kMaxFields = 13;
 
     explicit HaloExchangeQTensor(LocalGrid g = LocalGrid::SingleRank()) :
         grid_(g)
@@ -186,11 +189,16 @@ struct HaloExchangeQTensor {
             PackField(qf.qxz.data(), fieldIdx++, d);
             PackField(qf.qyy.data(), fieldIdx++, d);
             PackField(qf.qyz.data(), fieldIdx++, d);
-            PackField(qf.Pxx.data(), fieldIdx++, d);
-            PackField(qf.Pxy.data(), fieldIdx++, d);
-            PackField(qf.Pxz.data(), fieldIdx++, d);
-            PackField(qf.Pyy.data(), fieldIdx++, d);
-            PackField(qf.Pyz.data(), fieldIdx++, d);
+            PackField(qf.Sigma_xx.data(), fieldIdx++, d);
+            PackField(qf.Sigma_xy.data(), fieldIdx++, d);
+            PackField(qf.Sigma_xz.data(), fieldIdx++, d);
+            PackField(qf.Sigma_yy.data(), fieldIdx++, d);
+            PackField(qf.Sigma_yz.data(), fieldIdx++, d);
+            // Antisymmetric part: phase 2's PassiveStressDivergence reads it at
+            // neighbours just as it does S, so it needs a valid halo too.
+            PackField(qf.Tau_xy.data(), fieldIdx++, d);
+            PackField(qf.Tau_xz.data(), fieldIdx++, d);
+            PackField(qf.Tau_yz.data(), fieldIdx++, d);
 
             MPI_Irecv(recv_buf_[2*d].data()  , face_size[d], MPI_DOUBLE, neighbor_lo_[d], d+3, cart_comm_, &reqs[n++]);
             MPI_Irecv(recv_buf_[2*d+1].data(), face_size[d], MPI_DOUBLE, neighbor_hi_[d], d  , cart_comm_, &reqs[n++]);
@@ -207,11 +215,14 @@ struct HaloExchangeQTensor {
             UnpackField(qf.qxz.data(), fieldIdx++, d);
             UnpackField(qf.qyy.data(), fieldIdx++, d);
             UnpackField(qf.qyz.data(), fieldIdx++, d);
-            UnpackField(qf.Pxx.data(), fieldIdx++, d);
-            UnpackField(qf.Pxy.data(), fieldIdx++, d);
-            UnpackField(qf.Pxz.data(), fieldIdx++, d);
-            UnpackField(qf.Pyy.data(), fieldIdx++, d);
-            UnpackField(qf.Pyz.data(), fieldIdx++, d);
+            UnpackField(qf.Sigma_xx.data(), fieldIdx++, d);
+            UnpackField(qf.Sigma_xy.data(), fieldIdx++, d);
+            UnpackField(qf.Sigma_xz.data(), fieldIdx++, d);
+            UnpackField(qf.Sigma_yy.data(), fieldIdx++, d);
+            UnpackField(qf.Sigma_yz.data(), fieldIdx++, d);
+            UnpackField(qf.Tau_xy.data(), fieldIdx++, d);
+            UnpackField(qf.Tau_xz.data(), fieldIdx++, d);
+            UnpackField(qf.Tau_yz.data(), fieldIdx++, d);
         }
     }
 };

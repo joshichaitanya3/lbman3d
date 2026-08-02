@@ -26,10 +26,19 @@ struct QStencil {
     GradTensor gradu;
 };
 
+// The nematic stress Pi = Sigma + Tau is returned in two pieces:
+//   sigma — symmetric traceless, Sigma = -(2/3) lambda H - lambda (QH + HQ)
+//   tau   — antisymmetric, Tau = QH - HQ, upper triangle only (no diagonal)
+//
+// Separate because Tau_beta,alpha = -Tau_alpha,beta, which a symmetric 5-slot
+// container cannot represent. The divergence consumes both under the row
+// convention f_alpha = d_beta Pi_alpha,beta (see PassiveStressDivergence in
+// boundary_handler.h).
 inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const QStencil& qs,
     SymTrLessTensor5& q_new,
-    SymTrLessTensor5& passive_stress,
+    SymTrLessTensor5& sigma,
+    AntiSymTensor3& tau,
     Vec3& advective_backflow
 ) {
 
@@ -197,18 +206,25 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const double QHyz = Hxz * Qxy + Hyz * Qyy + (-Hxx - Hyy) * Qyz
                             + Qxz * Hxy + Qyz * Hyy + (-Qxx - Qyy) * Hyz;
     
-    const double Taux_x = 0.0; // Diagonal component of antisymmetric tensor
-    const double Taux_y = (Hxy*Qxx + Hyy*Qxy + Hyz*Qxz) - (Qxy*Hxx + Qyy*Hxy + Qyz*Hxz);
-    const double Taux_z = (Hxz*Qxx + Hyz*Qxy + (-Hxx - Hyy)*Qxz) - (Qxz*Hxx + Qyz*Hxy + (-Qxx - Qyy)*Hxz);
-    const double Tauy_y = 0.0; // Diagonal component of antisymmetric tensor
-    const double Tauy_z = (Hxz*Qxy + Hyz*Qyy + (-Hxx - Hyy)*Qyz) - (Qxz*Hxy + Qyz*Hyy + (-Qxx - Qyy)*Hyz);
+    // Antisymmetric part Tau = QH - HQ. Only the upper triangle is independent:
+    // the diagonal vanishes identically and Tau_yx = -Tau_xy, etc. These are
+    // returned separately from the symmetric part rather than added into it,
+    // since the divergence needs the lower-triangle signs.
+    const double Tau_xy = (Hxy*Qxx + Hyy*Qxy + Hyz*Qxz) - (Qxy*Hxx + Qyy*Hxy + Qyz*Hxz);
+    const double Tau_xz = (Hxz*Qxx + Hyz*Qxy + (-Hxx - Hyy)*Qxz) - (Qxz*Hxx + Qyz*Hxy + (-Qxx - Qyy)*Hxz);
+    const double Tau_yz = (Hxz*Qxy + Hyz*Qyy + (-Hxx - Hyy)*Qyz) - (Qxz*Hxy + Qyz*Hyy + (-Qxx - Qyy)*Hyz);
 
-    // Update nematic stress (passive + active)
-    passive_stress.xx = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx + Taux_x;
-    passive_stress.xy = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy + Taux_y;
-    passive_stress.xz = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz + Taux_z;
-    passive_stress.yy = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy + Tauy_y;
-    passive_stress.yz = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz + Tauy_z;
+    // Symmetric-traceless part of the nematic stress
+    sigma.xx = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx;
+    sigma.xy = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy;
+    sigma.xz = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz;
+    sigma.yy = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy;
+    sigma.yz = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz;
+
+    // Antisymmetric part, kept separate
+    tau.xy = Tau_xy;
+    tau.xz = Tau_xz;
+    tau.yz = Tau_yz;
 
     // Now, we perform the timestep
     q_new.xx = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * Hxx);
@@ -233,7 +249,7 @@ inline CUDA_HOST_DEVICE Vec3 PointwiseSetActiveStressAndComputeBodyForce(
 
     double fx = -ALPHA * (dQxx.dx + dQxy.dy + dQxz.dz) + passive_div.x - MU * u.x;;
     double fy = -ALPHA * (dQxy.dx + dQyy.dy + dQyz.dz) + passive_div.y - MU * u.y;
-    double fz = -ALPHA * (dQxz.dx + dQyz.dy - dQxx.dz - dQyy.dz) + passive_div.z - MU * u.z; // Since Pzz = -(Pxx + Pyy)
+    double fz = -ALPHA * (dQxz.dx + dQyz.dy - dQxx.dz - dQyy.dz) + passive_div.z - MU * u.z; // Since Pzz = -(Sigma_xx + Sigma_yy)
 
     return {fx, fy, fz};
 };
