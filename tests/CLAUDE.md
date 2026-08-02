@@ -28,6 +28,7 @@ tests/
 │   ├── test_boundary_handler.cc
 │   ├── test_anchored_q.cc
 │   ├── test_backflow_contraction.cc
+│   ├── test_antisym_stress.cc
 │   └── test_idx.cc
 └── integration/
     ├── CMakeLists.txt
@@ -144,6 +145,26 @@ Builds its reference from the nine-index-pair definition of `-H:∇Q` (reconstru
 - **MatchesNineComponentContractionGeneralQ**: nonzero `Q` (so bulk LdG terms contribute to `H`) with all five gradient components nonzero in all three directions; checks all three force components
 - **VanishesForZeroMolecularField**: `H = 0` ⇒ zero backflow regardless of gradients
 - **LinearInGradientsAtFixedH**: scaling `∇Q` at fixed `H` scales the force
+
+### `test_antisym_stress.cc` — antisymmetric nematic stress and its divergence
+
+The nematic stress is not symmetric: `Π = Σ + τ` with `Σ = -(2/3)λH - λ(QH + HQ)` and `τ = QH - HQ`. References are built from full 3×3 matrix products, not the code's component-wise algebra.
+
+Pointwise split (`PointwiseStepAndSetupBodyForce`):
+
+- **ReferenceCommutatorIsAntisymmetric**: sanity-checks the reference itself — `QH - HQ` is antisymmetric for any symmetric `Q`, `H`
+- **MatchesCommutator**: the returned `AntiSymTensor3` equals `QH - HQ`
+- **SymmetricPartExcludesCommutator**: `passive_stress` holds *only* `S`; folding `A` in was the original defect. Asserts the fixture's commutator is nonzero so the check has teeth
+- **VanishesWhenQAndHCommute**: diagonal `Q` and `H` commute ⇒ `A ≡ 0`
+
+Divergence signs (`PassiveStressDivergence`, evaluated on synthetic ramps at an interior point so the central difference never straddles the periodic seam):
+
+- **TxzRampAlongXGivesNegativeFz**: `f_z = ∂_x(Σ_xz - τ_xz)` ⇒ `-slope`. This is the failure input named in `GPD/research-map/CONCERNS.md`
+- **TxyRampAlongXGivesNegativeFy**: `f_y = ∂_x(Σ_xy - τ_xy)` ⇒ `-slope`
+- **TxyRampAlongYGivesPositiveFx**: `f_x = ∂_y(Σ_xy + τ_xy)` ⇒ `+slope`. The asymmetry that makes the bug subtle — `f_x` references the upper triangle and was always correct
+- **TyzRampAlongYGivesNegativeFz**: `f_z = ∂_y(Σ_yz - τ_yz)` ⇒ `-slope`
+- **PurelySymmetricStressUnchanged**: with `A = 0` the symmetric path is untouched by the split
+- **TracelessZZTermUnaffected**: `f_z = ∂_z Σ_zz = -∂_z(Σ_xx + Σ_yy)`; `A` has no diagonal
 
 ### `test_idx.cc` — index function
 
