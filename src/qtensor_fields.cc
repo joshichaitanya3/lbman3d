@@ -14,9 +14,12 @@ QTensorFields::QTensorFields(LocalGrid g) :
     qxz_new (g.HaloVolume(), 0.0),
     qyy_new (g.HaloVolume(), 0.0),
     qyz_new (g.HaloVolume(), 0.0),
-    Pxx     (g.HaloVolume(), 0.0),
-    Pxy     (g.HaloVolume(), 0.0),
-    Pxz     (g.HaloVolume(), 0.0),
-    Pyy     (g.HaloVolume(), 0.0),
-    Pyz     (g.HaloVolume(), 0.0)
+    Sigma_xx     (g.HaloVolume(), 0.0),
+    Sigma_xy     (g.HaloVolume(), 0.0),
+    Sigma_xz     (g.HaloVolume(), 0.0),
+    Sigma_yy     (g.HaloVolume(), 0.0),
+    Sigma_yz     (g.HaloVolume(), 0.0),
+    Tau_xy     (g.HaloVolume(), 0.0),
+    Tau_xz     (g.HaloVolume(), 0.0),
+    Tau_yz     (g.HaloVolume(), 0.0)
 {}

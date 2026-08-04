@@ -65,11 +65,14 @@ DeviceFields::DeviceFields(LocalGrid g) :
     d_qyy_new (g.HaloVolume(), 0.0),
     d_qyz     (g.HaloVolume(), 0.0),
     d_qyz_new (g.HaloVolume(), 0.0),
-    d_Pxx     (g.HaloVolume(), 0.0),
-    d_Pxy     (g.HaloVolume(), 0.0),
-    d_Pxz     (g.HaloVolume(), 0.0),
-    d_Pyy     (g.HaloVolume(), 0.0),
-    d_Pyz     (g.HaloVolume(), 0.0)
+    d_Sigma_xx     (g.HaloVolume(), 0.0),
+    d_Sigma_xy     (g.HaloVolume(), 0.0),
+    d_Sigma_xz     (g.HaloVolume(), 0.0),
+    d_Sigma_yy     (g.HaloVolume(), 0.0),
+    d_Sigma_yz     (g.HaloVolume(), 0.0),
+    d_Tau_xy     (g.HaloVolume(), 0.0),
+    d_Tau_xz     (g.HaloVolume(), 0.0),
+    d_Tau_yz     (g.HaloVolume(), 0.0)
 
 {}
 

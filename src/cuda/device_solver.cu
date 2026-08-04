@@ -54,11 +54,14 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
         df.d_force_x.data().get(),
         df.d_force_y.data().get(),
         df.d_force_z.data().get(),
-        df.d_Pxx.data().get(),
-        df.d_Pxy.data().get(),
-        df.d_Pxz.data().get(),
-        df.d_Pyy.data().get(),
-        df.d_Pyz.data().get(),
+        df.d_Sigma_xx.data().get(),
+        df.d_Sigma_xy.data().get(),
+        df.d_Sigma_xz.data().get(),
+        df.d_Sigma_yy.data().get(),
+        df.d_Sigma_yz.data().get(),
+        df.d_Tau_xy.data().get(),
+        df.d_Tau_xz.data().get(),
+        df.d_Tau_yz.data().get(),
         df.grid
     );
     checkCudaErrors(cudaGetLastError());
@@ -81,11 +84,14 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
         df.d_force_x.data().get(),
         df.d_force_y.data().get(),
         df.d_force_z.data().get(),
-        df.d_Pxx.data().get(),
-        df.d_Pxy.data().get(),
-        df.d_Pxz.data().get(),
-        df.d_Pyy.data().get(),
-        df.d_Pyz.data().get(),
+        df.d_Sigma_xx.data().get(),
+        df.d_Sigma_xy.data().get(),
+        df.d_Sigma_xz.data().get(),
+        df.d_Sigma_yy.data().get(),
+        df.d_Sigma_yz.data().get(),
+        df.d_Tau_xy.data().get(),
+        df.d_Tau_xz.data().get(),
+        df.d_Tau_yz.data().get(),
         df.grid
     );
     checkCudaErrors(cudaGetLastError());

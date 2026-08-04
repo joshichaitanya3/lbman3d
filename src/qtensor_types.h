@@ -13,6 +13,15 @@ enum class QComp { XX, XY, XZ, YY, YZ };
 
 struct SymTrLessTensor5 { double xx, xy, xz, yy, yz; };
 
+// Antisymmetric 3x3 tensor, stored as its three independent components.
+// The diagonal vanishes and the lower triangle is minus the upper:
+//   τ_yx = -τ_xy,  τ_zx = -τ_xz,  τ_zy = -τ_yz.
+//
+// Carries the torque-carrying part of the nematic stress, tau = QH - HQ.
+// Distinct from SymTrLessTensor5 because that container has no representation
+// for the lower triangle, which the stress divergence reads.
+struct AntiSymTensor3 { double xy, xz, yz; };
+
 struct QDerivs { double dx, dy, dz, lap; };
 
 template<QComp C>

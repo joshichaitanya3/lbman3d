@@ -8,6 +8,7 @@ add_executable(unit_tests
     test_offsets.cc
     test_anchored_q.cc
     test_backflow_contraction.cc
+    test_antisym_stress.cc
     # Add more test files as needed
 )
 

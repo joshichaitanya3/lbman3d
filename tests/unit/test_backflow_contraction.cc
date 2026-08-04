@@ -75,9 +75,10 @@ Vec3 CodeBackflow(const SymTrLess5& Q, const SymTrLess5& lap,
     qs.gradu = GradTensor{ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
 
     SymTrLessTensor5 q_new{};
-    SymTrLessTensor5 passive_stress{};
+    SymTrLessTensor5 sigma{};
+    AntiSymTensor3 tau{};
     Vec3 backflow{};
-    PointwiseStepAndSetupBodyForce(qs, q_new, passive_stress, backflow);
+    PointwiseStepAndSetupBodyForce(qs, q_new, sigma, tau, backflow);
     return backflow;
 }
 

@@ -67,13 +67,15 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
             Q, u, dQxx, dQxy, dQxz, dQyy, dQyz, nabla_u
         };
         
-        SymTrLessTensor5 q_new, passive_stress;
+        SymTrLessTensor5 q_new, sigma;
+        AntiSymTensor3 tau;
         Vec3 advective_backflow;
-        
+
         PointwiseStepAndSetupBodyForce(
             qs,
             q_new,
-            passive_stress,
+            sigma,
+            tau,
             advective_backflow
         );
         
@@ -86,12 +88,19 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
         ff.fz[idxp] = advective_backflow.z;
 
 
-        // Update nematic stress (passive + active)
-        qf.Pxx[idxp] = passive_stress.xx;
-        qf.Pxy[idxp] = passive_stress.xy;
-        qf.Pxz[idxp] = passive_stress.xz;
-        qf.Pyy[idxp] = passive_stress.yy;
-        qf.Pyz[idxp] = passive_stress.yz;
+        // Update nematic stress (passive + active), symmetric-traceless part
+        qf.Sigma_xx[idxp] = sigma.xx;
+        qf.Sigma_xy[idxp] = sigma.xy;
+        qf.Sigma_xz[idxp] = sigma.xz;
+        qf.Sigma_yy[idxp] = sigma.yy;
+        qf.Sigma_yz[idxp] = sigma.yz;
+
+        // Antisymmetric (torque-carrying) part, stored separately so the
+        // divergence in SetActiveStressAndComputeBodyForce can apply
+        // A_beta,alpha = -A_alpha,beta
+        qf.Tau_xy[idxp] = tau.xy;
+        qf.Tau_xz[idxp] = tau.xz;
+        qf.Tau_yz[idxp] = tau.yz;
 
         // Now, we perform the timestep
 
@@ -145,11 +154,14 @@ void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, cons
         const QDerivs dQyz = QGradientAndLaplacian<QComp::YZ, BC>(qf.qyz.data(), x, y, z, g);
 
         const Vec3 passive_div = PassiveStressDivergence<BC>(
-            qf.Pxx.data(),
-            qf.Pxy.data(),
-            qf.Pxz.data(),
-            qf.Pyy.data(),
-            qf.Pyz.data(),
+            qf.Sigma_xx.data(),
+            qf.Sigma_xy.data(),
+            qf.Sigma_xz.data(),
+            qf.Sigma_yy.data(),
+            qf.Sigma_yz.data(),
+            qf.Tau_xy.data(),
+            qf.Tau_xz.data(),
+            qf.Tau_yz.data(),
             x,
             y,
             z,
@@ -196,7 +208,7 @@ void QTensorSolver<BC>::SetActiveStressAndComputeBodyForce(FluidFields& ff, cons
 // so a full barrier between them is load-bearing.
 //
 // Loop 2 and Loop 3 (LbmSolver::LatticeBoltzmannStep) CAN be merged.
-// Loop 2 writes ff.fx/fy/fz; Loop 3 reads them. Both loops read qf.qxx/Pxx at
+// Loop 2 writes ff.fx/fy/fz; Loop 3 reads them. Both loops read qf.qxx/Sigma_xx at
 // neighbor nodes (written only by Loop 1, untouched after that). The per-node
 // ordering "compute force, then collide/stream" is correct since ff.ux used for
 // friction is the previous step's velocity — still present when Loop 2 runs.

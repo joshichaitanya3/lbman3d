@@ -136,11 +136,14 @@ __global__ void GpuQTensorStep(
     double* force_x,
     double* force_y,
     double* force_z,
-    double* Pxx,
-    double* Pxy,
-    double* Pxz,
-    double* Pyy,
-    double* Pyz,
+    double* Sigma_xx,
+    double* Sigma_xy,
+    double* Sigma_xz,
+    double* Sigma_yy,
+    double* Sigma_yz,
+    double* Tau_xy,
+    double* Tau_xz,
+    double* Tau_yz,
     LocalGrid g
 ) {
     const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -177,16 +180,18 @@ __global__ void GpuQTensorStep(
             Q, u, dQxx, dQxy, dQxz, dQyy, dQyz, nabla_u
         };
         
-    SymTrLessTensor5 q_new, passive_stress;
+    SymTrLessTensor5 q_new, sigma;
+    AntiSymTensor3 tau;
     Vec3 advective_backflow;
-    
+
     PointwiseStepAndSetupBodyForce(
         qs,
         q_new,
-        passive_stress,
+        sigma,
+        tau,
         advective_backflow
     );
-    
+
 
     qxx_new[gid] = q_new.xx;
     qxy_new[gid] = q_new.xy;
@@ -194,11 +199,17 @@ __global__ void GpuQTensorStep(
     qyy_new[gid] = q_new.yy;
     qyz_new[gid] = q_new.yz;
 
-    Pxx[gid] = passive_stress.xx;
-    Pxy[gid] = passive_stress.xy;
-    Pxz[gid] = passive_stress.xz;
-    Pyy[gid] = passive_stress.yy;
-    Pyz[gid] = passive_stress.yz;
+    Sigma_xx[gid] = sigma.xx;
+    Sigma_xy[gid] = sigma.xy;
+    Sigma_xz[gid] = sigma.xz;
+    Sigma_yy[gid] = sigma.yy;
+    Sigma_yz[gid] = sigma.yz;
+
+    // Antisymmetric (torque-carrying) part, kept separate so the divergence in
+    // GpuComputeBodyForce can apply A_beta,alpha = -A_alpha,beta
+    Tau_xy[gid] = tau.xy;
+    Tau_xz[gid] = tau.xz;
+    Tau_yz[gid] = tau.yz;
 
     force_x[gid] = advective_backflow.x;
     force_y[gid] = advective_backflow.y;
@@ -219,11 +230,14 @@ __global__ void GpuComputeBodyForce(
     double* force_x,
     double* force_y,
     double* force_z,
-    double* Pxx,
-    double* Pxy,
-    double* Pxz,
-    double* Pyy,
-    double* Pyz,
+    double* Sigma_xx,
+    double* Sigma_xy,
+    double* Sigma_xz,
+    double* Sigma_yy,
+    double* Sigma_yz,
+    double* Tau_xy,
+    double* Tau_xz,
+    double* Tau_yz,
     LocalGrid g
 ) {
     const int x = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
@@ -240,11 +254,14 @@ __global__ void GpuComputeBodyForce(
     const QDerivs dQyz = QGradientAndLaplacian<QComp::YZ, BC>(qyz, x, y, z, g);
 
     const Vec3 passive_div = PassiveStressDivergence<BC>(
-        Pxx,
-        Pxy,
-        Pxz,
-        Pyy,
-        Pyz,
+        Sigma_xx,
+        Sigma_xy,
+        Sigma_xz,
+        Sigma_yy,
+        Sigma_yz,
+        Tau_xy,
+        Tau_xz,
+        Tau_yz,
         x,
         y,
         z,

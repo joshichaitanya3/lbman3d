@@ -105,8 +105,10 @@ TEST(HaloExchangeQTensor, PackYZMultipleFields) {
 TEST(HaloExchangeQTensor, BufferSizes) {
     MPIContext mpi;
     HaloExchangeQTensor halo(mpi.MakeLocalGrid(), mpi);
-    // ExchangePassiveStresses is the widest pack (10 fields per face).
+    // ExchangePassiveStresses is the widest pack: 13 fields per face
+    // (5 Q + 5 symmetric stress S + 3 antisymmetric stress tau).
     constexpr size_t nf = HaloExchangeQTensor::kMaxFields;
+    static_assert(nf >= 13, "buffers must cover ExchangePassiveStresses' 13 fields");
     EXPECT_EQ(halo.send_buf_[0].size(), nf * halo.max_yz);
     EXPECT_EQ(halo.send_buf_[2].size(), nf * halo.max_xz);
     EXPECT_EQ(halo.send_buf_[4].size(), nf * halo.max_xy);

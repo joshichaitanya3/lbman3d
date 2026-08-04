@@ -15,15 +15,18 @@ using namespace Params;
 // ─────────────────────────────────────────────────────────────────────────────
 // Boundary-condition dispatch for both velocity and Q: stream-destination
 // index offsets, wall-value extraction, ghost-VALUE construction for
-// gradients/Laplacians (velocity's ∇u and Q's own ∇Q/∇²Q — NOT the passive
-// stress P's gradient, which stays on offsets.h's Neumann-only clamp; P has
-// no prescribed wall target to build a Dirichlet ghost from), and
+// gradients/Laplacians (velocity's ∇u and Q's own ∇Q/∇²Q — NOT the nematic
+// stress gradient, which stays on offsets.h's Neumann-only clamp; neither the
+// symmetric part Sigma nor the antisymmetric part tau has a prescribed wall target
+// to build a Dirichlet ghost from), and
 // post-collision boundary reconstruction. Stateless, host/device-shared
 // (CUDA_HOST_DEVICE) free functions/templates.
 //
 // This is the counterpart to offsets.h's QXoff/QYoff/QZoff, which remains
 // the right tool for anything that only ever needs Neumann's zero-gradient
-// clamp (P's gradient, still using it as-is). Velocity's ghost and Q's own
+// clamp (the Sigma and Tau gradients in PassiveStressDivergence below, still using
+// it as-is — see offsets.h for the Anchoring-wall limitation that carries).
+// Velocity's ghost and Q's own
 // Anchoring ghost both genuinely depend on the specific wall type (NoSlip
 // vs MovingWall vs SpecularReflection; Neumann vs Anchoring<S,θ,φ>), so
 // neither collapses into a single reusable index the way the Neumann-only
@@ -311,13 +314,29 @@ inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, in
     };
 }
 
+// Divergence of the nematic stress under the row convention
+//
+//     f_alpha = d_beta Pi_alpha,beta
+//
+// Pi splits into a symmetric-traceless part Sigma (sigma_xx..sigma_yz, with
+// Σ_zz = -(Σ_xx + Σ_yy)) and an antisymmetric part tau (tau_xy/tau_xz/tau_yz, upper
+// triangle only). Since tau_beta,alpha = -tau_alpha,beta, the lower-triangle
+// entries fy and fz reference carry the opposite sign to the upper-triangle ones
+// fx references:
+//
+//     f_x = d_x Σ_xx          + d_y(Σ_xy + τ_xy) + d_z(Σ_xz + τ_xz)
+//     f_y = d_x(Σ_xy - τ_xy)  + d_y Σ_yy         + d_z(Σ_yz + τ_yz)
+//     f_z = d_x(Σ_xz - τ_xz)  + d_y(Σ_yz - τ_yz) + d_z Σ_zz
 template<typename BCConfig>
 inline CUDA_HOST_DEVICE Vec3 PassiveStressDivergence(
-    const double* pxx,
-    const double* pxy,
-    const double* pxz,
-    const double* pyy,
-    const double* pyz,
+    const double* sigma_xx,
+    const double* sigma_xy,
+    const double* sigma_xz,
+    const double* sigma_yy,
+    const double* sigma_yz,
+    const double* tau_xy,
+    const double* tau_xz,
+    const double* tau_yz,
     const int x,
     const int y,
     const int z,
@@ -331,20 +350,39 @@ inline CUDA_HOST_DEVICE Vec3 PassiveStressDivergence(
     const int zm = QZoff<BCConfig>(z, -1);
     const int zp = QZoff<BCConfig>(z, +1);
 
-    // Now, add the passive stress and friction
-    double fx = ((pxx[g.halo_idx(xp, y, z)] - pxx[g.halo_idx(xm, y, z)])/2.0
-                        + (pxy[g.halo_idx(x, yp, z)] - pxy[g.halo_idx(x, ym, z)])/2.0
-                        + (pxz[g.halo_idx(x, y, zp)] - pxz[g.halo_idx(x, y, zm)])/2.0);
+    // Central differences of each stress component along each axis
+    const double dx_Sigma_xx = (sigma_xx[g.halo_idx(xp, y, z)] - sigma_xx[g.halo_idx(xm, y, z)]) / 2.0;
+    const double dx_Sigma_xy = (sigma_xy[g.halo_idx(xp, y, z)] - sigma_xy[g.halo_idx(xm, y, z)]) / 2.0;
+    const double dx_Sigma_xz = (sigma_xz[g.halo_idx(xp, y, z)] - sigma_xz[g.halo_idx(xm, y, z)]) / 2.0;
+    const double dx_Tau_xy = (tau_xy[g.halo_idx(xp, y, z)] - tau_xy[g.halo_idx(xm, y, z)]) / 2.0;
+    const double dx_Tau_xz = (tau_xz[g.halo_idx(xp, y, z)] - tau_xz[g.halo_idx(xm, y, z)]) / 2.0;
 
-    double fy = ((pxy[g.halo_idx(xp, y, z)] - pxy[g.halo_idx(xm, y, z)])/2.0
-                        + (pyy[g.halo_idx(x, yp, z)] - pyy[g.halo_idx(x, ym, z)])/2.0
-                        + (pyz[g.halo_idx(x, y, zp)] - pyz[g.halo_idx(x, y, zm)])/2.0);
+    const double dy_Sigma_xy = (sigma_xy[g.halo_idx(x, yp, z)] - sigma_xy[g.halo_idx(x, ym, z)]) / 2.0;
+    const double dy_Sigma_yy = (sigma_yy[g.halo_idx(x, yp, z)] - sigma_yy[g.halo_idx(x, ym, z)]) / 2.0;
+    const double dy_Sigma_yz = (sigma_yz[g.halo_idx(x, yp, z)] - sigma_yz[g.halo_idx(x, ym, z)]) / 2.0;
+    const double dy_Tau_xy = (tau_xy[g.halo_idx(x, yp, z)] - tau_xy[g.halo_idx(x, ym, z)]) / 2.0;
+    const double dy_Tau_yz = (tau_yz[g.halo_idx(x, yp, z)] - tau_yz[g.halo_idx(x, ym, z)]) / 2.0;
 
-    double fz = ((pxz[g.halo_idx(xp, y, z)] - pxz[g.halo_idx(xm, y, z)])/2.0
-                        + (pyz[g.halo_idx(x, yp, z)] - pyz[g.halo_idx(x, ym, z)])/2.0
-                        - (pxx[g.halo_idx(x, y, zp)] - pxx[g.halo_idx(x, y, zm)])/2.0
-                        - (pyy[g.halo_idx(x, y, zp)] - pyy[g.halo_idx(x, y, zm)])/2.0); // Since Pzz = -(Pxx + Pyy)
-    
+    const double dz_Sigma_xz = (sigma_xz[g.halo_idx(x, y, zp)] - sigma_xz[g.halo_idx(x, y, zm)]) / 2.0;
+    const double dz_Sigma_yz = (sigma_yz[g.halo_idx(x, y, zp)] - sigma_yz[g.halo_idx(x, y, zm)]) / 2.0;
+    const double dz_Tau_xz = (tau_xz[g.halo_idx(x, y, zp)] - tau_xz[g.halo_idx(x, y, zm)]) / 2.0;
+    const double dz_Tau_yz = (tau_yz[g.halo_idx(x, y, zp)] - tau_yz[g.halo_idx(x, y, zm)]) / 2.0;
+    // Σ_zz = -(Σ_xx + Σ_yy); τ has no diagonal, so it does not enter here.
+    const double dz_Sigma_zz = -((sigma_xx[g.halo_idx(x, y, zp)] - sigma_xx[g.halo_idx(x, y, zm)]) / 2.0
+                          + (sigma_yy[g.halo_idx(x, y, zp)] - sigma_yy[g.halo_idx(x, y, zm)]) / 2.0);
+
+    const double fx = dx_Sigma_xx
+                    + (dy_Sigma_xy + dy_Tau_xy)
+                    + (dz_Sigma_xz + dz_Tau_xz);
+
+    const double fy = (dx_Sigma_xy - dx_Tau_xy)
+                    + dy_Sigma_yy
+                    + (dz_Sigma_yz + dz_Tau_yz);
+
+    const double fz = (dx_Sigma_xz - dx_Tau_xz)
+                    + (dy_Sigma_yz - dy_Tau_yz)
+                    + dz_Sigma_zz;
+
     return {fx, fy, fz};
 }
 // Post-collision boundary handling for a single out-of-domain stream. Writes
