@@ -132,9 +132,13 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
     if (MPIContext::IsRoot()) {
         compat::println(
             log_file_,
+            // Nematic Energy is logged separately as well as inside Total
+            // Energy: with ALPHA=0 it should decrease monotonically on its own,
+            // which is unreadable from the ke+nematic sum. Appended last so
+            // monitor.py's (unanchored) parser keeps working unchanged.
             "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, "
             "Kinetic Energy: {}, Total Energy: {}, Relative Error: {}, "
-            "NumDisclinations: {}",
+            "NumDisclinations: {}, Nematic Energy: {}",
             time_step,
             global_mass,
             global_px,
@@ -143,7 +147,8 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
             global_ke,
             global_te,
             global_e1/global_e2,
-            global_num_disclinations
+            global_num_disclinations,
+            global_te - global_ke
         );
         std::flush(log_file_);
     }

@@ -17,7 +17,7 @@ tests/
 │   ├── poiseuille/params.h      # 32×16×4, ALPHA=0, tuned TAUF
 │   ├── qtrelax/params.h         # 16×16×16, ALPHA=0, A=0 B=-0.3 C=0.3
 │   ├── bc_check/params.h        # 16×8×8, ALPHA=0
-│   ├── coupled/params.h         # 16×16×16, ALPHA=0, MU=0, DT=0.05 (production DT)
+│   ├── coupled/params.h         # 16×16×16, ALPHA=0, MU=0, DT=1.0
 │   └── active/params.h          # 24×12×12, ALPHA=0.04
 ├── unit/
 │   ├── CMakeLists.txt
@@ -36,7 +36,7 @@ tests/
     ├── test_qt_relaxation.cc     # A2: Q-tensor Beris-Edwards relaxation
     ├── test_bc_combinations.cc   # A3: BC wall/anchoring verification
     ├── test_active_mass.cc       # A4: Active nematic mass conservation
-    └── test_coupled_backflow.cc  # A7: coupled Q <-> flow loop (production DT)
+    └── test_coupled_backflow.cc  # A7: coupled Q <-> flow loop
 ```
 
 ## The params-shadowing mechanism
@@ -253,7 +253,7 @@ After `lbm.Initialize(ff)`, before any steps: `ff.rho[i] ≈ Params::RHO` everyw
 
 **Purpose**: Exercise the round trip `Q → body force (backflow + passive stress) → flow → advection/co-rotation of Q`. Every other integration test drives exactly one solver (A1 is LBM-only, A2 is Q-only at zero velocity, A3 zeroes the body force via `ZeroActivitySolver`), so nothing else covers the coupling.
 
-**params dir**: `coupled` — the only test running at the production `DT = 0.05`; all others use `DT = 1.0`. `ALPHA = 0`, `MU = 0`, 16³, `FullyPeriodicConfig`.
+**params dir**: `coupled` — `DT = 1.0` (matching production and every other test), `ALPHA = 0`, `MU = 0`, 16³, `FullyPeriodicConfig`.
 
 **Setup**: Construct `FluidFields`, `QTensorFields`, `LbmSolver` and a `DistortedICSolver` subclass (seeds `qxx = 0.33 + noise`, `qyy = -0.15 + noise`, `std::mt19937(42)`). Run both solvers per step in `ActiveNematicSim::Step()` order: Q step then LBM step. Fluid starts at rest, so all flow is backflow-driven.
 
@@ -262,13 +262,16 @@ After `lbm.Initialize(ff)`, before any steps: `ff.rho[i] ≈ Params::RHO` everyw
 **Verification**:
 1. **Mass conservation**: `∑ρ_t / ∑ρ_0 ≈ 1.0` to `1e-10`. Note `∑ρ_0 = nx·ny·nz·kDensity`, *not* `RHO` — `FluidFields` seeds `rho` with `kDensity` (`src/fluid_fields.cc:11`) and `LbmSolver::Initialize` only reads `ff.rho` (`src/lbm_solver.tpp:38`).
 2. **Backflow drives flow**: kinetic energy starts at 0 and becomes nonzero, else the coupling is untested and the rest is vacuous.
-3. **Kinetic energy does not grow after the transient** and **flow decays** (`KE_final/KE_1 < 0.5`). These are the regression guards for the backflow contraction sign — see below.
-4. **Total energy does not grow** / **relaxes over the run**: valid coupled-loop coverage, but *not* sensitive to the backflow sign (see below).
-5. **Stays in the low-Mach regime**: max speed `< 0.1`.
+3. **Relaxes to quiescence** (`KE_final/KE_peak < 1e-3`). This is the integration-level regression guard for the backflow contraction sign — see below.
+4. **Kinetic energy does not grow after the transient**: valid physics, but at `DT = 1.0` it does *not* discriminate the sign (both signs peak at the first checkpoint).
+5. **Total energy does not grow** / **relaxes over the run**: coupled-loop coverage, not sensitive to the backflow sign.
+6. **Stays in the low-Mach regime**: max speed `< 0.1`.
 
-**Why kinetic and not total energy**: measured on this scenario, the nematic free energy changes by O(2.4) over the run while kinetic energy is O(6e-6) — five orders of magnitude smaller — so a total-energy bound cannot resolve injection at the backflow scale, and does in fact pass with a backflow sign error present. Kinetic energy discriminates cleanly: correct sign decays `5.56e-6 → 1.30e-6`; wrong sign is sustained, rising to `7.00e-6` and ending near `6.6e-6`. The pointwise algebra is guarded exactly by `tests/unit/test_backflow_contraction.cc`.
+**Why the late-time residual, not the total energy or the growth**: the nematic free energy changes by O(2.4) over the run while kinetic energy is O(1e-6) — six orders of magnitude smaller — so a total-energy bound cannot resolve injection at the backflow scale and does pass with the sign error present. The *growth* bound also fails to discriminate at `DT = 1.0`. What does discriminate is quiescence: measured, the correct sign settles at `KE_final/KE_peak = 5.5e-4`, the sign error at `1.9e-3` (3.5× more residual, flat from checkpoint 50 on). The `1e-3` threshold is the geometric midpoint, clearing both by ~1.8×; it is calibrated, not derived, so re-measure if `DT`, `GAMMA`, `L` or the grid changes. The pointwise algebra is guarded exactly and DT-independently by `tests/unit/test_backflow_contraction.cc`.
 
-**Do not use `EXPECT_TRUE(std::isfinite(x))` for divergence checks here.** Release sets `-Ofast`, which implies `-ffinite-math-only` and folds `std::isnan`/`std::isfinite` to a constant, so such an assertion silently passes on a diverged run. `EXPECT_NEAR` compares `fabs(a-b) <= tol`, which is false for NaN, so it still fails correctly.
+Sampling is every 10 steps (not 100) so the early peak is captured; the discriminating signal is in the residual, but the peak sets its normalisation.
+
+**Prefer `EXPECT_NEAR` over `EXPECT_TRUE(std::isfinite(x))` for divergence checks.** Release now uses `-O3`, which keeps `std::isnan`/`std::isfinite` as real tests, so an `isfinite` assertion works again. It was inert under the previous `-Ofast` (which implies `-ffinite-math-only` and folds them to a constant), and would silently pass on a diverged run — so `EXPECT_NEAR`, whose `fabs(a-b) <= tol` comparison is false for NaN, remains the more robust choice and is what this file uses. Do not reintroduce `-Ofast` without `-fno-finite-math-only`.
 
 **Expected runtime**: ~4.5 s Debug, ~0.6 s Release.
 
@@ -298,7 +301,7 @@ Key steps: install `cmake ninja-build g++ libhdf5-dev libomp-dev`, configure wit
 
 ### `.github/workflows/integration-tests.yml`
 
-Triggers on PRs into `main`. Uses `Release` build (`-Ofast`) so multi-thousand-step tests run fast.
+Triggers on PRs into `main`. Uses `Release` build (`-O3`) so multi-thousand-step tests run fast.
 
 ```yaml
 on:

@@ -9,12 +9,14 @@ add_executable(unit_tests
     test_anchored_q.cc
     test_backflow_contraction.cc
     test_antisym_stress.cc
+    test_qtensor_init.cc
     # Add more test files as needed
 )
 
 target_sources(unit_tests
     PRIVATE
     ${CMAKE_SOURCE_DIR}/src/analysis_fields.cc
+    ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc   # QTensorFields ctor, for Initialize()
 )
 
 lbm_add_test(unit_tests unit)

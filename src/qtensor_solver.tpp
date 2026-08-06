@@ -16,15 +16,31 @@ void QTensorSolver<BC>::Initialize(QTensorFields& qf) const {
     std::mt19937 gen(rd());
     std::uniform_real_distribution<double> noise_dist(-NOISE, NOISE);
 
+    // Uniform director along z at the bulk equilibrium order parameter: for
+    // Q = S(nn - I/3) with n = z_hat, Q = diag(-S/3, -S/3, 2S/3), so both
+    // stored diagonal components are -S/3 and the implicit
+    // qzz = -(qxx + qyy) = 2S/3 carries the alignment.
+    //
+    // z is chosen because it is a periodic direction in the slit configs, whose
+    // confined axis is x (see sim_config.h). Aligning the director along the
+    // confined axis instead would fight the walls from step zero.
+    //
+    // Deriving S from the Landau coefficients keeps the start state at a fixed
+    // point of the bulk dynamics for any A/B/C, so the run begins with no bulk
+    // relaxation transient.
+    const double s_eq  = EquilibriumScalarOrder();
+    const double qxx_0 = -s_eq / 3.0;
+    const double qyy_0 = -s_eq / 3.0;
+
     const LocalGrid& g = qf.grid;
     for (int z : std::views::iota(0, g.local_nz)) {
         for (int y : std::views::iota(0, g.local_ny)) {
             for (int x : std::views::iota(0, g.local_nx)) {
                 const int idxp = g.halo_idx(x, y, z);
-                qf.qxx[idxp] = 0.66 + noise_dist(gen);
+                qf.qxx[idxp] = qxx_0 + noise_dist(gen);
                 qf.qxy[idxp] = noise_dist(gen);
                 qf.qxz[idxp] = noise_dist(gen);
-                qf.qyy[idxp] = -0.33 + noise_dist(gen);
+                qf.qyy[idxp] = qyy_0 + noise_dist(gen);
                 qf.qyz[idxp] = noise_dist(gen);
             }
         }

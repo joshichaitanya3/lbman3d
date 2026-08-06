@@ -38,7 +38,7 @@ DATA_DIR   = './data'
 OUTPUT_DIR = os.path.join(DATA_DIR, 'frames')
 
 # Physical dimensions (must match what was passed to VTKHDF3DNematicWriter)
-NX, NY, NZ = 64, 32, 32
+NX, NY, NZ = 20, 100, 100
 LX, LY, LZ = NX, NY, NZ
 ORIGIN      = (0.0, 0.0, 0.0)
 

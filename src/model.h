@@ -6,6 +6,8 @@
 #include "physics_helpers.h"
 #include "boundary_handler.h"
 
+#include <cmath>
+
 #ifndef CUDA_HOST_DEVICE
 #ifdef __CUDACC__
 #define CUDA_HOST_DEVICE __host__ __device__
@@ -15,6 +17,23 @@
 #endif
 
 using namespace Params;
+
+// Equilibrium scalar order parameter of the Landau-de Gennes bulk free energy:
+// the S at which the bulk part of the molecular field H vanishes on the uniaxial
+// family Q = S (nn - I/3).
+//
+// Substituting Q = diag(2S/3, -S/3, -S/3) into the bulk terms of H below,
+// -(A + C TrQ^2) Q - B [Q^2]_traceless, gives TrQ^2 = (2/3)S^2 and
+// [Q^2]_traceless,xx = (2/9)S^2, so
+//
+//     H_xx = -(4/9) C S^3 - (2/9) B S^2 = 0   ->   2 C S^2 + B S + 3 A = 0
+//
+// whose ordered (+) root is the value below. With A = 0 it reduces to -B/(2C).
+//
+// Host-only: this is initialisation/analysis, never called from a kernel.
+inline double EquilibriumScalarOrder() {
+    return (-B + std::sqrt(B * B - 24.0 * A * C)) / (4.0 * C);
+}
 
 // In model.h — CUDA_HOST_DEVICE throughout
 struct QStencil {

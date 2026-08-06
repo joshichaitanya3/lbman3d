@@ -34,21 +34,21 @@
  * flow through the backflow force -H:grad Q; viscous and rotational dissipation
  * drain both reservoirs.
  *
- * The observable that actually discriminates a backflow sign error is the
- * KINETIC energy, not the total. Measured on this scenario, the nematic free
- * energy changes by O(2.4) over the run while the kinetic energy is O(6e-6) --
- * five orders of magnitude smaller -- so a total-energy bound cannot resolve
- * injection at the backflow scale, and indeed passes with the sign error
- * present. What does discriminate: with the correct sign the flow decays
- * (5.56e-6 -> 1.30e-6), while with the wrong sign backflow keeps pumping and
- * the flow is sustained, rising to 7.00e-6 and ending near 6.6e-6.
+ * The observable that discriminates a backflow sign error is the KINETIC energy,
+ * not the total. Measured on this scenario, the nematic free energy changes by
+ * O(2.4) over the run while the kinetic energy is O(1e-6) -- six orders of
+ * magnitude smaller -- so a total-energy bound cannot resolve injection at the
+ * backflow scale, and indeed passes with the sign error present.
  *
- * So the total-energy assertions here are coupled-loop coverage, and
- * KineticEnergyDoesNotGrowAfterTransient / FlowDecaysInPassiveSystem are the
- * regression guards. The pointwise algebra is guarded separately and exactly by
+ * Specifically it is the LATE-TIME RESIDUAL that discriminates, not the growth:
+ * at DT = 1.0 both the correct and incorrect sign peak at the first checkpoint,
+ * but the correct sign relaxes to KE_final/KE_peak = 5.5e-4 while the sign error
+ * sustains 1.9e-3. RelaxesToQuiescence is therefore the integration-level guard;
+ * the total-energy assertions are coupled-loop coverage only. The pointwise
+ * algebra is guarded exactly, and DT-independently, by
  * tests/unit/test_backflow_contraction.cc.
  *
- * Runs at the production DT = 0.05 (see tests/params/coupled/params.h).
+ * Runs at DT = 1.0, matching production (see tests/params/coupled/params.h).
  *
  * Note on NaN checking: this file deliberately does NOT use
  * EXPECT_TRUE(std::isfinite(x)). The Release build sets -Ofast, which implies
@@ -187,7 +187,7 @@ public:
 };
 
 constexpr int kSteps = 2000;
-constexpr int kCheckEvery = 100;
+constexpr int kCheckEvery = 10;
 constexpr int kCheckpoints = kSteps / kCheckEvery;
 
 } // namespace
@@ -247,17 +247,16 @@ TEST_F(CoupledBackflow, BackflowDrivesFlow) {
         << "backflow never transferred energy into the flow; coupling untested";
 }
 
-// Decisive regression guard for the backflow contraction sign.
-//
 // Past the startup transient, a passive nematic (ALPHA = 0, MU = 0) with no
-// external forcing cannot gain kinetic energy: the elastic reservoir is
-// draining and viscosity dissipates what reaches the flow. A backflow force
-// with the wrong sign on its cross terms instead pumps energy into the fluid,
-// so the kinetic energy climbs above its post-transient value and stays there.
+// external forcing cannot gain kinetic energy: the elastic reservoir is draining
+// and viscosity dissipates whatever reaches the flow.
 //
-// Measured on this scenario: with the sign error, KE rises from 6.45e-6 at
-// checkpoint 1 to 7.00e-6 by checkpoint 6 and remains ~6.6e-6 at the end.
-// With the correct sign it decays monotonically, 5.56e-6 -> 1.30e-6.
+// NOTE: this bound is valid physics but does NOT discriminate the backflow
+// contraction sign at DT = 1.0 — measured, the peak sits at checkpoint 1 for both
+// the correct and incorrect sign, so neither violates it. It did discriminate at
+// the retired DT = 0.05. The sign is now guarded exactly and DT-independently by
+// tests/unit/test_backflow_contraction.cc, and at integration level by
+// RelaxesToQuiescence below.
 TEST_F(CoupledBackflow, KineticEnergyDoesNotGrowAfterTransient) {
     ASSERT_GE(kinetic_energy.size(), 3u);
     const double ke_ref = kinetic_energy[1];   // one checkpoint past startup
@@ -269,13 +268,27 @@ TEST_F(CoupledBackflow, KineticEnergyDoesNotGrowAfterTransient) {
     }
 }
 
-// The flow must actually decay, not merely stay bounded. The 0.5 factor is
-// calibrated to sit well clear of both implementations: the correct sign gives
-// a ratio of 0.23 here, the sign error gives 1.02.
-TEST_F(CoupledBackflow, FlowDecaysInPassiveSystem) {
-    const double ratio = kinetic_energy.back() / kinetic_energy[1];
-    EXPECT_LT(ratio, 0.5)
-        << "kinetic energy was sustained rather than decaying (ratio " << ratio << ")";
+// Integration-level guard on the backflow contraction sign at DT = 1.0.
+//
+// With ALPHA = 0 and MU = 0 there is no energy source, so the flow must relax
+// essentially to rest: the elastic energy released early is dissipated and the
+// late-time state is quiescent. A backflow force with the wrong sign on its cross
+// terms keeps exchanging energy incorrectly between the two reservoirs and
+// sustains a residual flow instead.
+//
+// Measured (fixed seed, single thread): correct sign settles at
+// KE_final/KE_peak = 5.5e-4; the sign error settles at 1.9e-3, a 3.5x more
+// energetic residual that is flat from checkpoint 50 onwards. The 1e-3 threshold
+// is the geometric midpoint of those two, so it clears both by ~1.8x. It is
+// calibrated against measurement, not derived — re-measure if DT, GAMMA, L or the
+// grid changes.
+TEST_F(CoupledBackflow, RelaxesToQuiescence) {
+    const double ke_peak = *std::max_element(kinetic_energy.begin(), kinetic_energy.end());
+    ASSERT_GT(ke_peak, 1e-12) << "no flow was ever generated; coupling untested";
+    const double residual = kinetic_energy.back() / ke_peak;
+    EXPECT_LT(residual, 1e-3)
+        << "passive system did not relax to rest: residual KE/peak = " << residual
+        << "; backflow is sustaining flow that should have dissipated";
 }
 
 // Valid physics for the coupled passive system, but NOT sensitive to the
