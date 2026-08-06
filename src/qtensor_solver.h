@@ -27,7 +27,8 @@ public:
     QTensorSolver() = default;
     virtual ~QTensorSolver() = default;
 
-    // Set initial Q field with uniform noise (qxx ≈ 0.5, qxy ≈ 0).
+    // Uniform director along x at the bulk equilibrium order parameter S_eq,
+    // plus per-cell uniform noise of amplitude NOISE on every component.
     virtual void Initialize(QTensorFields& qf) const;
 
     /* !\brief Beris-Edwards FD step + setting up the backflow coupling

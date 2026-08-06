@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A hybrid 3D active nematic hydrodynamics solver using D3Q15 Lattice Boltzmann for the flow field and explicit finite-differences for Q-tensor dynamics (modified Beris-Edwards model). The primary audience is computational and theoretical physicists — keep code physics-readable and avoid unnecessary abstractions.
 
+## The research map lives on a separate branch
+
+Analysis of this solver — known defects, numerical conventions, validation coverage, benchmark targets and parameter mappings — is maintained as a GPD research map at `GPD/research-map/` on the **`gpd/docs/research-map`** branch (based on `main`), deliberately kept off the code branches so it does not appear in feature-branch diffs.
+
+**It is not present in this working tree.** Consequences:
+
+- `GPD/research-map/CONCERNS.md` and `REFERENCES.md` are the authoritative record of open numerical issues and of the Shendruk et al. (PRE 98, 010601(R) 2018) benchmark target. Read them before diagnosing solver behaviour or choosing physics parameters. Access without switching branches:
+  ```bash
+  git show gpd/docs/research-map:GPD/research-map/CONCERNS.md
+  ```
+- **Do not run `/gpd:map-research` from a code branch.** GPD's workspace classifier inspects only the current working tree, so it reports `has_maps: false` here and will build a *second*, divergent map instead of offering to update the existing one. Check out `gpd/docs/research-map` first.
+
 ## Build commands
 
 ```bash
@@ -17,7 +29,7 @@ cmake --build build -j$(nproc)
 cmake -B build -DLBM_FORCE_CPU=ON
 cmake --build build -j$(nproc)
 
-# Release build (enables -Ofast, disables bounds-check asserts in idx())
+# Release build (enables -O3, disables bounds-check asserts in idx())
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 

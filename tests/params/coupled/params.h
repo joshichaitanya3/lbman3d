@@ -4,9 +4,13 @@
 /*
 !\brief Custom parameters for the coupled Q<->flow backflow integration test.
 
-Deliberately uses the production timestep DT = 0.05 rather than the DT = 1.0
-that every other integration test runs at, so this scenario exercises the
-DT-scaled body force and Q right-hand side that production actually uses.
+Runs at DT = 1.0, matching production and every other integration test. This
+scenario previously used DT = 0.05 to mirror the old production value; that
+value has since been retired, because streaming advances one cell per step so
+any DT != 1 desynchronises the Q update from the flow (see src/params.h).
+
+Note the thresholds in test_coupled_backflow.cc are calibrated against measured
+runs at this DT — changing DT here requires re-measuring them.
 
 ALPHA = 0 and MU = 0: with no activity injecting energy and no friction
 draining it through an external channel, the passive system's total free
@@ -32,7 +36,7 @@ namespace Params {
 
     // Spatial / temporal
     inline constexpr double DX = 1.0, DY = 1.0, DZ = 1.0;
-    inline constexpr double DT = 0.05;   // production value, unlike other integration tests
+    inline constexpr double DT = 1.0;    // matches production; see src/params.h on why DT must be 1
 
 
     inline constexpr double RHO = 1.1;        // initial lattice density
