@@ -67,11 +67,14 @@ Vec3 CodeBackflow(const SymTrLess5& Q, const SymTrLess5& lap,
     QStencil qs{};
     qs.Q = SymTrLessTensor5{ Q.xx, Q.xy, Q.xz, Q.yy, Q.yz };
     qs.u = Vec3{ 0.0, 0.0, 0.0 };
-    qs.dQxx = QDerivs{ gx.xx, gy.xx, gz.xx, lap.xx };
-    qs.dQxy = QDerivs{ gx.xy, gy.xy, gz.xy, lap.xy };
-    qs.dQxz = QDerivs{ gx.xz, gy.xz, gz.xz, lap.xz };
-    qs.dQyy = QDerivs{ gx.yy, gy.yy, gz.yy, lap.yy };
-    qs.dQyz = QDerivs{ gx.yz, gy.yz, gz.yz, lap.yz };
+    // The per-axis second differences are only read by the advection term,
+    // which these tests do not exercise, so they are left at zero rather
+    // than made consistent with lap.
+    qs.dQxx = QDerivs{ gx.xx, gy.xx, gz.xx, lap.xx, 0.0, 0.0, 0.0 };
+    qs.dQxy = QDerivs{ gx.xy, gy.xy, gz.xy, lap.xy, 0.0, 0.0, 0.0 };
+    qs.dQxz = QDerivs{ gx.xz, gy.xz, gz.xz, lap.xz, 0.0, 0.0, 0.0 };
+    qs.dQyy = QDerivs{ gx.yy, gy.yy, gz.yy, lap.yy, 0.0, 0.0, 0.0 };
+    qs.dQyz = QDerivs{ gx.yz, gy.yz, gz.yz, lap.yz, 0.0, 0.0, 0.0 };
     qs.gradu = GradTensor{ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
 
     SymTrLessTensor5 q_new{};

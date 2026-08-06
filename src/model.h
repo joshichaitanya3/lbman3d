@@ -127,11 +127,17 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     // the QXoff/QYoff/QZoff Neumann-only clamp, which is wrong for
     // Anchoring walls)
 
-    const auto [Qxxx, Qxxy, Qxxz, lap_Qxx] = qs.dQxx;
-    const auto [Qxyx, Qxyy, Qxyz, lap_Qxy] = qs.dQxy;
-    const auto [Qxzx, Qxzy, Qxzz, lap_Qxz] = qs.dQxz;
-    const auto [Qyyx, Qyyy, Qyyz, lap_Qyy] = qs.dQyy;
-    const auto [Qyzx, Qyzy, Qyzz, lap_Qyz] = qs.dQyz;
+    // Named by member rather than destructured: QDerivs also carries the
+    // per-axis second differences, and a structured binding would have to list
+    // every member.
+    const double Qxxx = qs.dQxx.dx, Qxxy = qs.dQxx.dy, Qxxz = qs.dQxx.dz;
+    const double Qxyx = qs.dQxy.dx, Qxyy = qs.dQxy.dy, Qxyz = qs.dQxy.dz;
+    const double Qxzx = qs.dQxz.dx, Qxzy = qs.dQxz.dy, Qxzz = qs.dQxz.dz;
+    const double Qyyx = qs.dQyy.dx, Qyyy = qs.dQyy.dy, Qyyz = qs.dQyy.dz;
+    const double Qyzx = qs.dQyz.dx, Qyzy = qs.dQyz.dy, Qyzz = qs.dQyz.dz;
+
+    const double lap_Qxx = qs.dQxx.lap, lap_Qxy = qs.dQxy.lap, lap_Qxz = qs.dQxz.lap;
+    const double lap_Qyy = qs.dQyy.lap, lap_Qyz = qs.dQyz.lap;
 
     // Advection: -u · ∇Q
     const double adv_xx = -(ux * Qxxx + uy * Qxxy + uz * Qxxz);
