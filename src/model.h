@@ -2,6 +2,11 @@
 #define LBM_AN_MODEL_H
 
 #include <params.h>
+// For kQAdvection. This is the one place a physics header reaches up to
+// sim_config.h: the advection scheme is selected there, next to the boundary
+// conditions, because both are discretisation choices. The BC config still
+// arrives by template parameter, not by inclusion.
+#include <sim_config.h>
 #include "qtensor_types.h"
 #include "physics_helpers.h"
 #include "boundary_handler.h"
@@ -33,6 +38,47 @@ using namespace Params;
 // Host-only: this is initialisation/analysis, never called from a kernel.
 inline double EquilibriumScalarOrder() {
     return (-B + std::sqrt(B * B - 24.0 * A * C)) / (4.0 * C);
+}
+
+// One axis's contribution to u.grad(Q), i.e. u_a * dQ/dx_a.
+//
+//   Advection::Centred:  u * dQ
+//   Advection::Upwind:   u * dQ - (|u|/2) * d2Q
+//
+// The upwind form follows from Q(a) - Q(a-1) = dQ - d2Q/2 for u > 0 and
+// Q(a+1) - Q(a) = dQ + d2Q/2 for u < 0; combining the two cases gives the
+// single branch-free expression above.
+//
+// Written this way the correction is manifestly a diffusion term of
+// coefficient |u|/2, i.e. upwinding adds a numerical Q diffusivity of |u|*DX/2.
+// That is the price of the scheme and it is not small — see the envelope
+// measured next to kQAdvection in sim_config.h.
+//
+// Prefer AdvectiveDerivative below at call sites: this takes three
+// interchangeable doubles, so a transposed (velocity, derivative) pair would
+// compile silently.
+template<Advection Scheme>
+inline CUDA_HOST_DEVICE double AdvectiveAxisTerm(double u, double dQ, double d2Q) {
+    if constexpr (Scheme == Advection::Upwind) {
+        const double abs_u = u < 0.0 ? -u : u;
+        return u * dQ - 0.5 * abs_u * d2Q;
+    } else {
+        return u * dQ;
+    }
+}
+
+// u.grad(Q) for one Q component, summed over all three axes.
+//
+// Taking the whole velocity and the whole QDerivs makes the axis pairing
+// structural: there is no way for a caller to hand the x-velocity an
+// x-derivative from the wrong component, which the three-double form above
+// permits. The Beris-Edwards right-hand side carries -u.grad(Q), so call sites
+// negate.
+template<Advection Scheme = kQAdvection>
+inline CUDA_HOST_DEVICE double AdvectiveDerivative(const Vec3& u, const QDerivs& d) {
+    return AdvectiveAxisTerm<Scheme>(u.x, d.dx, d.d2x)
+         + AdvectiveAxisTerm<Scheme>(u.y, d.dy, d.d2y)
+         + AdvectiveAxisTerm<Scheme>(u.z, d.dz, d.d2z);
 }
 
 // In model.h — CUDA_HOST_DEVICE throughout
@@ -69,9 +115,6 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const double Qyy = qs.Q.yy;
     const double Qyz = qs.Q.yz;
 
-    const double ux = qs.u.x;
-    const double uy = qs.u.y;
-    const double uz = qs.u.z;
 
     // Polynomials
     const double TrQ2 = 2.0*(Qxx*Qxx + Qyy*Qyy+ Qxx*Qyy + Qxy*Qxy +Qxz*Qxz +Qyz*Qyz);
@@ -128,8 +171,8 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     // Anchoring walls)
 
     // Named by member rather than destructured: QDerivs also carries the
-    // per-axis second differences, and a structured binding would have to list
-    // every member.
+    // per-axis second differences (consumed by AdvectiveDerivative below), and a
+    // structured binding would have to list every member.
     const double Qxxx = qs.dQxx.dx, Qxxy = qs.dQxx.dy, Qxxz = qs.dQxx.dz;
     const double Qxyx = qs.dQxy.dx, Qxyy = qs.dQxy.dy, Qxyz = qs.dQxy.dz;
     const double Qxzx = qs.dQxz.dx, Qxzy = qs.dQxz.dy, Qxzz = qs.dQxz.dz;
@@ -139,12 +182,13 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const double lap_Qxx = qs.dQxx.lap, lap_Qxy = qs.dQxy.lap, lap_Qxz = qs.dQxz.lap;
     const double lap_Qyy = qs.dQyy.lap, lap_Qyz = qs.dQyz.lap;
 
-    // Advection: -u · ∇Q
-    const double adv_xx = -(ux * Qxxx + uy * Qxxy + uz * Qxxz);
-    const double adv_xy = -(ux * Qxyx + uy * Qxyy + uz * Qxyz);
-    const double adv_xz = -(ux * Qxzx + uy * Qxzy + uz * Qxzz);
-    const double adv_yy = -(ux * Qyyx + uy * Qyyy + uz * Qyyz);
-    const double adv_yz = -(ux * Qyzx + uy * Qyzy + uz * Qyzz);
+    // Advection: -u · ∇Q. The centred/upwind choice lives entirely inside
+    // AdvectiveDerivative (see kQAdvection in sim_config.h).
+    const double adv_xx = -AdvectiveDerivative(qs.u, qs.dQxx);
+    const double adv_xy = -AdvectiveDerivative(qs.u, qs.dQxy);
+    const double adv_xz = -AdvectiveDerivative(qs.u, qs.dQxz);
+    const double adv_yy = -AdvectiveDerivative(qs.u, qs.dQyy);
+    const double adv_yz = -AdvectiveDerivative(qs.u, qs.dQyz);
     
     // ##############################################################################
     // #   corotation       [(Omega Q - Q Omega)_ij]

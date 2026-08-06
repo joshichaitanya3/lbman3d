@@ -63,7 +63,9 @@ cd build && ctest --output-on-failure
 
 Only two files need to be touched for a typical simulation:
 
-- **`src/sim_config.h`** — boundary conditions (`SimBC`) and time loop parameters (`kNumSteps`, `kSaveInterval`). Each of the six faces gets a `WallSpec<QBC, UBC>` where `QBC` controls the Q-tensor FD stencil and `UBC` controls LBM streaming/bounce-back. Built-in presets: `FullyPeriodicConfig`, `ChannelConfig`.
+- **`src/sim_config.h`** — boundary conditions (`SimBC`), the Q advection scheme (`kQAdvection`), and time loop parameters (`kNumSteps`, `kSaveInterval`). Each of the six faces gets a `WallSpec<QBC, UBC>` where `QBC` controls the Q-tensor FD stencil and `UBC` controls LBM streaming/bounce-back. Built-in presets: `FullyPeriodicConfig`, `ChannelConfig`.
+
+  **Discretisation choices belong here, not in `params.h`.** `params.h` holds physical constants; `sim_config.h` holds how the equations are discretised, which is why the BC specs and `kQAdvection` are neighbours. There is also a practical reason: only `params.h` is shadowed per-test by `lbm_add_test`, so a constant added to `sim_config.h` is written once, whereas one added to `params.h` must be replicated across all five `tests/params/*/params.h` copies or every build that shadows it stops compiling.
 - **`src/params.h`** — grid dimensions (`nx`, `ny`, `nz`), LBM relaxation (`TAUF`), Landau coefficients (`A`, `B`, `C`), elastic constant (`L`), activity (`ALPHA`), flow-alignment (`LAMBDA`), rotational viscosity (`GAMMA`), friction (`MU`), and logging flags.
 
 Everything else under `src/` is solver code. The BC interface in `sim_config.h` is a key design goal — any refactor must preserve or improve its readability, never complicate it.

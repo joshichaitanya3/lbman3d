@@ -11,6 +11,16 @@
 
 enum class QComp { XX, XY, XZ, YY, YZ };
 
+// Finite-difference scheme for the advective term u.grad(Q). Named rather than
+// boolean because "not upwind" does not describe itself — the alternative is
+// centred differencing, and a reader should not have to infer that.
+//
+// The scheme is *selected* in sim_config.h (kQAdvection), alongside the
+// boundary conditions, since both are discretisation choices rather than
+// physical constants. The type lives here so model.h sees it without depending
+// on the selection.
+enum class Advection { Centred, Upwind };
+
 struct SymTrLessTensor5 { double xx, xy, xz, yy, yz; };
 
 // Antisymmetric 3x3 tensor, stored as its three independent components.
@@ -35,8 +45,8 @@ struct AntiSymTensor3 { double xy, xz, yz; };
 //     Q(a) - Q(a-1) = da - d2a/2      (backward)
 //     Q(a+1) - Q(a) = da + d2a/2      (forward)
 //
-// so a one-sided derivative needs no extra neighbour fetches and no second pass
-// through the boundary handler.
+// so an upwind derivative needs no extra neighbour fetches and no second pass
+// through the boundary handler. See AdvectiveAxisTerm in model.h.
 struct QDerivs { double dx, dy, dz, lap, d2x, d2y, d2z; };
 
 template<QComp C>
