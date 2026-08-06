@@ -51,9 +51,9 @@ CMake prefers the parallel HDF5 when `-DLBM_ENABLE_MPI=ON` is set, but on distro
 
 There are two files you need to edit before running a simulation. Everything else under `src/` is library code that does not need to be touched for typical use.
 
-### `src/sim_config.h` — boundary conditions and time loop
+### `src/sim_config.h` — boundary conditions, discretisation, time loop
 
-This is the main entry point. Define your boundary condition and set how long to run:
+This is the main entry point. Define your boundary condition, pick the Q advection scheme, and set how long to run:
 
 ```cpp
 // Use a built-in preset:
@@ -61,19 +61,32 @@ using SimBC = ChannelConfig;
 
 // Or define a custom configuration (here, a slit configuration):
 struct MyConfig {
-    using XLo = WallSpec<Periodic, Periodic>;
-    using XHi = WallSpec<Periodic, Periodic>;
+    using XLo = WallSpec<Neumann, SpecularReflection>;
+    using XHi = WallSpec<Neumann, SpecularReflection>;
     using YLo = WallSpec<Periodic, Periodic>;
     using YHi = WallSpec<Periodic, Periodic>;
-    using ZLo = WallSpec<Neumann, SpecularReflection>;
-    using ZHi = WallSpec<Neumann, SpecularReflection>;
+    using ZLo = WallSpec<Periodic, Periodic>;
+    using ZHi = WallSpec<Periodic, Periodic>;
     static constexpr std::string_view name = "SlitFreeSlip";
 };
 using SimBC = MyConfig;
 
+inline constexpr Advection kQAdvection = Advection::Centred;
+
 inline constexpr int kNumSteps     = 1000001;
-inline constexpr int kSaveInterval = 1000;    // write CSV output every N steps
+inline constexpr int kSaveInterval = 1000;    // write output every N steps
 ```
+
+Note the confined axis above is **x**, not z. `idx` makes `z` the slowest-varying index and the OpenMP loop in every solver phase runs over `z`, so putting the short axis on `z` couples the usable thread count to the plate separation. Both shipped slit presets (`SlitConfig`, free-slip; `SlitNoSlipConfig`, no-slip) confine along x for that reason, as does `ChannelConfig`.
+
+**Q advection scheme** (`kQAdvection`):
+
+| Value | Behaviour |
+|---|---|
+| `Advection::Centred` | Second-order central differences. Imposes a cell-Péclet constraint, `|u| ≤ 2·GAMMA·L` |
+| `Advection::Upwind` | First-order upwinding. Lifts that constraint, at the cost of a numerical Q diffusivity `|u|·DX/2` |
+
+Centred is the default and is what all benchmark numbers refer to. Upwinding buys stability at high activity or high `LAMBDA` — measured on a channel at 20×100×100, it raises the reliable `LAMBDA` ceiling from about 0.5 to 0.7 — but be aware of the price: the correction has the same form as the elastic term `GAMMA·L·∇²Q`, so it enlarges the *effective* elastic constant to `L_eff = L + |u|/(2·GAMMA)`. At `|u| = 0.05` that is 2.2·L, which silently moves a nominal activity number of 17.5 to roughly 11.7. See the comment block next to `kQAdvection` for the full measured envelope.
 
 **Available Q-tensor wall types** (first argument of `WallSpec`):
 
@@ -99,23 +112,37 @@ inline constexpr int kSaveInterval = 1000;    // write CSV output every N steps
 | `FullyPeriodicConfig` | All walls periodic (alias: `PeriodicBC`) |
 | `ChannelConfig` | Periodic in Z, no-slip Neumann walls in X, Y |
 
+Two more slit presets live in `src/sim_config.h` itself, since they are simulation setups rather than reusable BC building blocks:
+
+| Preset | Description |
+|---|---|
+| `SlitConfig` | Periodic in Y, Z; free-slip (`SpecularReflection`) Neumann plates in X |
+| `SlitNoSlipConfig` | Periodic in Y, Z; no-slip Neumann plates in X |
+
+Prefer `SlitNoSlipConfig` unless you specifically want free-slip. Free-slip plates exert no tangential stress, so with `MU = 0` the system has no momentum sink at all and energy accumulates at box scale until the run diverges — measured at step 16000 for ν = 2/3, and *earlier* (step 11000) at ν = 1.833, so raising viscosity does not rescue it.
+
 ### `src/params.h` — physical and numerical parameters
 
 | Parameter | Description |
 |---|---|
-| `nx`, `ny`, `nz` | Grid dimensions |
+| `nx`, `ny`, `nz` | Grid dimensions. For the slit/channel presets the confined axis is `x`, so `nx` is the plate separation |
 | `kNumOMPThreads` | Number of OpenMP threads |
-| `DT` | Lattice time step |
-| `TAUF` | LBM relaxation times (shear and forcing) |
+| `DT` | Lattice time step. **Must be 1.0**, enforced by `static_assert` — see below |
+| `TAUF` | LBM relaxation time, and the only handle on viscosity: `ν = c_s²(TAUF/DT − 1/2)` |
 | `RHO` | Initial lattice density |
-| `L` | Frank elastic constant |
-| `A`, `B`, `C` | Landau free-energy coefficients |
+| `L` | Elastic constant in the gradient free energy (one-constant approximation; `L = 2K` for Frank constant `K` at `S_eq = 1/3`) |
+| `A`, `B`, `C` | Landau free-energy coefficients. With `A = 0` the equilibrium order parameter is `S_eq = −B/(2C)` |
 | `GAMMA` | Inverse rotational viscosity |
 | `LAMBDA` | Flow-aligning parameter |
 | `ALPHA` | Activity coefficient |
 | `MU` | Linear friction coefficient |
-| `NOISE` | Amplitude of initial Q-field noise |
+| `NOISE` | Amplitude of initial Q-field noise, absolute (not relative to `S_eq`) |
 | `kDebugLogging` | `true` → log every step, save LBM fields; `false` → log every `kSaveInterval` steps |
+| `kTrackNematicEnergy` | Track the total nematic free energy in the log. Off by default; it is an extra O(N) pass, useful mainly as a sanity check (with `ALPHA = 0` it must decrease monotonically) |
+
+**On `DT`:** streaming advances exactly one cell per `LatticeBoltzmannStep`, so the LBM timestep is one lattice unit by construction, while `DT` only scales the Q-tensor right-hand side and the Guo forcing. Any `DT ≠ 1` silently decouples the two — at `DT = 0.05`, Q was advected at `u/20`. To take smaller *effective* Q steps, scale `GAMMA`, `L` and `ALPHA` instead of `DT`.
+
+**Initial condition:** a uniform director along `z` (a periodic direction for the slit presets) at the bulk equilibrium order parameter, derived from `A`, `B`, `C` rather than hardcoded, plus per-cell uniform noise of amplitude `NOISE` on every component.
 
 ## Building
 
@@ -237,7 +264,7 @@ There are two output formats provided: CSV and VTKHDF. It can be selected via a 
 | `data/qyz_<step>.csv` | CSV | Q-tensor component Qyz |
 | `data/delta_m_<step>.csv` | CSV | Local density change since last export |
 | `data/lbm_<step>.vtkhdf` | VTKHDF (HDF5) | All fields in a single file, readable by ParaView 5.10+ (together with the LBM fields when `kDebugLogging` is `true`)|
-| `lbm.log` | text | Simulation parameters and per-step mass/momentum diagnostics |
+| `lbm.log` | text | Simulation parameters, and per-step mass / momentum / kinetic-energy / nematic-energy / disclination-count diagnostics |
 
 ## Visualization with Paraview
 
@@ -252,5 +279,5 @@ You will need to set the following parameters within that script according to yo
 DATA_DIR   = './data'
 OUTPUT_DIR = os.path.join(DATA_DIR, 'frames')
 
-NX, NY, NZ = 100, 100, 15
+NX, NY, NZ = 20, 100, 100
 ```
