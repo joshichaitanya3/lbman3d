@@ -29,6 +29,7 @@ tests/
 │   ├── test_anchored_q.cc
 │   ├── test_backflow_contraction.cc
 │   ├── test_antisym_stress.cc
+│   ├── test_upwind_advection.cc
 │   └── test_idx.cc
 └── integration/
     ├── CMakeLists.txt
@@ -165,6 +166,21 @@ Divergence signs (`PassiveStressDivergence`, evaluated on synthetic ramps at an 
 - **TyzRampAlongYGivesNegativeFz**: `f_z = ∂_y(Σ_yz - τ_yz)` ⇒ `-slope`
 - **PurelySymmetricStressUnchanged**: with `A = 0` the symmetric path is untouched by the split
 - **TracelessZZTermUnaffected**: `f_z = ∂_z Σ_zz = -∂_z(Σ_xx + Σ_yy)`; `A` has no diagonal
+
+### `test_upwind_advection.cc` — `AdvectionFlux` and the per-axis second differences
+
+`AdvectiveAxisTerm<Scheme>` is templated on `Advection::{Centred,Upwind}`, so both branches are exercised from one binary regardless of `kQAdvection` in `sim_config.h`. References are built from raw one-sided differences of an explicit three-point stencil, never from the code's `dQ`/`d2Q` algebra.
+
+- **CentredBranchIsPlainCentredDifference**: the centred branch ignores `d2Q` entirely
+- **UpwindPicksTheDifferenceTheFlowComesFrom**: `u > 0` ⇒ backward difference, `u < 0` ⇒ forward
+- **VanishesAtZeroVelocity**: no upstream side, no transport
+- **AgreesWithCentredOnLinearProfiles**: first-order upwinding is still exact when `d2Q = 0`
+- **CorrectionIsDiffusionOfCoefficientHalfAbsU**: pins the cost of the scheme — the correction is exactly `|u|/2 · d2Q`
+- **IsInvariantUnderSimultaneousFlipOfFlowAndStencil**: under `a → -a` the first derivative flips and the second difference does not, so `u ∂Q/∂a` is invariant. A scheme that always took the backward difference would fail this
+- **GradientHelperFillsPerAxisSecondDifferences**: `QGradientAndLaplacian` fills `d2x/d2y/d2z` correctly on a field with independent per-axis curvature, and `lap == d2x + d2y + d2z`
+- **AdvectiveDerivativeSumsThreeAxesWithMatchedPairing**: the wrapper model.h actually calls — sums all three axes *and* pairs each velocity component with that axis's derivatives. A transposed-axis `QDerivs` must give a different answer, so the test constrains the pairing and not merely the sum
+- **DefaultSchemeFollowsSimConfig**: the default template argument tracks `kQAdvection`, so the shipped configuration is what the solver runs
+- **LaplacianIsUnchangedBitwise**: `lap` stays bit-identical to the original single six-neighbour sum over every cell, so enabling the feature cannot perturb existing centred-scheme results
 
 ### `test_idx.cc` — index function
 
