@@ -85,23 +85,24 @@ void QTensorSolver<BC>::StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff
         
         SymTrLessTensor5 q_new, sigma;
         AntiSymTensor3 tau;
-        Vec3 advective_backflow;
+        Vec3 ericksen_force;
 
         PointwiseStepAndSetupBodyForce(
             qs,
             q_new,
             sigma,
             tau,
-            advective_backflow
+            ericksen_force
         );
         
-        // Add the advective counter part of the back-flow to the body force, H:\nabla Q
-        // since this does not come from the divergence of the stress tensor.
-        // The backflow from the divergence will be added to this by SetActiveStressAndComputeBodyForce
+        // Seed the body force with the Ericksen (distortion) force
+        // -H_ij d_alpha Q_ij, the half of the backflow coupling that is not a
+        // stress divergence. SetActiveStressAndComputeBodyForce adds the other
+        // half, div(Sigma + Tau), plus the active stress and friction.
 
-        ff.fx[idxp] = advective_backflow.x;
-        ff.fy[idxp] = advective_backflow.y;
-        ff.fz[idxp] = advective_backflow.z;
+        ff.fx[idxp] = ericksen_force.x;
+        ff.fy[idxp] = ericksen_force.y;
+        ff.fz[idxp] = ericksen_force.z;
 
 
         // Update nematic stress (passive + active), symmetric-traceless part

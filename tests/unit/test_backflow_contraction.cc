@@ -3,9 +3,11 @@
 #include <cmath>
 
 /*
- * The advective backflow force written by PointwiseStepAndSetupBodyForce is the
- * reactive term -H:∇Q, i.e. -H_ij ∂_k Q_ij summed over ALL NINE index pairs of
- * two symmetric traceless 3x3 tensors.
+ * The Ericksen (distortion) force written by PointwiseStepAndSetupBodyForce is
+ * the reactive term -H:∇Q, i.e. -H_ij ∂_k Q_ij summed over ALL NINE index pairs
+ * of two symmetric traceless 3x3 tensors. It is the half of the backflow
+ * coupling that is not a stress divergence, and carries no velocity — so the
+ * kQAdvection scheme does not apply to it.
  *
  * Both H and Q are stored as 5 independent components, with
  * H_zz = -(H_xx + H_yy) and ∂_k Q_zz = -(∂_k Q_xx + ∂_k Q_yy). Expanding the
@@ -61,15 +63,15 @@ double MinusHContractDQ(const SymTrLess5& H, const SymTrLess5& dQ) {
 }
 
 // Invoke the production pointwise kernel with a fully specified stencil.
-// Velocity and velocity gradients are zero: they do not enter the backflow term.
+// Velocity and velocity gradients are zero: they do not enter the Ericksen force.
 Vec3 CodeBackflow(const SymTrLess5& Q, const SymTrLess5& lap,
                   const SymTrLess5& gx, const SymTrLess5& gy, const SymTrLess5& gz) {
     QStencil qs{};
     qs.Q = SymTrLessTensor5{ Q.xx, Q.xy, Q.xz, Q.yy, Q.yz };
     qs.u = Vec3{ 0.0, 0.0, 0.0 };
-    // The per-axis second differences are only read by the advection term,
-    // which these tests do not exercise, so they are left at zero rather
-    // than made consistent with lap.
+    // The per-axis second differences are only read by AdvectiveAxisTerm, which
+    // these tests do not exercise (no advection under test), so they are left
+    // at zero rather than made consistent with lap.
     qs.dQxx = QDerivs{ gx.xx, gy.xx, gz.xx, lap.xx, 0.0, 0.0, 0.0 };
     qs.dQxy = QDerivs{ gx.xy, gy.xy, gz.xy, lap.xy, 0.0, 0.0, 0.0 };
     qs.dQxz = QDerivs{ gx.xz, gy.xz, gz.xz, lap.xz, 0.0, 0.0, 0.0 };
@@ -80,9 +82,9 @@ Vec3 CodeBackflow(const SymTrLess5& Q, const SymTrLess5& lap,
     SymTrLessTensor5 q_new{};
     SymTrLessTensor5 sigma{};
     AntiSymTensor3 tau{};
-    Vec3 backflow{};
-    PointwiseStepAndSetupBodyForce(qs, q_new, sigma, tau, backflow);
-    return backflow;
+    Vec3 ericksen{};
+    PointwiseStepAndSetupBodyForce(qs, q_new, sigma, tau, ericksen);
+    return ericksen;
 }
 
 } // namespace
@@ -144,7 +146,7 @@ TEST(BackflowContraction, MatchesNineComponentContractionGeneralQ) {
     EXPECT_NEAR(bf.z, MinusHContractDQ(H, gz), 1e-12);
 }
 
-// A vanishing molecular field must give zero backflow regardless of gradients.
+// A vanishing molecular field must give zero Ericksen force regardless of gradients.
 // With Q = 0 and A = 0 the bulk terms vanish identically, so H = L∇²Q = 0.
 TEST(BackflowContraction, VanishesForZeroMolecularField) {
     const SymTrLess5 Q{ 0.0, 0.0, 0.0, 0.0, 0.0 };

@@ -81,7 +81,7 @@ PointwiseOut RunPointwise(const SymTrLess5& Q, const SymTrLess5& lap) {
     qs.Q = SymTrLessTensor5{ Q.xx, Q.xy, Q.xz, Q.yy, Q.yz };
     qs.u = Vec3{ 0.0, 0.0, 0.0 };
     // Gradients do not enter the stress; only the Laplacians do, through H.
-    // Second differences unused here: the advection term is not exercised.
+    // Second differences unused here: AdvectiveAxisTerm is not exercised.
     qs.dQxx = QDerivs{ 0.0, 0.0, 0.0, lap.xx, 0.0, 0.0, 0.0 };
     qs.dQxy = QDerivs{ 0.0, 0.0, 0.0, lap.xy, 0.0, 0.0, 0.0 };
     qs.dQxz = QDerivs{ 0.0, 0.0, 0.0, lap.xz, 0.0, 0.0, 0.0 };
@@ -91,8 +91,8 @@ PointwiseOut RunPointwise(const SymTrLess5& Q, const SymTrLess5& lap) {
 
     PointwiseOut out{};
     SymTrLessTensor5 q_new{};
-    Vec3 backflow{};
-    PointwiseStepAndSetupBodyForce(qs, q_new, out.sym, out.antisym, backflow);
+    Vec3 ericksen{};
+    PointwiseStepAndSetupBodyForce(qs, q_new, out.sym, out.antisym, ericksen);
     return out;
 }
 

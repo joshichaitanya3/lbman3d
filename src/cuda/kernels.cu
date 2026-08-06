@@ -182,14 +182,14 @@ __global__ void GpuQTensorStep(
         
     SymTrLessTensor5 q_new, sigma;
     AntiSymTensor3 tau;
-    Vec3 advective_backflow;
+    Vec3 ericksen_force;
 
     PointwiseStepAndSetupBodyForce(
         qs,
         q_new,
         sigma,
         tau,
-        advective_backflow
+        ericksen_force
     );
 
 
@@ -211,9 +211,11 @@ __global__ void GpuQTensorStep(
     Tau_xz[gid] = tau.xz;
     Tau_yz[gid] = tau.yz;
 
-    force_x[gid] = advective_backflow.x;
-    force_y[gid] = advective_backflow.y;
-    force_z[gid] = advective_backflow.z;
+    // Seed the body force with the Ericksen (distortion) force; GpuComputeBodyForce
+    // adds div(Sigma + Tau), the active stress and friction.
+    force_x[gid] = ericksen_force.x;
+    force_y[gid] = ericksen_force.y;
+    force_z[gid] = ericksen_force.z;
 }
 
 

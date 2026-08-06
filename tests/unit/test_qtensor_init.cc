@@ -48,8 +48,8 @@ QStencil Quiescent(const SymTrLessTensor5& q) {
 SymTrLessTensor5 BulkStep(const SymTrLessTensor5& q) {
     SymTrLessTensor5 q_new{}, sigma{};
     AntiSymTensor3 tau{};
-    Vec3 backflow{};
-    PointwiseStepAndSetupBodyForce(Quiescent(q), q_new, sigma, tau, backflow);
+    Vec3 ericksen{};
+    PointwiseStepAndSetupBodyForce(Quiescent(q), q_new, sigma, tau, ericksen);
     return q_new;
 }
 
