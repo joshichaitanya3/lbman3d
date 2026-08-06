@@ -19,7 +19,6 @@ namespace Params {
     inline constexpr int nx = 8;
     inline constexpr int ny = 8;
     inline constexpr int nz = 16;
-    inline constexpr int nq = 3;
     inline constexpr int kNumOMPThreads = 1;
 
     // Spatial / temporal
@@ -28,7 +27,6 @@ namespace Params {
 
 
     // LBM relaxation
-    inline constexpr double RHO = 1.1;        // initial lattice density
     inline constexpr double kDensity = 1.0;   // physical density scale
     inline constexpr double TAUF = 1.5 * DT;
     inline constexpr double omega         = 1.0 - DT / TAUF;

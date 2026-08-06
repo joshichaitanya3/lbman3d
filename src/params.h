@@ -14,7 +14,6 @@ namespace Params {
     inline constexpr int nx = 20;    // = H, the plate separation (paper uses 10,15,20,25)
     inline constexpr int ny = 100;
     inline constexpr int nz = 100;
-    inline constexpr int nq = 3;
     inline constexpr int kNumOMPThreads = 10;
 
     // Spatial / temporal
@@ -34,7 +33,6 @@ namespace Params {
         "instead.");
 
     // LBM relaxation
-    inline constexpr double RHO = 1.1;        // initial lattice density
     inline constexpr double kDensity = 1.0;   // physical density scale
 
     // TAUF/DT is the relaxation time in streaming steps, and it is the ONLY

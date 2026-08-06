@@ -273,10 +273,6 @@ The seeded initial state must be a fixed point of the bulk Q dynamics. Checked t
 
 **Expected runtime**: ~8 seconds.
 
-### A5 (additional): equation of state sanity
-
-After `lbm.Initialize(ff)`, before any steps: `ff.rho[i] ≈ Params::RHO` everywhere and `ff.ux[i] ≈ 0` everywhere. Zero steps needed — tests initialization consistency.
-
 ### A7: `test_coupled_backflow.cc` — coupled Q ↔ flow loop
 
 **Purpose**: Exercise the round trip `Q → body force (backflow + passive stress) → flow → advection/co-rotation of Q`. Every other integration test drives exactly one solver (A1 is LBM-only, A2 is Q-only at zero velocity, A3 zeroes the body force via `ZeroActivitySolver`), so nothing else covers the coupling.
@@ -288,7 +284,7 @@ After `lbm.Initialize(ff)`, before any steps: `ff.rho[i] ≈ Params::RHO` everyw
 **Run**: 2000 steps, checkpoint every 100.
 
 **Verification**:
-1. **Mass conservation**: `∑ρ_t / ∑ρ_0 ≈ 1.0` to `1e-10`. Note `∑ρ_0 = nx·ny·nz·kDensity`, *not* `RHO` — `FluidFields` seeds `rho` with `kDensity` (`src/fluid_fields.cc:11`) and `LbmSolver::Initialize` only reads `ff.rho` (`src/lbm_solver.tpp:38`).
+1. **Mass conservation**: `∑ρ_t / ∑ρ_0 ≈ 1.0` to `1e-10`. Note `∑ρ_0 = nx·ny·nz·kDensity` — `FluidFields` seeds `rho` with `kDensity` (`src/fluid_fields.cc:11`) and `LbmSolver::Initialize` only reads `ff.rho` (`src/lbm_solver.tpp:38`).
 2. **Backflow drives flow**: kinetic energy starts at 0 and becomes nonzero, else the coupling is untested and the rest is vacuous.
 3. **Relaxes to quiescence** (`KE_final/KE_peak < 1e-3`). This is the integration-level regression guard for the backflow contraction sign — see below.
 4. **Kinetic energy does not grow after the transient**: valid physics, but at `DT = 1.0` it does *not* discriminate the sign (both signs peak at the first checkpoint).

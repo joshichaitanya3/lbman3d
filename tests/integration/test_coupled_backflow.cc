@@ -226,10 +226,10 @@ protected:
 // Mass is conserved exactly by push-style streaming into a separate buffer;
 // this also fails on NaN, since EXPECT_NEAR's comparison is false for NaN.
 TEST_F(CoupledBackflow, MassConservation) {
-    // kDensity, not RHO: FluidFields seeds rho with Params::kDensity
-    // (src/fluid_fields.cc:11) and LbmSolver::Initialize only *reads* ff.rho
-    // (src/lbm_solver.tpp:38), so RHO never reaches the density field.
-    const double expected = nx * ny * nz * kDensity;
+    // FluidFields seeds rho with Params::kDensity (src/fluid_fields.cc:11) and
+    // LbmSolver::Initialize only reads ff.rho (src/lbm_solver.tpp:38), so the
+    // initial mass is exactly nx*ny*nz*kDensity.
+const double expected = nx * ny * nz * kDensity;
     ASSERT_NEAR(initial_mass, expected, 1e-9)
         << "initial density should be kDensity everywhere";
     for (std::size_t i = 0; i < mass.size(); ++i) {

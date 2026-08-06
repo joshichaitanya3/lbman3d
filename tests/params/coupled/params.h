@@ -31,7 +31,6 @@ namespace Params {
     inline constexpr int nx = 16;
     inline constexpr int ny = 16;
     inline constexpr int nz = 16;
-    inline constexpr int nq = 3;
     inline constexpr int kNumOMPThreads = 1;
 
     // Spatial / temporal
@@ -39,7 +38,6 @@ namespace Params {
     inline constexpr double DT = 1.0;    // matches production; see src/params.h on why DT must be 1
 
 
-    inline constexpr double RHO = 1.1;        // initial lattice density
     inline constexpr double kDensity = 1.0;   // physical density scale
     inline constexpr double TAUF = 1.5 * DT;
     inline constexpr double omega         = 1.0 - DT / TAUF;
