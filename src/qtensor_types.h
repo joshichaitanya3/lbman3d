@@ -22,7 +22,22 @@ struct SymTrLessTensor5 { double xx, xy, xz, yy, yz; };
 // for the lower triangle, which the stress divergence reads.
 struct AntiSymTensor3 { double xy, xz, yz; };
 
-struct QDerivs { double dx, dy, dz, lap; };
+// Central-difference first derivatives, the 7-point Laplacian, and the
+// per-axis second differences d2a = Q(a+1) - 2Q(a) + Q(a-1).
+//
+// Mathematically lap == d2x + d2y + d2z; it is kept as its own member because
+// QGradientAndLaplacian sums the six neighbours in one expression, and
+// re-associating that sum would perturb existing results at round-off.
+//
+// The per-axis pieces are carried because they turn a centred first derivative
+// into a one-sided one for free:
+//
+//     Q(a) - Q(a-1) = da - d2a/2      (backward)
+//     Q(a+1) - Q(a) = da + d2a/2      (forward)
+//
+// so a one-sided derivative needs no extra neighbour fetches and no second pass
+// through the boundary handler.
+struct QDerivs { double dx, dy, dz, lap, d2x, d2y, d2z; };
 
 template<QComp C>
 inline CUDA_HOST_DEVICE constexpr double QComponent(const SymTrLessTensor5& t) {

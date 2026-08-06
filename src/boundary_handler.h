@@ -310,7 +310,12 @@ inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, in
         (px.plus - px.minus) / 2.0,
         (py.plus - py.minus) / 2.0,
         (pz.plus - pz.minus) / 2.0,
-        (px.minus + px.plus + py.minus + py.plus + pz.minus + pz.plus) - 6.0 * q0
+        // Left as a single six-neighbour sum: re-associating it as
+        // d2x + d2y + d2z is the same value mathematically but not bitwise.
+        (px.minus + px.plus + py.minus + py.plus + pz.minus + pz.plus) - 6.0 * q0,
+        (px.minus + px.plus) - 2.0 * q0,
+        (py.minus + py.plus) - 2.0 * q0,
+        (pz.minus + pz.plus) - 2.0 * q0
     };
 }
 

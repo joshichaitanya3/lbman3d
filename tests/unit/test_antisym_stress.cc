@@ -81,11 +81,12 @@ PointwiseOut RunPointwise(const SymTrLess5& Q, const SymTrLess5& lap) {
     qs.Q = SymTrLessTensor5{ Q.xx, Q.xy, Q.xz, Q.yy, Q.yz };
     qs.u = Vec3{ 0.0, 0.0, 0.0 };
     // Gradients do not enter the stress; only the Laplacians do, through H.
-    qs.dQxx = QDerivs{ 0.0, 0.0, 0.0, lap.xx };
-    qs.dQxy = QDerivs{ 0.0, 0.0, 0.0, lap.xy };
-    qs.dQxz = QDerivs{ 0.0, 0.0, 0.0, lap.xz };
-    qs.dQyy = QDerivs{ 0.0, 0.0, 0.0, lap.yy };
-    qs.dQyz = QDerivs{ 0.0, 0.0, 0.0, lap.yz };
+    // Second differences unused here: the advection term is not exercised.
+    qs.dQxx = QDerivs{ 0.0, 0.0, 0.0, lap.xx, 0.0, 0.0, 0.0 };
+    qs.dQxy = QDerivs{ 0.0, 0.0, 0.0, lap.xy, 0.0, 0.0, 0.0 };
+    qs.dQxz = QDerivs{ 0.0, 0.0, 0.0, lap.xz, 0.0, 0.0, 0.0 };
+    qs.dQyy = QDerivs{ 0.0, 0.0, 0.0, lap.yy, 0.0, 0.0, 0.0 };
+    qs.dQyz = QDerivs{ 0.0, 0.0, 0.0, lap.yz, 0.0, 0.0, 0.0 };
     qs.gradu = GradTensor{ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
 
     PointwiseOut out{};
