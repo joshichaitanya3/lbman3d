@@ -1,6 +1,7 @@
 #ifndef LBM_AN_BOUNDARY_H_
 #define LBM_AN_BOUNDARY_H_
 
+#include <array>
 #include <string_view>
 #include <type_traits>
 
