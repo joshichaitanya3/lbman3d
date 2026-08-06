@@ -22,7 +22,6 @@
 #include "mpi/halo_exchange_lbm.h"
 #include "mpi/halo_exchange_qtensor.h"
 
-enum ExportFormat { CSV, VTKHDF };
 
 // Orchestrates LbmSolver + QTensorSolver + SimIO for 3D active nematics.
 //
@@ -120,8 +119,10 @@ public:
         return io_.Log(fluid_, af_, df_, time_step_, nematic_energy);
     }
 
-    void Export(const std::string& path, ExportFormat fmt) {
-        // io_.Export(fluid_, qtensor_, path, time_step_);
+    // Write one VTKHDF frame (plus the disclination mesh on non-MPI builds).
+    // With kDebugLogging the frame also carries the raw D3Q15 populations
+    // f0..f14, so nothing needs a second output format to inspect them.
+    void Export(const std::string& path) {
         #ifdef SIM_WITH_CUDA
         d_fields_.CopyToHost(fluid_, qtensor_);
         #endif
@@ -130,22 +131,11 @@ public:
         finder_.FindDefects(af_, df_);
         #endif
 
-        switch (fmt)
-        {
-        case CSV:
-            io_.ExportCSV(fluid_, qtensor_, path, time_step_);
-            num_files_exported++;
-            break;
-        case VTKHDF:
-            io_.ExportVTKHDF(fluid_, af_, path, num_files_exported, mpi_, grid_);
-            #ifndef LBM_ENABLE_MPI // MPI-parallel defect-export not yet implemented
-            io_.ExportDisclinations(df_, path, num_files_exported, mpi_, grid_);
-            #endif
-            num_files_exported++;
-            break;
-        default:
-            break;
-        }
+        io_.ExportVTKHDF(fluid_, af_, path, num_files_exported, mpi_, grid_);
+        #ifndef LBM_ENABLE_MPI // MPI-parallel defect-export not yet implemented
+        io_.ExportDisclinations(df_, path, num_files_exported, mpi_, grid_);
+        #endif
+        num_files_exported++;
     }
 
     int GetTimeStep() const { return time_step_; }

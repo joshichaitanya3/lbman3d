@@ -14,9 +14,9 @@
 #include "analysis/defect_finder.h"
 #include "mpi/mpi_context.h"
 
-// Handles all logging and CSV export.
-// Owns diagnostic tracking fields (rho_past, ux_past, uy_past) to keep
-// FluidFields as pure simulation state with no IO bookkeeping in it.
+// Handles all logging and file export.
+// The past-velocity tracking fields it reads live in AnalysisFields, keeping
+// FluidFields pure simulation state with no IO bookkeeping in it.
 class SimIO {
     std::ofstream log_file_;
     
@@ -35,19 +35,11 @@ public:
     // Returns false (and logs a message) if any quantity is NaN.
     bool Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy);
 
-    // Write per-field CSV files to `path/`.  Updates internal rho_past state.
-    void ExportCSV(const FluidFields& ff, const QTensorFields& qf,
-                const std::string& path, int step);
-
     void ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
                 const std::string& path, int step, const MPIContext& ctx, const LocalGrid& grid);
     
     void ExportDisclinations(const DefectFields& df,
                 const std::string& path, int step, const MPIContext& ctx, const LocalGrid&);
-    
-    // Write one CSV per lattice direction to `path/`.
-    void ExportDistributionCSV(const FluidFields& ff,
-        const std::string& path, int step);
 
 };
 
