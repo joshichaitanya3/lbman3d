@@ -29,6 +29,7 @@ tests/
 │   ├── test_anchored_q.cc
 │   ├── test_backflow_contraction.cc
 │   ├── test_antisym_stress.cc
+│   ├── test_qtensor_init.cc
 │   ├── test_upwind_advection.cc
 │   └── test_idx.cc
 └── integration/
@@ -166,6 +167,17 @@ Divergence signs (`PassiveStressDivergence`, evaluated on synthetic ramps at an 
 - **TyzRampAlongYGivesNegativeFz**: `f_z = ∂_y(Σ_yz - τ_yz)` ⇒ `-slope`
 - **PurelySymmetricStressUnchanged**: with `A = 0` the symmetric path is untouched by the split
 - **TracelessZZTermUnaffected**: `f_z = ∂_z Σ_zz = -∂_z(Σ_xx + Σ_yy)`; `A` has no diagonal
+
+### `test_qtensor_init.cc` — `EquilibriumScalarOrder` and `QTensorSolver::Initialize`
+
+The seeded initial state must be a fixed point of the bulk Q dynamics. Checked through `PointwiseStepAndSetupBodyForce` with zero gradients, zero Laplacian and zero velocity, so every advective/co-rotational/alignment term drops out and `q_new - Q` is exactly `DT * GAMMA * H_bulk` — making "q_new == Q" the statement "the bulk molecular field vanishes".
+
+- **EquilibriumSSatisfiesBulkPolynomial**: `2C S² + BS + 3A = 0`, checked against the polynomial rather than the closed form so the general `A ≠ 0` branch is covered
+- **EquilibriumSMatchesClosedFormWhenAIsZero**: reduces to `-B/(2C)`
+- **InitialQIsABulkFixedPointOnEveryAxis**: x, y and z — the bulk free energy is isotropic, so the solver's choice of z must not be load-bearing
+- **OffEquilibriumOrderIsNotAFixedPoint**: the discriminating guard; without it the test above would also pass if `DT` or `GAMMA` were zero
+- **OverOrderedStateRelaxesToEquilibriumS**: monotone relaxation from `S = 2 S_eq`, preserving uniaxiality
+- **InitializeSeedsEquilibriumOrderParameter**: guards `Initialize` itself via per-cell bounds (exact, since noise is drawn from `[-NOISE, NOISE]`) plus the domain mean. Requires `qtensor_fields.cc` in the `unit_tests` link
 
 ### `test_upwind_advection.cc` — `AdvectionFlux` and the per-axis second differences
 
