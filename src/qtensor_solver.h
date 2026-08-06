@@ -35,10 +35,10 @@ public:
      *
      * Beris-Edwards FD step — updates Q using the current velocity in `ff`.
      * In addition, it uses the already-computed gradients of Q to compute the 
-     * passive component of the nematic stress tensor and add the
-     *  advective backflow (not coming from the stress tensor) to the 
-     * body force `ff.fx/fy/fz`. The divergence of the stress will be added 
-     * to the body force separately.
+     * passive component of the nematic stress tensor and seed the body force
+     * `ff.fx/fy/fz` with the Ericksen (distortion) force -H_ij d_alpha Q_ij —
+     * the half of the backflow coupling that is not a stress divergence. The
+     * divergence of the stress is added to the body force separately.
      */
     void StepAndSetupBodyForce(QTensorFields& qf, FluidFields& ff) const;
 

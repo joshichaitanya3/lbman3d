@@ -104,7 +104,7 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     SymTrLessTensor5& q_new,
     SymTrLessTensor5& sigma,
     AntiSymTensor3& tau,
-    Vec3& advective_backflow
+    Vec3& ericksen_force
 ) {
 
     // Fields
@@ -234,9 +234,16 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const double Hyy = L * lap_Qyy - ld * Qyy - B * Q2_yy;
     const double Hyz = L * lap_Qyz - ld * Qyz - B * Q2_yz;
     
-    // Add the advective counter part of the back-flow to the body force, -H:\nabla Q
-    // since this does not come from the divergence of the stress tensor.
-    // The backflow from the divergence will be added to this by SetActiveStressAndComputeBodyForce
+    // The Ericksen (distortion) force, f_alpha = -H_ij d_alpha Q_ij. This is the
+    // half of the backflow coupling that is NOT a stress divergence; the other
+    // half, div(Sigma + Tau), is added by SetActiveStressAndComputeBodyForce.
+    // Together they reproduce d_beta Pi_alpha,beta.
+    //
+    // Despite carrying \nabla Q it is not an advective term — there is no
+    // velocity in it, hence no upstream direction, so kQAdvection does NOT apply
+    // here and these gradients stay centred. Biasing them would also break the
+    // cancellation against div(Sigma + Tau) that makes the total force integrate
+    // to zero over a periodic domain, injecting spurious momentum.
     //
     // H:\nabla_k Q sums over all nine index pairs. With H_zz = -(H_xx + H_yy)
     // and \partial_k Q_zz = -(\partial_k Q_xx + \partial_k Q_yy), the zz pair
@@ -246,9 +253,9 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     // Same contraction pattern as Q:H below and Q:\nabla^2 Q in analysis_fields.cc's
     // TotalNematicFreeEnergy. Guarded by tests/unit/test_backflow_contraction.cc.
 
-    advective_backflow.x = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) - Hxx*Qyyx - Hyy*Qxxx;
-    advective_backflow.y = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) - Hxx*Qyyy - Hyy*Qxxy;
-    advective_backflow.z = -2.0 * (Hxx*Qxxz + Hxy*Qxyz + Hxz*Qxzz + Hyy*Qyyz + Hyz*Qyzz) - Hxx*Qyyz - Hyy*Qxxz;
+    ericksen_force.x = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) - Hxx*Qyyx - Hyy*Qxxx;
+    ericksen_force.y = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) - Hxx*Qyyy - Hyy*Qxxy;
+    ericksen_force.z = -2.0 * (Hxx*Qxxz + Hxy*Qxyz + Hxz*Qxzz + Hyy*Qyyz + Hyz*Qyzz) - Hxx*Qyyz - Hyy*Qxxz;
 
     // Now, update the nematic stress tensor
 
