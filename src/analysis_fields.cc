@@ -8,7 +8,6 @@ using namespace Params;
 
 AnalysisFields::AnalysisFields(LocalGrid g) :
     grid    (g),
-    rho_past_(g.HaloVolume(), kDensity),
     ux_past_ (g.HaloVolume(), 0.0),
     uy_past_ (g.HaloVolume(), 0.0),
     uz_past_ (g.HaloVolume(), 0.0),

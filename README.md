@@ -249,22 +249,27 @@ Output is written to `data/` every `kSaveInterval` steps. Progress and divergenc
 
 ## Output
 
-There are two output formats provided: CSV and VTKHDF. It can be selected via a simple Enum in the main simulation loop.
+Output is written as VTKHDF (HDF5), one file per frame.
 
 | File | Format | Contents |
 |---|---|---|
-| `data/rho_<step>.csv` | CSV | Density field |
-| `data/ux_<step>.csv` | CSV | x-velocity |
-| `data/uy_<step>.csv` | CSV | y-velocity |
-| `data/uz_<step>.csv` | CSV | z-velocity |
-| `data/qxx_<step>.csv` | CSV | Q-tensor component Qxx |
-| `data/qxy_<step>.csv` | CSV | Q-tensor component Qxy |
-| `data/qxz_<step>.csv` | CSV | Q-tensor component Qxz |
-| `data/qyy_<step>.csv` | CSV | Q-tensor component Qyy |
-| `data/qyz_<step>.csv` | CSV | Q-tensor component Qyz |
-| `data/delta_m_<step>.csv` | CSV | Local density change since last export |
-| `data/lbm_<step>.vtkhdf` | VTKHDF (HDF5) | All fields in a single file, readable by ParaView 5.10+ (together with the LBM fields when `kDebugLogging` is `true`)|
+| `data/lbm_<step>.vtkhdf` | VTKHDF (HDF5) | `rho`, `ux/uy/uz`, `order`, `director` — all fields in one file, readable by ParaView 5.10+. With `kDebugLogging` it also carries the raw D3Q15 populations `f0`..`f14` |
+| `data/disclinations_<step>.vtkhdf` | VTKHDF (HDF5) | Disclination lines as a polyline mesh (non-MPI builds only) |
 | `lbm.log` | text | Simulation parameters, and per-step mass / momentum / kinetic-energy / nematic-energy / disclination-count diagnostics |
+
+### Reading the output in Python
+
+The point-data arrays are stored `[nz, ny, nx]` — the **reverse** of `params.h`'s `nx, ny, nz`. Reshaping from `params.h` by eye gives a silently transposed array, and if two of the dimensions are equal it will not fail loudly:
+
+```python
+# VTKHDF PointData is [nz, ny, nx] — the reverse of params.h's nx, ny, nz.
+import h5py
+with h5py.File('data/lbm_00050.vtkhdf') as f:
+    ux = f['/VTKHDF/PointData/ux'][:]        # shape (nz, ny, nx)
+    n  = f['/VTKHDF/PointData/director'][:]  # shape (nz, ny, nx, 3)
+```
+
+Without `h5py`, the `h5dump` binary that ships with HDF5 is enough — `h5ls -r file.vtkhdf` lists the datasets and their shapes, and `h5dump -d /VTKHDF/PointData/ux -b LE -o ux.bin file.vtkhdf` writes raw little-endian doubles for `numpy.fromfile`.
 
 ## Visualization with Paraview
 

@@ -12,7 +12,7 @@ int main() {
         if (t % kSaveInterval == 0) {
             if (MPIContext::IsRoot())
                 std::cout << compat::format("Step {}", t) << "\n";
-            sim.Export("data", VTKHDF);
+            sim.Export("data");
             if constexpr (!Params::kDebugLogging) {
                 if (!sim.Log()) {
                     std::cerr << compat::format("Simulation diverged at step {} — exiting.\n", t);

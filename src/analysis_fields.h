@@ -78,7 +78,7 @@ double TotalNematicFreeEnergy(const QTensorFields& qf) {
 struct AnalysisFields {
     // Previous-step snapshots for per-export diagnostics
     LocalGrid grid;
-    std::vector<double> rho_past_, ux_past_, uy_past_, uz_past_;
+    std::vector<double> ux_past_, uy_past_, uz_past_;
     // Order parameter and director fields populated by QtensorToOrderDirector
     std::vector<double> order_;
     std::vector<double> director_;  // AoS: [nz, ny, nx, 3]
