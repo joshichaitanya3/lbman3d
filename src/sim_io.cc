@@ -53,7 +53,6 @@ void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_i
     compat::println(log_file_, "  omega               = {}", omega);
     compat::println(log_file_, "  omega_prime         = {}", omega_prime);
     compat::println(log_file_, "  omega_forcing       = {}", omega_forcing);
-    compat::println(log_file_, "  rho0 (numerical)    = {}", RHO);
     compat::println(log_file_, "");
     compat::println(log_file_, "--- Free energy ---");
     compat::println(log_file_, "  L (Frank elasticity) = {}", L);

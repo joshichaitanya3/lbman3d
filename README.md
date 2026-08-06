@@ -129,7 +129,6 @@ Prefer `SlitNoSlipConfig` unless you specifically want free-slip. Free-slip plat
 | `kNumOMPThreads` | Number of OpenMP threads |
 | `DT` | Lattice time step. **Must be 1.0**, enforced by `static_assert` — see below |
 | `TAUF` | LBM relaxation time, and the only handle on viscosity: `ν = c_s²(TAUF/DT − 1/2)` |
-| `RHO` | Initial lattice density |
 | `L` | Elastic constant in the gradient free energy (one-constant approximation; `L = 2K` for Frank constant `K` at `S_eq = 1/3`) |
 | `A`, `B`, `C` | Landau free-energy coefficients. With `A = 0` the equilibrium order parameter is `S_eq = −B/(2C)` |
 | `GAMMA` | Inverse rotational viscosity |
