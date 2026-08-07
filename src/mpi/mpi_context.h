@@ -62,6 +62,10 @@ struct MPIContext {
         MPI_Allreduce(local_sum, global_sum, 1, MPI_INT, MPI_SUM, comm);
     }
 
+    static void MaxDoubles(double* local_max, double* global_max, MPI_Comm comm = MPI_COMM_WORLD) {
+        MPI_Allreduce(local_max, global_max, 1, MPI_DOUBLE, MPI_MAX, comm);
+    }
+
     // True on exactly one rank in `comm` — the one responsible for file I/O
     // (log file, exports) so every rank doesn't write/truncate the same path.
     static bool IsRoot(MPI_Comm comm = MPI_COMM_WORLD) {
@@ -117,6 +121,10 @@ struct MPIContext {
 
     static void SumInts(int* local_sum, int* global_sum) {
         *global_sum = *local_sum;
+    }
+
+    static void MaxDoubles(double* local_max, double* global_max) {
+        *global_max = *local_max;
     }
 
     static bool IsRoot() { return true; }

@@ -77,10 +77,11 @@ void SimIO::LogSetupSummary(std::string_view bc_name, std::string_view backend_i
 
 bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy) {
     double mass = 0.0, px = 0.0, py = 0.0, pz=0, ke=0.0, e1 = 0.0, e2 = 0.0;
+    double umax2 = 0.0;
     const LocalGrid& g = ff.grid;
 
     #pragma omp parallel for schedule(static) default(shared) \
-        reduction(+:mass,px,py,pz,ke,e1,e2) num_threads(kNumOMPThreads)
+        reduction(+:mass,px,py,pz,ke,e1,e2) reduction(max:umax2) num_threads(kNumOMPThreads)
     for (int z = 0; z < g.local_nz; ++z) {
         for (int y = 0; y < g.local_ny; ++y) {
             for (int x = 0; x < g.local_nx; ++x) {
@@ -89,15 +90,17 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
                 px   += ff.rho[idxp] * ff.ux[idxp];
                 py   += ff.rho[idxp] * ff.uy[idxp];
                 pz   += ff.rho[idxp] * ff.uz[idxp];
-                ke   += 0.5 * ff.rho[idxp] * (ff.ux[idxp]*ff.ux[idxp] + 
-                                                 ff.uy[idxp]*ff.uy[idxp] + 
-                                                 ff.uz[idxp]*ff.uz[idxp]);
+                const double u2 = ff.ux[idxp]*ff.ux[idxp]
+                                  + ff.uy[idxp]*ff.uy[idxp]
+                                  + ff.uz[idxp]*ff.uz[idxp];
+                ke   += 0.5 * ff.rho[idxp] * u2;
+                if (u2 > umax2) umax2 = u2;
 
                 e1   += (ff.ux[idxp]-af.ux_past_[idxp])*(ff.ux[idxp]-af.ux_past_[idxp])
                         + (ff.uy[idxp]-af.uy_past_[idxp])*(ff.uy[idxp]-af.uy_past_[idxp])
                         + (ff.uz[idxp]-af.uz_past_[idxp])*(ff.uz[idxp]-af.uz_past_[idxp]);
 
-                e2   += ff.ux[idxp]*ff.ux[idxp] + ff.uy[idxp]*ff.uy[idxp]  + ff.uz[idxp]*ff.uz[idxp];
+                e2   += u2;
                 af.ux_past_[idxp] = ff.ux[idxp];
                 af.uy_past_[idxp] = ff.uy[idxp];
                 af.uz_past_[idxp] = ff.uz[idxp];
@@ -108,6 +111,7 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
     double te = ke + nematic_energy;
 
     double global_mass, global_px, global_py, global_pz, global_ke, global_te, global_e1, global_e2;
+    double global_umax2;
     int global_num_disclinations;
 
     // Collective — every rank must call these, even though only the root
@@ -120,6 +124,7 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
     MPIContext::SumDoubles(&te, &global_te);
     MPIContext::SumDoubles(&e1, &global_e1);
     MPIContext::SumDoubles(&e2, &global_e2);
+    MPIContext::MaxDoubles(&umax2, &global_umax2);
     MPIContext::SumInts(&num_disclinations, &global_num_disclinations); // This is currently incorrect, since a single disclination could span multiple ranks, but we will keep it for now.
 
     // Divergence is derived from the globally-reduced quantities, so every
@@ -137,7 +142,7 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
             // monitor.py's (unanchored) parser keeps working unchanged.
             "Time {}: Mass: {}, Px: {}, Py: {}, Pz: {}, "
             "Kinetic Energy: {}, Total Energy: {}, Relative Error: {}, "
-            "NumDisclinations: {}, Nematic Energy: {}",
+            "NumDisclinations: {}, Nematic Energy: {}, Max |u|: {}",
             time_step,
             global_mass,
             global_px,
@@ -147,7 +152,8 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
             global_te,
             global_e1/global_e2,
             global_num_disclinations,
-            global_te - global_ke
+            global_te - global_ke,
+            std::sqrt(global_umax2)
         );
         std::flush(log_file_);
     }
