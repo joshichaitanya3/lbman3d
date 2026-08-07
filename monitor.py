@@ -25,6 +25,8 @@ _DATA_RE = re.compile(
     r"(?:,\s*Total Energy: ([^\s,]+))?"   # optional; absent in older logs
     r"[, ]+Relative Error: ([^\s,]+)"      # comma (new) or space (old) separator
     r"(?:,\s*NumDisclinations: (\d+))?"
+    r"(?:,\s*Nematic Energy: [^\s,]+)?"    # skipped, but must be consumed to reach Max |u|
+    r"(?:,\s*Max \|u\|: ([^\s,]+))?"       # optional; absent in older logs
 )
 
 
@@ -63,15 +65,29 @@ def parse_log(path):
         m = _DATA_RE.match(line)
         if m:
             groups = m.groups()
-            # groups: time, mass, px, py, pz, ke, total_e?, rel_err, disc?
+            # groups: time, mass, px, py, pz, ke, total_e?, rel_err, disc?, max_u?
             row = tuple(_safe_float(g) for g in groups[:6])   # time..ke
             total_e = _safe_float(groups[6]) if groups[6] is not None else float("nan")
             rel_err = _safe_float(groups[7])
             disc = _safe_float(groups[8]) if groups[8] is not None else float("nan")
-            # tuple layout: time, mass, px, py, pz, ke, rel_err, disc, total_e
-            rows.append(row + (rel_err, disc, total_e))
+            max_u = _safe_float(groups[9]) if groups[9] is not None else float("nan")
+            # tuple layout: time, mass, px, py, pz, ke, rel_err, disc, total_e, max_u
+            rows.append(row + (rel_err, disc, total_e, max_u))
 
     return params, rows
+
+
+def _format_constant(v):
+    """Reformat float-looking constants as {val:.2g}; leave ints / strings alone."""
+    s = v.strip()
+    # Only reformat things that clearly look like floats — ints (nx, ny, ...) and
+    # non-numeric strings (BC = ChannelConfig, backend descriptions) pass through.
+    if any(c in s for c in ".eE"):
+        try:
+            return f"{float(s):.2g}"
+        except ValueError:
+            return s
+    return s
 
 
 def format_params(params):
@@ -79,8 +95,7 @@ def format_params(params):
     for section, kvs in params.items():
         lines.append(f"─── {section}")
         for k, v in kvs.items():
-            # Wrap long lines
-            entry = f"  {k} = {v}"
+            entry = f"  {k} = {_format_constant(v)}"
             lines.append(entry)
     return "\n".join(lines)
 
@@ -154,12 +169,23 @@ def main():
     else:
         top_label, top_col, top_color = "Kinetic Energy", 5, BLUE
 
-    (ke_line,) = ax_ke.plot([], [], color=top_color, lw=1.5)
+    (ke_line,) = ax_ke.plot([], [], color=top_color, lw=1.5, label=top_label)
     ax_ke.set_xlabel("Time step")
-    ax_ke.set_ylabel(top_label)
-    ax_ke.set_title(top_label)
+    ax_ke.set_ylabel(top_label, color=top_color)
+    ax_ke.tick_params(axis="y", colors=top_color)
     if not plot_total_energy:
         ax_ke.set_yscale("log")  # KE is always positive; Total Energy can be negative
+
+    # Max |u| shares the panel but not the y-axis — magnitudes differ by orders
+    # from KE/TE. Twin axis on the right, log-scaled (|u| is non-negative and
+    # spans decades in diverging runs, which is exactly what this line is for).
+    ax_umax = ax_ke.twinx()
+    style_ax(ax_umax)
+    (umax_line,) = ax_umax.plot([], [], color=YELLOW, lw=1.2, label="Max |u|")
+    ax_umax.set_ylabel("Max |u|", color=YELLOW)
+    ax_umax.tick_params(axis="y", colors=YELLOW)
+    ax_umax.set_yscale("log")
+    ax_ke.set_title(f"{top_label}  +  Max |u|")
 
     # Momentum axes
     (px_line,) = ax_mom.plot([], [], color=MAUVE, lw=1.2, label="Px")
@@ -235,13 +261,20 @@ def main():
             state["mass0"] = masses[0]
         mass0 = state["mass0"]
 
-        # ── Top energy plot (KE or Total Energy) ─────────────────────────────
+        # ── Top energy plot (KE or Total Energy) + Max |u| overlay ───────────
         top_vals = arr[:, top_col]
         valid = np.isfinite(top_vals) & (top_vals != 0 if plot_total_energy else top_vals > 0)
         if valid.any():
             ke_line.set_data(times[valid], top_vals[valid])
             ax_ke.relim()
             ax_ke.autoscale_view()
+
+        max_u = arr[:, 9]
+        valid_u = np.isfinite(max_u) & (max_u > 0)
+        if valid_u.any():
+            umax_line.set_data(times[valid_u], max_u[valid_u])
+            ax_umax.relim()
+            ax_umax.autoscale_view()
 
         # ── Momentum plot ─────────────────────────────────────────────────────
         px_line.set_data(times, px)
