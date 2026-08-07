@@ -221,10 +221,25 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
                             + Qxy * Exx + Qyy * Exy + Qyz * Exz;
     const double aln2_xz = Exz * Qxx + Eyz * Qxy + (-Exx - Eyy) * Qxz
                             + Qxz * Exx + Qyz * Exy + (-Qxx - Qyy) * Exz;
-    
+
     const double aln2_yy = 2.0 * (Exy * Qxy + Eyy * Qyy + Eyz * Qyz) - ktwo_thirds * tr_QE;
     const double aln2_yz = Exz * Qxy + Eyz * Qyy + (-Exx - Eyy) * Qyz
                             + Qxz * Exy + Qyz * Eyy + (-Qxx - Qyy) * Eyz;
+
+    // Third Beris-Edwards flow-alignment piece: -2 lambda tr(QE) Q_ij.
+    // Together with -(2 lambda / 3) tr(QE) delta_ij (already inside aln2_ii),
+    // this completes the -2 lambda (Q + I/3) tr(QE) contribution of the
+    // standard S(W,Q). Its Onsager conjugate +2 lambda tr(QH) Q_ij is added
+    // to sigma below; the pair must be added or dropped jointly to preserve
+    // reciprocity between the Q equation and the stress. Kept as its own
+    // term (rather than folded into aln2) because aln2 is (EQ+QE)_ij minus
+    // the I/3 trace piece, and this term has a different tensor structure
+    // (Q_ij times a scalar), so grouping them would obscure the algebra.
+    const double aln3_xx = -2.0 * tr_QE * Qxx;
+    const double aln3_xy = -2.0 * tr_QE * Qxy;
+    const double aln3_xz = -2.0 * tr_QE * Qxz;
+    const double aln3_yy = -2.0 * tr_QE * Qyy;
+    const double aln3_yz = -2.0 * tr_QE * Qyz;
     
     // Molecular field H
     const double ld = A + C * TrQ2;
@@ -302,12 +317,15 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const double Tau_xz = (Hxz*Qxx + Hyz*Qxy + (-Hxx - Hyy)*Qxz) - (Qxz*Hxx + Qyz*Hxy + (-Qxx - Qyy)*Hxz);
     const double Tau_yz = (Hxz*Qxy + Hyz*Qyy + (-Hxx - Hyy)*Qyz) - (Qxz*Hxy + Qyz*Hyy + (-Qxx - Qyy)*Hyz);
 
-    // Symmetric-traceless part of the nematic stress
-    sigma.xx = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx;
-    sigma.xy = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy;
-    sigma.xz = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz;
-    sigma.yy = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy;
-    sigma.yz = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz;
+    // Symmetric-traceless part of the nematic stress.
+    // The +2 LAMBDA tr(QH) Q_ij piece is the Onsager conjugate of the
+    // -2 LAMBDA tr(QE) Q_ij term added to the Q update above; both together
+    // preserve reciprocity between the Q equation and the stress.
+    sigma.xx = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx + 2.0 * LAMBDA * tr_QH * Qxx;
+    sigma.xy = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy + 2.0 * LAMBDA * tr_QH * Qxy;
+    sigma.xz = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz + 2.0 * LAMBDA * tr_QH * Qxz;
+    sigma.yy = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy + 2.0 * LAMBDA * tr_QH * Qyy;
+    sigma.yz = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz + 2.0 * LAMBDA * tr_QH * Qyz;
 
     // Antisymmetric part, kept separate
     tau.xy = Tau_xy;
@@ -315,11 +333,11 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     tau.yz = Tau_yz;
 
     // Now, we perform the timestep
-    q_new.xx = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * Hxx);
-    q_new.xy = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * Hxy);
-    q_new.xz = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * Hxz);
-    q_new.yy = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * Hyy);
-    q_new.yz = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * Hyz);
+    q_new.xx = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx + aln3_xx) + GAMMA * Hxx);
+    q_new.xy = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy + aln3_xy) + GAMMA * Hxy);
+    q_new.xz = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz + aln3_xz) + GAMMA * Hxz);
+    q_new.yy = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy + aln3_yy) + GAMMA * Hyy);
+    q_new.yz = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz + aln3_yz) + GAMMA * Hyz);
 
 };
 
