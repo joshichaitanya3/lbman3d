@@ -7,9 +7,9 @@
 
 Lattice Boltzmann Method-based solver for 3D Active Nematics
 
-The flow equation is solved using a D3Q15 scheme. The Q-tensor equation is solved using a simple finite-difference scheme.
+The flow equation is solved using a D3Q15 scheme. The Q-tensor equation is solved using a simple finite-difference scheme with an optional upwinding scheme for the advective derivative.
 
-> **v0.2.0**: CPU MPI parallelisation with domain decomposition. See [MPI (CPU only, v0.2.0)](#mpi-cpu-only-v020). GPU-aware MPI is planned for v0.3.0.
+> **v0.2.0**: CPU MPI parallelisation with domain decomposition is now available. See [MPI (CPU only, v0.2.0)](#mpi-cpu-only-v020). GPU-aware MPI is planned for v0.3.0.
 
 ## Dependencies
 
