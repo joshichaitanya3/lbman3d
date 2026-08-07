@@ -4,8 +4,9 @@
 #include "lattice_stencil.h"
 #include "physics_helpers.h"
 #include <algorithm>
+#include "local_grid.h"
 
-std::string InitializeComputeBackend() {
+std::string InitializeComputeBackend(const MPIContext& mpi) {
     checkCudaErrors(cudaSetDevice(0));
 
     int device_id = 0;
@@ -28,38 +29,50 @@ std::string InitializeComputeBackend() {
         "      global memory: {:.1f} MiB\n"
         "        free memory: {:.1f} MiB\n"
         "   asyncEngineCount: {}\n"
-        "   canMapHostMemory: {}\n",
+        "   canMapHostMemory: {}\n"
+        "    MPI world_size: {}\n"
+        "         MPI dims: [{}, {}, {}]\n",
         device_id, props.name, props.multiProcessorCount,
         props.major, props.minor,
         props.totalGlobalMem / bytesPerMiB, free_mem / bytesPerMiB,
-        props.asyncEngineCount, props.canMapHostMemory);
+        props.asyncEngineCount, props.canMapHostMemory,
+        mpi.world_size, mpi.dims[0], mpi.dims[1], mpi.dims[2]);
 }
 
-DeviceFields::DeviceFields() :
-    d_f       (Params::nx * Params::ny * Params::nz * Lattice::ndir, 0.0),
-    d_f_new   (Params::nx * Params::ny * Params::nz * Lattice::ndir, 0.0),
-    d_rho     (Params::nx * Params::ny * Params::nz, Params::kDensity),
-    d_ux      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_uy      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_uz      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_force_x      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_force_y      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_force_z      (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxx     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxx_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxy     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxy_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxz     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qxz_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyy     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyy_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyz     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_qyz_new (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pxx     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pxy     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pxz     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pyy     (Params::nx * Params::ny * Params::nz, 0.0),
-    d_Pyz     (Params::nx * Params::ny * Params::nz, 0.0)
+// HaloVolume() (not Volume()) so device buffers include the ghost layer that
+// PR VII's cross-rank exchange will read/write. Identical to Volume() at
+// single rank (kHaloMPI == 0), where every kernel index g.halo_idx(...) still
+// lands inside [0, HaloVolume) — the change is a no-op today and correct
+// for the MPI+GPU path without further edits.
+DeviceFields::DeviceFields(LocalGrid g) :
+    grid      (g),
+    d_f       (g.HaloVolume() * Lattice::ndir, 0.0),
+    d_f_new   (g.HaloVolume() * Lattice::ndir, 0.0),
+    d_rho     (g.HaloVolume(), Params::kDensity),
+    d_ux      (g.HaloVolume(), 0.0),
+    d_uy      (g.HaloVolume(), 0.0),
+    d_uz      (g.HaloVolume(), 0.0),
+    d_force_x (g.HaloVolume(), 0.0),
+    d_force_y (g.HaloVolume(), 0.0),
+    d_force_z (g.HaloVolume(), 0.0),
+    d_qxx     (g.HaloVolume(), 0.0),
+    d_qxx_new (g.HaloVolume(), 0.0),
+    d_qxy     (g.HaloVolume(), 0.0),
+    d_qxy_new (g.HaloVolume(), 0.0),
+    d_qxz     (g.HaloVolume(), 0.0),
+    d_qxz_new (g.HaloVolume(), 0.0),
+    d_qyy     (g.HaloVolume(), 0.0),
+    d_qyy_new (g.HaloVolume(), 0.0),
+    d_qyz     (g.HaloVolume(), 0.0),
+    d_qyz_new (g.HaloVolume(), 0.0),
+    d_Sigma_xx     (g.HaloVolume(), 0.0),
+    d_Sigma_xy     (g.HaloVolume(), 0.0),
+    d_Sigma_xz     (g.HaloVolume(), 0.0),
+    d_Sigma_yy     (g.HaloVolume(), 0.0),
+    d_Sigma_yz     (g.HaloVolume(), 0.0),
+    d_Tau_xy     (g.HaloVolume(), 0.0),
+    d_Tau_xz     (g.HaloVolume(), 0.0),
+    d_Tau_yz     (g.HaloVolume(), 0.0)
 
 {}
 
@@ -74,12 +87,15 @@ void DeviceFields::Initialize(FluidFields& ff, const QTensorFields& qf) {
     // here regardless of whether ff.f itself is ever synced from d_f for
     // debugging later. Restored to ff.f's contents afterward purely so it
     // doesn't look like corrupted data to anything that inspects it later.
-    const int n = Params::nx * Params::ny * Params::nz;
-    for (int z = 0; z < Params::nz; ++z)
-        for (int y = 0; y < Params::ny; ++y)
-            for (int x = 0; x < Params::nx; ++x)
+    const LocalGrid& g = ff.grid;
+    // n is the per-direction stride in the device (i-slowest) layout — must
+    // match d_f's allocation size, so HaloVolume, not Volume.
+    const int n = g.HaloVolume();
+    for (int z = 0; z < g.local_nz; ++z)
+        for (int y = 0; y < g.local_ny; ++y)
+            for (int x = 0; x < g.local_nx; ++x)
                 for (int i = 0; i < Lattice::ndir; ++i)
-                    ff.f_new[i * n + idx(x, y, z)] = ff.f[idx(x, y, z, i)];
+                    ff.f_new[i * n + g.halo_idx(x, y, z)] = ff.f[g.halo_idx(x, y, z, i)];
 
     thrust::copy(ff.f_new.begin(), ff.f_new.end(), d_f.begin());
     std::copy(ff.f.begin(), ff.f.end(), ff.f_new.begin());

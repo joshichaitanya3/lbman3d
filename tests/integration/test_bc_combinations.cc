@@ -13,6 +13,7 @@
 #include "device_solver.h"
 #include "lbm_solver.h"
 #include "qtensor_solver.h"
+#include "local_grid.h"
 
 using namespace Params;
 
@@ -29,6 +30,7 @@ using namespace Params;
 // ─────────────────────────────────────────────────────────────────────────────
 template<typename BC>
 class LbmOnlyBenchmark {
+    LocalGrid        grid_;
     FluidFields      fluid_;
     QTensorFields    qtensor_;
     LbmSolver<BC>    lbm_;
@@ -36,7 +38,12 @@ class LbmOnlyBenchmark {
     DeviceSolver<BC> d_solver_;
 
 public:
-    LbmOnlyBenchmark() { Reinitialize(); }
+    LbmOnlyBenchmark() :
+        grid_(LocalGrid::SingleRank()),
+        fluid_(grid_),
+        qtensor_(grid_),
+        d_fields_(grid_)
+    { Reinitialize(); }
 
     FluidFields& Fluid() { return fluid_; }
 
@@ -81,14 +88,16 @@ public:
     void Initialize(QTensorFields& qf) const override {
         std::mt19937 gen(42);
         std::uniform_real_distribution<double> noise_dist(-NOISE, NOISE);
-        for (int z : std::views::iota(0, nz)) {
-            for (int y : std::views::iota(0, ny)) {
-                for (int x : std::views::iota(0, nx)) {
-                    qf.qxx[idx(x, y, z)] = 0.33 + noise_dist(gen);
-                    qf.qxy[idx(x, y, z)] = noise_dist(gen);
-                    qf.qxz[idx(x, y, z)] = noise_dist(gen);
-                    qf.qyy[idx(x, y, z)] = -0.15 + noise_dist(gen);
-                    qf.qyz[idx(x, y, z)] = noise_dist(gen);
+        LocalGrid& g = qf.grid;
+        for (int z : std::views::iota(0, g.local_nz)) {
+            for (int y : std::views::iota(0, g.local_ny)) {
+                for (int x : std::views::iota(0, g.local_nx)) {
+                    const int idxp = g.halo_idx(x, y, z);
+                    qf.qxx[idxp] = 0.33 + noise_dist(gen);
+                    qf.qxy[idxp] = noise_dist(gen);
+                    qf.qxz[idxp] = noise_dist(gen);
+                    qf.qyy[idxp] = -0.15 + noise_dist(gen);
+                    qf.qyz[idxp] = noise_dist(gen);
                 }
             }
         }
@@ -154,10 +163,11 @@ TEST(BCCombinations, ChannelNoSlipWallsDamping) {
     const double tol = static_cast<double>(nx * ny * nz) * 500 * std::numeric_limits<double>::epsilon();
     EXPECT_NEAR(mass1, mass0, tol);
 
+    const LocalGrid& g = sim.Fluid().grid;
     for (int z : std::views::iota(0, nz)) {
         for (int x : std::views::iota(0, nx)) {
-            EXPECT_NEAR(sim.Fluid().ux[idx(x, 0, z)], 0.0, 1e-6);
-            EXPECT_NEAR(sim.Fluid().ux[idx(x, ny - 1, z)], 0.0, 1e-6);
+            EXPECT_NEAR(sim.Fluid().ux[g.halo_idx(x, 0, z)], 0.0, 1e-6);
+            EXPECT_NEAR(sim.Fluid().ux[g.halo_idx(x, ny - 1, z)], 0.0, 1e-6);
         }
     }
 }
@@ -186,16 +196,17 @@ TEST(BCCombinations, SpecularZFreeSlip) {
 
     for (int step = 0; step < 500; ++step) sim.Step();
 
+    const LocalGrid& g = sim.Fluid().grid;
     const int x0 = nx / 2, y0 = ny / 2;
-    const double ux_mid = sim.Fluid().ux[idx(x0, y0, nz / 2)];
+    const double ux_mid = sim.Fluid().ux[g.halo_idx(x0, y0, nz / 2)];
     for (int z : std::views::iota(0, nz)) {
-        EXPECT_NEAR(sim.Fluid().ux[idx(x0, y0, z)], ux_mid, 1e-9);
+        EXPECT_NEAR(sim.Fluid().ux[g.halo_idx(x0, y0, z)], ux_mid, 1e-9);
     }
 
     for (int y : std::views::iota(0, ny)) {
         for (int x : std::views::iota(0, nx)) {
-            EXPECT_NEAR(sim.Fluid().uz[idx(x, y, 0)], 0.0, 1e-9);
-            EXPECT_NEAR(sim.Fluid().uz[idx(x, y, nz - 1)], 0.0, 1e-9);
+            EXPECT_NEAR(sim.Fluid().uz[g.halo_idx(x, y, 0)], 0.0, 1e-9);
+            EXPECT_NEAR(sim.Fluid().uz[g.halo_idx(x, y, nz - 1)], 0.0, 1e-9);
         }
     }
 }
@@ -225,7 +236,7 @@ TEST(BCCombinations, AnchoringConvergesAtWall) {
 
     for (int y : std::views::iota(0, ny)) {
         for (int x : std::views::iota(0, nx)) {
-            const int i = idx(x, y, 0);
+            const int i = qf.grid.halo_idx(x, y, 0);
             EXPECT_NEAR(qf.qxx[i], target.xx, 0.01);
             EXPECT_NEAR(qf.qxy[i], target.xy, 0.01);
             EXPECT_NEAR(qf.qxz[i], target.xz, 0.01);

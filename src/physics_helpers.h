@@ -10,6 +10,7 @@
 #include <cassert>
 #include <params.h>
 #include "lattice_stencil.h"
+#include "local_grid.h"
 
 using namespace Params;
 
@@ -19,40 +20,6 @@ struct Idx3 {
 
 inline CUDA_HOST_DEVICE bool InDomain(int x, int y, int z) {
     return (x >= 0) && (x < nx) && (y >= 0) && (y < ny) && (z >= 0) && (z < nz);
-}
-
-// Flat, periodic (x,y,z) -> offset for grid-sized fields; same layout on
-// host and device since there's no direction index to complicate things.
-// Every current caller already guarantees (x,y,z) is in-domain (via
-// Grid::QXoff/QYoff/QZoff, which always clamp/wrap, or an InDomain guard
-// before streaming destinations reach here) — the modulo below is at this
-// point just insurance. The assert catches a caller that stops holding that
-// invariant; it's compiled out under -DNDEBUG (see CMakeLists.txt's Release
-// flags), so it costs nothing in a normal run.
-inline CUDA_HOST_DEVICE int idx(int x, int y, int z) {
-    assert(InDomain(x, y, z) && "idx(x,y,z): coordinates out of domain");
-    return ((z + nz) % nz) * ny * nx + ((y + ny) % ny) * nx + ((x + nx) % nx);
-}
-
-// idx(x,y,z,i) has a DIFFERENT layout on host vs device:
-//   - host:   i fastest-varying — all directions for one grid point are
-//     contiguous, matching the CPU's per-point loop over ndir.
-//   - device: i slowest-varying — all grid points for one direction are
-//     contiguous, since a kernel step processes one direction across many
-//     threads/blocks at once.
-// __CUDA_ARCH__ is only defined during nvcc's device-code compilation pass
-// of a __host__ __device__ function (undefined during its host pass), so a
-// single function body branches on it rather than needing two overloads —
-// nvcc treats __host__-tagged and __device__-tagged free functions with the
-// same name/signature as a redefinition, not as distinct overloads.
-inline CUDA_HOST_DEVICE int idx(int x, int y, int z, int i) {
-    assert(InDomain(x, y, z) && "idx(x,y,z,i): coordinates out of domain");
-    assert(i >= 0 && i < Lattice::ndir && "idx(x,y,z,i): direction index out of range");
-#ifdef __CUDA_ARCH__
-    return i * nz * ny * nx + ((z + nz) % nz) * ny * nx + ((y + ny) % ny) * nx + ((x + nx) % nx);
-#else
-    return (((z + nz) % nz) * ny * nx + ((y + ny) % ny) * nx + ((x + nx) % nx)) * Lattice::ndir + i;
-#endif
 }
 
 struct Vec3 {
@@ -128,7 +95,8 @@ inline CUDA_HOST_DEVICE Moments ComputeMoments(
     Vec3 force,
     const int* ex,
     const int* ey,
-    const int* ez
+    const int* ez,
+    const LocalGrid& g
 ) {
     double rhop = 0.0;
     double uxp = 0.0;
@@ -136,7 +104,7 @@ inline CUDA_HOST_DEVICE Moments ComputeMoments(
     double uzp = 0.0;
     for (int i = 0; i < Lattice::ndir; ++i) {
 
-        double fi = f[idx(point.x, point.y, point.z, i)];
+        double fi = f[g.halo_idx(point.x, point.y, point.z, i)];
         rhop += fi;
         uxp += ex[i] * fi;
         uyp += ey[i] * fi;

@@ -19,8 +19,7 @@ namespace Params {
     inline constexpr int nx = 5;
     inline constexpr int ny = 16;
     inline constexpr int nz = 5;
-    inline constexpr int nq = 3;
-    inline constexpr int numprocs = 1;
+    inline constexpr int kNumOMPThreads = 1;
 
     // Spatial / temporal
     inline constexpr double DX = 1.0, DY = 1.0, DZ = 1.0;
@@ -28,7 +27,6 @@ namespace Params {
 
     
     // LBM relaxation
-    inline constexpr double RHO = 1.1;        // initial lattice density
     inline constexpr double kDensity = 1.0;   // physical density scale
     inline constexpr double TAUF = std::sqrt(static_cast<double>(3.0f/16.0f))+0.5; // Relaxation time
     inline constexpr double nu = (2 * TAUF - 1) / 6.0f; // kinematic shear viscosity

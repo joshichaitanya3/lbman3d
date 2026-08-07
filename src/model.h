@@ -2,9 +2,16 @@
 #define LBM_AN_MODEL_H
 
 #include <params.h>
+// For kQAdvection. This is the one place a physics header reaches up to
+// sim_config.h: the advection scheme is selected there, next to the boundary
+// conditions, because both are discretisation choices. The BC config still
+// arrives by template parameter, not by inclusion.
+#include <sim_config.h>
 #include "qtensor_types.h"
 #include "physics_helpers.h"
 #include "boundary_handler.h"
+
+#include <cmath>
 
 #ifndef CUDA_HOST_DEVICE
 #ifdef __CUDACC__
@@ -16,6 +23,64 @@
 
 using namespace Params;
 
+// Equilibrium scalar order parameter of the Landau-de Gennes bulk free energy:
+// the S at which the bulk part of the molecular field H vanishes on the uniaxial
+// family Q = S (nn - I/3).
+//
+// Substituting Q = diag(2S/3, -S/3, -S/3) into the bulk terms of H below,
+// -(A + C TrQ^2) Q - B [Q^2]_traceless, gives TrQ^2 = (2/3)S^2 and
+// [Q^2]_traceless,xx = (2/9)S^2, so
+//
+//     H_xx = -(4/9) C S^3 - (2/9) B S^2 = 0   ->   2 C S^2 + B S + 3 A = 0
+//
+// whose ordered (+) root is the value below. With A = 0 it reduces to -B/(2C).
+//
+// Host-only: this is initialisation/analysis, never called from a kernel.
+inline double EquilibriumScalarOrder() {
+    return (-B + std::sqrt(B * B - 24.0 * A * C)) / (4.0 * C);
+}
+
+// One axis's contribution to u.grad(Q), i.e. u_a * dQ/dx_a.
+//
+//   Advection::Centred:  u * dQ
+//   Advection::Upwind:   u * dQ - (|u|/2) * d2Q
+//
+// The upwind form follows from Q(a) - Q(a-1) = dQ - d2Q/2 for u > 0 and
+// Q(a+1) - Q(a) = dQ + d2Q/2 for u < 0; combining the two cases gives the
+// single branch-free expression above.
+//
+// Written this way the correction is manifestly a diffusion term of
+// coefficient |u|/2, i.e. upwinding adds a numerical Q diffusivity of |u|*DX/2.
+// That is the price of the scheme and it is not small — see the envelope
+// measured next to kQAdvection in sim_config.h.
+//
+// Prefer AdvectiveDerivative below at call sites: this takes three
+// interchangeable doubles, so a transposed (velocity, derivative) pair would
+// compile silently.
+template<Advection Scheme>
+inline CUDA_HOST_DEVICE double AdvectiveAxisTerm(double u, double dQ, double d2Q) {
+    if constexpr (Scheme == Advection::Upwind) {
+        const double abs_u = u < 0.0 ? -u : u;
+        return u * dQ - 0.5 * abs_u * d2Q;
+    } else {
+        return u * dQ;
+    }
+}
+
+// u.grad(Q) for one Q component, summed over all three axes.
+//
+// Taking the whole velocity and the whole QDerivs makes the axis pairing
+// structural: there is no way for a caller to hand the x-velocity an
+// x-derivative from the wrong component, which the three-double form above
+// permits. The Beris-Edwards right-hand side carries -u.grad(Q), so call sites
+// negate.
+template<Advection Scheme = kQAdvection>
+inline CUDA_HOST_DEVICE double AdvectiveDerivative(const Vec3& u, const QDerivs& d) {
+    return AdvectiveAxisTerm<Scheme>(u.x, d.dx, d.d2x)
+         + AdvectiveAxisTerm<Scheme>(u.y, d.dy, d.d2y)
+         + AdvectiveAxisTerm<Scheme>(u.z, d.dz, d.d2z);
+}
+
 // In model.h — CUDA_HOST_DEVICE throughout
 struct QStencil {
     // Central point values
@@ -26,11 +91,20 @@ struct QStencil {
     GradTensor gradu;
 };
 
+// The nematic stress Pi = Sigma + Tau is returned in two pieces:
+//   sigma — symmetric traceless, Sigma = -(2/3) lambda H - lambda (QH + HQ)
+//   tau   — antisymmetric, Tau = QH - HQ, upper triangle only (no diagonal)
+//
+// Separate because Tau_beta,alpha = -Tau_alpha,beta, which a symmetric 5-slot
+// container cannot represent. The divergence consumes both under the row
+// convention f_alpha = d_beta Pi_alpha,beta (see PassiveStressDivergence in
+// boundary_handler.h).
 inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const QStencil& qs,
     SymTrLessTensor5& q_new,
-    SymTrLessTensor5& passive_stress,
-    Vec3& advective_backflow
+    SymTrLessTensor5& sigma,
+    AntiSymTensor3& tau,
+    Vec3& ericksen_force
 ) {
 
     // Fields
@@ -41,9 +115,6 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const double Qyy = qs.Q.yy;
     const double Qyz = qs.Q.yz;
 
-    const double ux = qs.u.x;
-    const double uy = qs.u.y;
-    const double uz = qs.u.z;
 
     // Polynomials
     const double TrQ2 = 2.0*(Qxx*Qxx + Qyy*Qyy+ Qxx*Qyy + Qxy*Qxy +Qxz*Qxz +Qyz*Qyz);
@@ -99,18 +170,25 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     // the QXoff/QYoff/QZoff Neumann-only clamp, which is wrong for
     // Anchoring walls)
 
-    const auto [Qxxx, Qxxy, Qxxz, lap_Qxx] = qs.dQxx;
-    const auto [Qxyx, Qxyy, Qxyz, lap_Qxy] = qs.dQxy;
-    const auto [Qxzx, Qxzy, Qxzz, lap_Qxz] = qs.dQxz;
-    const auto [Qyyx, Qyyy, Qyyz, lap_Qyy] = qs.dQyy;
-    const auto [Qyzx, Qyzy, Qyzz, lap_Qyz] = qs.dQyz;
+    // Named by member rather than destructured: QDerivs also carries the
+    // per-axis second differences (consumed by AdvectiveDerivative below), and a
+    // structured binding would have to list every member.
+    const double Qxxx = qs.dQxx.dx, Qxxy = qs.dQxx.dy, Qxxz = qs.dQxx.dz;
+    const double Qxyx = qs.dQxy.dx, Qxyy = qs.dQxy.dy, Qxyz = qs.dQxy.dz;
+    const double Qxzx = qs.dQxz.dx, Qxzy = qs.dQxz.dy, Qxzz = qs.dQxz.dz;
+    const double Qyyx = qs.dQyy.dx, Qyyy = qs.dQyy.dy, Qyyz = qs.dQyy.dz;
+    const double Qyzx = qs.dQyz.dx, Qyzy = qs.dQyz.dy, Qyzz = qs.dQyz.dz;
 
-    // Advection: -u · ∇Q
-    const double adv_xx = -(ux * Qxxx + uy * Qxxy + uz * Qxxz);
-    const double adv_xy = -(ux * Qxyx + uy * Qxyy + uz * Qxyz);
-    const double adv_xz = -(ux * Qxzx + uy * Qxzy + uz * Qxzz);
-    const double adv_yy = -(ux * Qyyx + uy * Qyyy + uz * Qyyz);
-    const double adv_yz = -(ux * Qyzx + uy * Qyzy + uz * Qyzz);
+    const double lap_Qxx = qs.dQxx.lap, lap_Qxy = qs.dQxy.lap, lap_Qxz = qs.dQxz.lap;
+    const double lap_Qyy = qs.dQyy.lap, lap_Qyz = qs.dQyz.lap;
+
+    // Advection: -u · ∇Q. The centred/upwind choice lives entirely inside
+    // AdvectiveDerivative (see kQAdvection in sim_config.h).
+    const double adv_xx = -AdvectiveDerivative(qs.u, qs.dQxx);
+    const double adv_xy = -AdvectiveDerivative(qs.u, qs.dQxy);
+    const double adv_xz = -AdvectiveDerivative(qs.u, qs.dQxz);
+    const double adv_yy = -AdvectiveDerivative(qs.u, qs.dQyy);
+    const double adv_yz = -AdvectiveDerivative(qs.u, qs.dQyz);
     
     // ##############################################################################
     // #   corotation       [(Omega Q - Q Omega)_ij]
@@ -143,10 +221,25 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
                             + Qxy * Exx + Qyy * Exy + Qyz * Exz;
     const double aln2_xz = Exz * Qxx + Eyz * Qxy + (-Exx - Eyy) * Qxz
                             + Qxz * Exx + Qyz * Exy + (-Qxx - Qyy) * Exz;
-    
+
     const double aln2_yy = 2.0 * (Exy * Qxy + Eyy * Qyy + Eyz * Qyz) - ktwo_thirds * tr_QE;
     const double aln2_yz = Exz * Qxy + Eyz * Qyy + (-Exx - Eyy) * Qyz
                             + Qxz * Exy + Qyz * Eyy + (-Qxx - Qyy) * Eyz;
+
+    // Third Beris-Edwards flow-alignment piece: -2 lambda tr(QE) Q_ij.
+    // Together with -(2 lambda / 3) tr(QE) delta_ij (already inside aln2_ii),
+    // this completes the -2 lambda (Q + I/3) tr(QE) contribution of the
+    // standard S(W,Q). Its Onsager conjugate +2 lambda tr(QH) Q_ij is added
+    // to sigma below; the pair must be added or dropped jointly to preserve
+    // reciprocity between the Q equation and the stress. Kept as its own
+    // term (rather than folded into aln2) because aln2 is (EQ+QE)_ij minus
+    // the I/3 trace piece, and this term has a different tensor structure
+    // (Q_ij times a scalar), so grouping them would obscure the algebra.
+    const double aln3_xx = -2.0 * tr_QE * Qxx;
+    const double aln3_xy = -2.0 * tr_QE * Qxy;
+    const double aln3_xz = -2.0 * tr_QE * Qxz;
+    const double aln3_yy = -2.0 * tr_QE * Qyy;
+    const double aln3_yz = -2.0 * tr_QE * Qyz;
     
     // Molecular field H
     const double ld = A + C * TrQ2;
@@ -156,13 +249,40 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const double Hyy = L * lap_Qyy - ld * Qyy - B * Q2_yy;
     const double Hyz = L * lap_Qyz - ld * Qyz - B * Q2_yz;
     
-    // Add the advective counter part of the back-flow to the body force, H:\nabla Q
-    // since this does not come from the divergence of the stress tensor.
-    // The backflow from the divergence will be added to this by SetActiveStressAndComputeBodyForce
+    // The Ericksen (distortion) force, f_alpha = -H_ij d_alpha Q_ij. This is the
+    // half of the backflow coupling that is NOT a stress divergence; the other
+    // half, div(Sigma + Tau), is added by SetActiveStressAndComputeBodyForce.
+    // Together they reproduce d_beta Pi_alpha,beta.
+    //
+    // Despite carrying \nabla Q it is not an advective term — there is no
+    // velocity in it, hence no upstream direction, so kQAdvection does NOT apply
+    // here and these gradients stay centred.
+    //
+    // This is the body-force form of the distortion (double-gradient) stress
+    // that Marenduzzo et al., PRE 76, 031921 (2007), Eq. 9 writes as
+    // -d_alpha Q_gn dF/d(d_beta Q_gn). The two are related by the continuum
+    // identity
+    //
+    //   -H_ge d_alpha Q_ge = d_beta [ f_el delta_alpha,beta
+    //                                 - d_alpha Q_ge df_el/d(d_beta Q_ge) ]
+    //
+    // whose extra isotropic f_el piece is a gradient of a scalar, i.e. absorbed
+    // into the pressure. Being a continuum identity it holds only to
+    // discretisation error here, so unlike a true stress divergence this force
+    // does not telescope to exactly zero over a periodic domain. Upwinding these
+    // gradients would enlarge that error rather than reduce it.
+    //
+    // H:\nabla_k Q sums over all nine index pairs. With H_zz = -(H_xx + H_yy)
+    // and \partial_k Q_zz = -(\partial_k Q_xx + \partial_k Q_yy), the zz pair
+    // expands to H_xx dQ_xx + H_xx dQ_yy + H_yy dQ_xx + H_yy dQ_yy, so
+    //   H:\nabla_k Q = 2(H_xx dQ_xx + H_yy dQ_yy + H_xy dQ_xy + H_xz dQ_xz + H_yz dQ_yz)
+    //                  + H_xx dQ_yy + H_yy dQ_xx
+    // Same contraction pattern as Q:H below and Q:\nabla^2 Q in analysis_fields.cc's
+    // TotalNematicFreeEnergy. Guarded by tests/unit/test_backflow_contraction.cc.
 
-    advective_backflow.x = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) + Hxx*Qyyx + Hyy*Qxxx;
-    advective_backflow.y = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) + Hxx*Qyyy + Hyy*Qxxy;
-    advective_backflow.z = -2.0 * (Hxx*Qxxz + Hxy*Qxyz + Hxz*Qxzz + Hyy*Qyyz + Hyz*Qyzz) + Hxx*Qyyz + Hyy*Qxxz;
+    ericksen_force.x = -2.0 * (Hxx*Qxxx + Hxy*Qxyx + Hxz*Qxzx + Hyy*Qyyx + Hyz*Qyzx) - Hxx*Qyyx - Hyy*Qxxx;
+    ericksen_force.y = -2.0 * (Hxx*Qxxy + Hxy*Qxyy + Hxz*Qxzy + Hyy*Qyyy + Hyz*Qyzy) - Hxx*Qyyy - Hyy*Qxxy;
+    ericksen_force.z = -2.0 * (Hxx*Qxxz + Hxy*Qxyz + Hxz*Qxzz + Hyy*Qyyz + Hyz*Qyzz) - Hxx*Qyyz - Hyy*Qxxz;
 
     // Now, update the nematic stress tensor
 
@@ -189,25 +309,35 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     const double QHyz = Hxz * Qxy + Hyz * Qyy + (-Hxx - Hyy) * Qyz
                             + Qxz * Hxy + Qyz * Hyy + (-Qxx - Qyy) * Hyz;
     
-    const double Taux_x = 0.0; // Diagonal component of antisymmetric tensor
-    const double Taux_y = (Hxy*Qxx + Hyy*Qxy + Hyz*Qxz) - (Qxy*Hxx + Qyy*Hxy + Qyz*Hxz);
-    const double Taux_z = (Hxz*Qxx + Hyz*Qxy + (-Hxx - Hyy)*Qxz) - (Qxz*Hxx + Qyz*Hxy + (-Qxx - Qyy)*Hxz);
-    const double Tauy_y = 0.0; // Diagonal component of antisymmetric tensor
-    const double Tauy_z = (Hxz*Qxy + Hyz*Qyy + (-Hxx - Hyy)*Qyz) - (Qxz*Hxy + Qyz*Hyy + (-Qxx - Qyy)*Hyz);
+    // Antisymmetric part Tau = QH - HQ. Only the upper triangle is independent:
+    // the diagonal vanishes identically and Tau_yx = -Tau_xy, etc. These are
+    // returned separately from the symmetric part rather than added into it,
+    // since the divergence needs the lower-triangle signs.
+    const double Tau_xy = (Hxy*Qxx + Hyy*Qxy + Hyz*Qxz) - (Qxy*Hxx + Qyy*Hxy + Qyz*Hxz);
+    const double Tau_xz = (Hxz*Qxx + Hyz*Qxy + (-Hxx - Hyy)*Qxz) - (Qxz*Hxx + Qyz*Hxy + (-Qxx - Qyy)*Hxz);
+    const double Tau_yz = (Hxz*Qxy + Hyz*Qyy + (-Hxx - Hyy)*Qyz) - (Qxz*Hxy + Qyz*Hyy + (-Qxx - Qyy)*Hyz);
 
-    // Update nematic stress (passive + active)
-    passive_stress.xx = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx + Taux_x;
-    passive_stress.xy = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy + Taux_y;
-    passive_stress.xz = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz + Taux_z;
-    passive_stress.yy = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy + Tauy_y;
-    passive_stress.yz = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz + Tauy_z;
+    // Symmetric-traceless part of the nematic stress.
+    // The +2 LAMBDA tr(QH) Q_ij piece is the Onsager conjugate of the
+    // -2 LAMBDA tr(QE) Q_ij term added to the Q update above; both together
+    // preserve reciprocity between the Q equation and the stress.
+    sigma.xx = -ktwo_thirds * LAMBDA * Hxx - LAMBDA * QHxx + 2.0 * LAMBDA * tr_QH * Qxx;
+    sigma.xy = -ktwo_thirds * LAMBDA * Hxy - LAMBDA * QHxy + 2.0 * LAMBDA * tr_QH * Qxy;
+    sigma.xz = -ktwo_thirds * LAMBDA * Hxz - LAMBDA * QHxz + 2.0 * LAMBDA * tr_QH * Qxz;
+    sigma.yy = -ktwo_thirds * LAMBDA * Hyy - LAMBDA * QHyy + 2.0 * LAMBDA * tr_QH * Qyy;
+    sigma.yz = -ktwo_thirds * LAMBDA * Hyz - LAMBDA * QHyz + 2.0 * LAMBDA * tr_QH * Qyz;
+
+    // Antisymmetric part, kept separate
+    tau.xy = Tau_xy;
+    tau.xz = Tau_xz;
+    tau.yz = Tau_yz;
 
     // Now, we perform the timestep
-    q_new.xx = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx) + GAMMA * Hxx);
-    q_new.xy = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy) + GAMMA * Hxy);
-    q_new.xz = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz) + GAMMA * Hxz);
-    q_new.yy = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy) + GAMMA * Hyy);
-    q_new.yz = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz) + GAMMA * Hyz);
+    q_new.xx = Qxx + DT*(adv_xx + cor_xx + LAMBDA * (ktwo_thirds * Exx + aln2_xx + aln3_xx) + GAMMA * Hxx);
+    q_new.xy = Qxy + DT*(adv_xy + cor_xy + LAMBDA * (ktwo_thirds * Exy + aln2_xy + aln3_xy) + GAMMA * Hxy);
+    q_new.xz = Qxz + DT*(adv_xz + cor_xz + LAMBDA * (ktwo_thirds * Exz + aln2_xz + aln3_xz) + GAMMA * Hxz);
+    q_new.yy = Qyy + DT*(adv_yy + cor_yy + LAMBDA * (ktwo_thirds * Eyy + aln2_yy + aln3_yy) + GAMMA * Hyy);
+    q_new.yz = Qyz + DT*(adv_yz + cor_yz + LAMBDA * (ktwo_thirds * Eyz + aln2_yz + aln3_yz) + GAMMA * Hyz);
 
 };
 
@@ -225,7 +355,7 @@ inline CUDA_HOST_DEVICE Vec3 PointwiseSetActiveStressAndComputeBodyForce(
 
     double fx = -ALPHA * (dQxx.dx + dQxy.dy + dQxz.dz) + passive_div.x - MU * u.x;;
     double fy = -ALPHA * (dQxy.dx + dQyy.dy + dQyz.dz) + passive_div.y - MU * u.y;
-    double fz = -ALPHA * (dQxz.dx + dQyz.dy - dQxx.dz - dQyy.dz) + passive_div.z - MU * u.z; // Since Pzz = -(Pxx + Pyy)
+    double fz = -ALPHA * (dQxz.dx + dQyz.dy - dQxx.dz - dQyy.dz) + passive_div.z - MU * u.z; // Since Pzz = -(Sigma_xx + Sigma_yy)
 
     return {fx, fy, fz};
 };

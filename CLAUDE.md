@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A hybrid 3D active nematic hydrodynamics solver using D3Q15 Lattice Boltzmann for the flow field and explicit finite-differences for Q-tensor dynamics (modified Beris-Edwards model). The primary audience is computational and theoretical physicists — keep code physics-readable and avoid unnecessary abstractions.
 
+## The research map lives on a separate branch
+
+Analysis of this solver — known defects, numerical conventions, validation coverage, benchmark targets and parameter mappings — is maintained as a GPD research map at `GPD/research-map/` on the **`gpd/docs/research-map`** branch (based on `main`), deliberately kept off the code branches so it does not appear in feature-branch diffs.
+
+**It is not present in this working tree.** Consequences:
+
+- `GPD/research-map/CONCERNS.md` and `REFERENCES.md` are the authoritative record of open numerical issues and of the Shendruk et al. (PRE 98, 010601(R) 2018) benchmark target. Read them before diagnosing solver behaviour or choosing physics parameters. Access without switching branches:
+  ```bash
+  git show gpd/docs/research-map:GPD/research-map/CONCERNS.md
+  ```
+- **Do not run `/gpd:map-research` from a code branch.** GPD's workspace classifier inspects only the current working tree, so it reports `has_maps: false` here and will build a *second*, divergent map instead of offering to update the existing one. Check out `gpd/docs/research-map` first.
+
 ## Build commands
 
 ```bash
@@ -17,7 +29,7 @@ cmake --build build -j$(nproc)
 cmake -B build -DLBM_FORCE_CPU=ON
 cmake --build build -j$(nproc)
 
-# Release build (enables -Ofast, disables bounds-check asserts in idx())
+# Release build (enables -O3, disables bounds-check asserts in idx())
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 
@@ -51,7 +63,9 @@ cd build && ctest --output-on-failure
 
 Only two files need to be touched for a typical simulation:
 
-- **`src/sim_config.h`** — boundary conditions (`SimBC`) and time loop parameters (`kNumSteps`, `kSaveInterval`). Each of the six faces gets a `WallSpec<QBC, UBC>` where `QBC` controls the Q-tensor FD stencil and `UBC` controls LBM streaming/bounce-back. Built-in presets: `FullyPeriodicConfig`, `ChannelConfig`.
+- **`src/sim_config.h`** — boundary conditions (`SimBC`), the Q advection scheme (`kQAdvection`), and time loop parameters (`kNumSteps`, `kSaveInterval`). Each of the six faces gets a `WallSpec<QBC, UBC>` where `QBC` controls the Q-tensor FD stencil and `UBC` controls LBM streaming/bounce-back. Built-in presets: `FullyPeriodicConfig`, `ChannelConfig`.
+
+  **Discretisation choices belong here, not in `params.h`.** `params.h` holds physical constants; `sim_config.h` holds how the equations are discretised, which is why the BC specs and `kQAdvection` are neighbours. There is also a practical reason: only `params.h` is shadowed per-test by `lbm_add_test`, so a constant added to `sim_config.h` is written once, whereas one added to `params.h` must be replicated across all five `tests/params/*/params.h` copies or every build that shadows it stops compiling.
 - **`src/params.h`** — grid dimensions (`nx`, `ny`, `nz`), LBM relaxation (`TAUF`), Landau coefficients (`A`, `B`, `C`), elastic constant (`L`), activity (`ALPHA`), flow-alignment (`LAMBDA`), rotational viscosity (`GAMMA`), friction (`MU`), and logging flags.
 
 Everything else under `src/` is solver code. The BC interface in `sim_config.h` is a key design goal — any refactor must preserve or improve its readability, never complicate it.
@@ -85,11 +99,42 @@ To inject a custom activity model, subclass `QTensorSolver<BC>` and override `Se
 
 Each timestep runs three sequential phases. On CPU (`qtensor_solver.tpp`) these are OpenMP parallel loops; on GPU (`src/cuda/kernels.cu`) they are consecutive kernel launches on the default stream (which provides the required barriers between phases):
 
-1. **Q update + passive stress** (`StepAndSetupBodyForce` / `GpuQTensorStep`) — Beris-Edwards FD update for Q; computes passive stress tensor `P`; initialises backflow contribution to `ff.fx/fy/fz` (the `H:∇Q` term).
+1. **Q update + passive stress** (`StepAndSetupBodyForce` / `GpuQTensorStep`) — Beris-Edwards FD update for Q; computes the nematic stress, symmetric part into `P` and antisymmetric part into `T` (see *Stress index convention* below); initialises backflow contribution to `ff.fx/fy/fz` (the `-H:∇Q` term).
 2. **Active stress + body force** (`SetActiveStressAndComputeBodyForce` / `GpuComputeBodyForce`) — adds active stress (`∇·(αQ)`) and `∇·P` (passive stresses) and linear friction to `ff.fx/fy/fz`. **Phases 1 and 2 cannot be merged**: phase 2 reads `∇·P` at neighbours written by phase 1.
 3. **LBM** (`LatticeBoltzmannStep` / `GpuCollideAndStream`) — BGK collision + streaming + boundary reconstruction.
 
 The pointwise physics (`PointwiseStepAndSetupBodyForce`, `PointwiseSetActiveStressAndComputeBodyForce`) and all boundary/ghost helpers (`QGradientAndLaplacian`, `VelocityGradientTensor`, `PassiveStressDivergence`, `HandleBoundaryPoint`) are `CUDA_HOST_DEVICE` functions shared verbatim between both paths — there is no fork of the physics.
+
+### Stress index convention
+
+The body force is taken from the stress with the **row** convention
+
+```
+f_α = ∂_β Π_αβ
+```
+
+This matters because **the nematic stress is not symmetric.** It splits as `Π = Σ + τ`:
+
+- `Σ` — symmetric traceless, `-(2/3)λH - λ(QH + HQ)`, stored in `QTensorFields::Sigma_xx…Sigma_yz` with `Σ_zz = -(Σ_xx + Σ_yy)`
+- `τ` — antisymmetric and torque-carrying, `QH - HQ`, stored **separately** in `QTensorFields::Tau_xy/Tau_xz/Tau_yz` (upper triangle only; `τ_yx = -τ_xy`, and the diagonal vanishes)
+
+Because `τ_βα = -τ_αβ`, the two parts cannot share one container — a symmetric 5-slot tensor has no way to represent the lower triangle. `PassiveStressDivergence` therefore writes the index order out per component:
+
+```
+f_x = ∂_x Σ_xx         + ∂_y(Σ_xy + τ_xy) + ∂_z(Σ_xz + τ_xz)
+f_y = ∂_x(Σ_xy - τ_xy) + ∂_y Σ_yy         + ∂_z(Σ_yz + τ_yz)
+f_z = ∂_x(Σ_xz - τ_xz) + ∂_y(Σ_yz - τ_yz) + ∂_z Σ_zz
+```
+
+Keep `Σ` and `τ` in separate fields; do not merge them to save the three arrays. `tests/unit/test_antisym_stress.cc` enforces both the split and these signs.
+
+Naming note: the field prefixes are spelled out (`Sigma_`, `Tau_`) rather than `S`/`T` because `S` is already taken twice in this codebase — the LdG scalar order parameter in `Anchoring<S,θ,φ>`, and the generalized advection term `S(∇u, Q)` that `model.h`'s `cor_*` + `LAMBDA*(...)` computes.
+
+The active stress follows the same row convention: `f_α = -α ∂_β Q_αβ` (`Q` is symmetric, so it does not distinguish the two orderings on its own).
+
+`∇·τ` cannot be folded into the stage-1 `advective_backflow` channel: it needs `∂H`, and stage 1 computes `H` pointwise without storing it. Storing `τ` costs three fields; storing `H` would cost five.
+
+Under MPI, `τ` is exchanged alongside `S` in `HaloExchangeQTensor::ExchangePassiveStresses` — phase 2 reads both at neighbours, so both need valid halos.
 
 ### GPU path
 
@@ -101,7 +146,7 @@ BCs are resolved entirely at **compile time** via template parameters. The BC ty
 
 Two complementary mechanisms live in `offsets.h` and `boundary_handler.h`:
 
-- **`offsets.h`** (`QXoff/QYoff/QZoff`) — Neumann-only (zero-gradient) index clamp. Used only where a Dirichlet ghost is not needed: the passive-stress-tensor `P` gradient in `SetActiveStressAndComputeBodyForce`.
+- **`offsets.h`** (`QXoff/QYoff/QZoff`) — Neumann-only (zero-gradient) index clamp. Used only where a Dirichlet ghost is not needed: the nematic-stress gradients in `SetActiveStressAndComputeBodyForce` — both the symmetric part `P` and the antisymmetric part `T`, neither of which has a prescribed wall target. Carries a known, unquantified O(1) boundary-layer error at `Anchoring` walls; unreachable in shipped configs, and settling it needs a grid-refinement study rather than a blind stencil change (see the comment block in `offsets.h`).
 - **`boundary_handler.h`** — wall-type-aware ghost values (not indices) for: LBM streaming (`StreamXoff`), velocity gradients (`VelocityGradientTensor`, used in the Beris-Edwards co-rotation and strain rate), and Q gradients/Laplacians (`QGradientAndLaplacian`, used everywhere Q derivatives appear). Mirrors `offsets.h`'s design but with proper Dirichlet (anchoring) and SpecularReflection handling.
 
 Ghost methods (`SafeFetchAxisOffset`, `QAxisGhostPair`, `VelocityAxisGhostPair`) operate on **values, not raw memory indices**, which is deliberate: it avoids out-of-domain raw pointer arithmetic and keeps the design compatible with future MPI ghost-cell exchange.
@@ -125,3 +170,19 @@ This split is invisible to callers since `__CUDA_ARCH__` branches inside the sam
 The code is designed with multi-GPU/multi-node MPI in mind. When adding features that touch neighbour lookups:
 - Use the ghost-value functions in `boundary_handler.h` (e.g., `SafeFetchAxisOffset`, `QAxisGhostPair`) rather than raw index arithmetic — these are the correct seam for future MPI halo-exchange insertion.
 - Do not hardcode assumptions that the entire domain fits in one contiguous block of memory.
+
+### Runtime grid dims and the optional `constexpr` fast path
+
+The MPI work (see `src/mpi/CLAUDE.md`) moves `idx`/`InDomain` off `physics_helpers.h`
+and onto `LocalGrid`, because uneven domain splits make `local_nx/ny/nz` **runtime**
+values decided at `mpirun` time — reversing the earlier decision that let them be
+`constexpr`. On CPU this is expected to be a wash: the dims are loop-invariant, so
+the compiler hoists the stride multiplies, and dropping the periodic `% nx` wrap from
+`idx` removes an integer modulo from the interior hot loop.
+
+If a single-process (non-MPI) interior-loop benchmark ever shows a real regression
+from the loss of `constexpr` folding, the escape hatch is to **template the solver on
+a static-dims policy**: one policy reads compile-time `Params::nx/ny/nz` (single
+process), another reads runtime `LocalGrid` dims (MPI). This is deliberately **not**
+built yet — it duplicates codegen and complicates the indexing seam, so add it only
+when a measurement justifies it, not preemptively.

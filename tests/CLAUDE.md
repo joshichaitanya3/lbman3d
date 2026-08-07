@@ -13,10 +13,11 @@ tests/
 ├── CLAUDE.md
 ├── CMakeLists.txt               # defines lbm_add_test(); fetches GoogleTest; add_subdirectory(unit/integration)
 ├── params/                      # per-scenario params.h files that shadow src/params.h at compile time
-│   ├── unit/params.h            # 8×8×8, ALPHA=0, numprocs=1  — used by all unit tests
+│   ├── unit/params.h            # 8×8×8, ALPHA=0, kNumOMPThreads=1  — used by all unit tests
 │   ├── poiseuille/params.h      # 32×16×4, ALPHA=0, tuned TAUF
 │   ├── qtrelax/params.h         # 16×16×16, ALPHA=0, A=0 B=-0.3 C=0.3
 │   ├── bc_check/params.h        # 16×8×8, ALPHA=0
+│   ├── coupled/params.h         # 16×16×16, ALPHA=0, MU=0, DT=1.0
 │   └── active/params.h          # 24×12×12, ALPHA=0.04
 ├── unit/
 │   ├── CMakeLists.txt
@@ -26,13 +27,18 @@ tests/
 │   ├── test_offsets.cc
 │   ├── test_boundary_handler.cc
 │   ├── test_anchored_q.cc
+│   ├── test_backflow_contraction.cc
+│   ├── test_antisym_stress.cc
+│   ├── test_qtensor_init.cc
+│   ├── test_upwind_advection.cc
 │   └── test_idx.cc
 └── integration/
     ├── CMakeLists.txt
     ├── test_poiseuille.cc        # A1: Poiseuille flow
     ├── test_qt_relaxation.cc     # A2: Q-tensor Beris-Edwards relaxation
     ├── test_bc_combinations.cc   # A3: BC wall/anchoring verification
-    └── test_active_mass.cc       # A4: Active nematic mass conservation
+    ├── test_active_mass.cc       # A4: Active nematic mass conservation
+    └── test_coupled_backflow.cc  # A7: coupled Q <-> flow loop
 ```
 
 ## The params-shadowing mechanism
@@ -132,6 +138,62 @@ No params needed (only touches `lattice_stencil.h` arrays). Tests:
 - **GradientLinearField**: exact gradient `0.01` for `qxx(x) = 0.01*x` with periodic BC
 - **LaplacianQuadratic**: `∑ 7-point stencil = 2*scale` for `qxx(x) = scale*x²` (stencil exact for degree-2 polynomials)
 
+### `test_backflow_contraction.cc` — `PointwiseStepAndSetupBodyForce` backflow term
+
+Builds its reference from the nine-index-pair definition of `-H:∇Q` (reconstructing the `zz` components from the trace condition) rather than from `model.h`'s grouped algebra, so it cannot be satisfied by copying the implementation.
+
+- **CrossTermSignCounterexample**: with `Q = 0` the molecular field reduces to `L∇²Q`, so `lap_xx = 1/L` gives exactly `H_xx = 1`; a single gradient `∂_x Q_yy = 1` then isolates one cross term. `H_zz = -1`, `∂_x Q_zz = -1` ⇒ `-H:∇_x Q = -1`. A dropped sign on the cross terms returns `+1`.
+- **MirroredCrossTermSignCounterexample**: the mirrored term, `H_yy` against `∂_x Q_xx`
+- **MatchesNineComponentContractionGeneralQ**: nonzero `Q` (so bulk LdG terms contribute to `H`) with all five gradient components nonzero in all three directions; checks all three force components
+- **VanishesForZeroMolecularField**: `H = 0` ⇒ zero backflow regardless of gradients
+- **LinearInGradientsAtFixedH**: scaling `∇Q` at fixed `H` scales the force
+
+### `test_antisym_stress.cc` — antisymmetric nematic stress and its divergence
+
+The nematic stress is not symmetric: `Π = Σ + τ` with `Σ = -(2/3)λH - λ(QH + HQ)` and `τ = QH - HQ`. References are built from full 3×3 matrix products, not the code's component-wise algebra.
+
+Pointwise split (`PointwiseStepAndSetupBodyForce`):
+
+- **ReferenceCommutatorIsAntisymmetric**: sanity-checks the reference itself — `QH - HQ` is antisymmetric for any symmetric `Q`, `H`
+- **MatchesCommutator**: the returned `AntiSymTensor3` equals `QH - HQ`
+- **SymmetricPartExcludesCommutator**: `passive_stress` holds *only* `S`; folding `A` in was the original defect. Asserts the fixture's commutator is nonzero so the check has teeth
+- **VanishesWhenQAndHCommute**: diagonal `Q` and `H` commute ⇒ `A ≡ 0`
+
+Divergence signs (`PassiveStressDivergence`, evaluated on synthetic ramps at an interior point so the central difference never straddles the periodic seam):
+
+- **TxzRampAlongXGivesNegativeFz**: `f_z = ∂_x(Σ_xz - τ_xz)` ⇒ `-slope`. This is the failure input named in `GPD/research-map/CONCERNS.md`
+- **TxyRampAlongXGivesNegativeFy**: `f_y = ∂_x(Σ_xy - τ_xy)` ⇒ `-slope`
+- **TxyRampAlongYGivesPositiveFx**: `f_x = ∂_y(Σ_xy + τ_xy)` ⇒ `+slope`. The asymmetry that makes the bug subtle — `f_x` references the upper triangle and was always correct
+- **TyzRampAlongYGivesNegativeFz**: `f_z = ∂_y(Σ_yz - τ_yz)` ⇒ `-slope`
+- **PurelySymmetricStressUnchanged**: with `A = 0` the symmetric path is untouched by the split
+- **TracelessZZTermUnaffected**: `f_z = ∂_z Σ_zz = -∂_z(Σ_xx + Σ_yy)`; `A` has no diagonal
+
+### `test_qtensor_init.cc` — `EquilibriumScalarOrder` and `QTensorSolver::Initialize`
+
+The seeded initial state must be a fixed point of the bulk Q dynamics. Checked through `PointwiseStepAndSetupBodyForce` with zero gradients, zero Laplacian and zero velocity, so every advective/co-rotational/alignment term drops out and `q_new - Q` is exactly `DT * GAMMA * H_bulk` — making "q_new == Q" the statement "the bulk molecular field vanishes".
+
+- **EquilibriumSSatisfiesBulkPolynomial**: `2C S² + BS + 3A = 0`, checked against the polynomial rather than the closed form so the general `A ≠ 0` branch is covered
+- **EquilibriumSMatchesClosedFormWhenAIsZero**: reduces to `-B/(2C)`
+- **InitialQIsABulkFixedPointOnEveryAxis**: x, y and z — the bulk free energy is isotropic, so the solver's choice of z must not be load-bearing
+- **OffEquilibriumOrderIsNotAFixedPoint**: the discriminating guard; without it the test above would also pass if `DT` or `GAMMA` were zero
+- **OverOrderedStateRelaxesToEquilibriumS**: monotone relaxation from `S = 2 S_eq`, preserving uniaxiality
+- **InitializeSeedsEquilibriumOrderParameter**: guards `Initialize` itself via per-cell bounds (exact, since noise is drawn from `[-NOISE, NOISE]`) plus the domain mean. Requires `qtensor_fields.cc` in the `unit_tests` link
+
+### `test_upwind_advection.cc` — `AdvectionFlux` and the per-axis second differences
+
+`AdvectiveAxisTerm<Scheme>` is templated on `Advection::{Centred,Upwind}`, so both branches are exercised from one binary regardless of `kQAdvection` in `sim_config.h`. References are built from raw one-sided differences of an explicit three-point stencil, never from the code's `dQ`/`d2Q` algebra.
+
+- **CentredBranchIsPlainCentredDifference**: the centred branch ignores `d2Q` entirely
+- **UpwindPicksTheDifferenceTheFlowComesFrom**: `u > 0` ⇒ backward difference, `u < 0` ⇒ forward
+- **VanishesAtZeroVelocity**: no upstream side, no transport
+- **AgreesWithCentredOnLinearProfiles**: first-order upwinding is still exact when `d2Q = 0`
+- **CorrectionIsDiffusionOfCoefficientHalfAbsU**: pins the cost of the scheme — the correction is exactly `|u|/2 · d2Q`
+- **IsInvariantUnderSimultaneousFlipOfFlowAndStencil**: under `a → -a` the first derivative flips and the second difference does not, so `u ∂Q/∂a` is invariant. A scheme that always took the backward difference would fail this
+- **GradientHelperFillsPerAxisSecondDifferences**: `QGradientAndLaplacian` fills `d2x/d2y/d2z` correctly on a field with independent per-axis curvature, and `lap == d2x + d2y + d2z`
+- **AdvectiveDerivativeSumsThreeAxesWithMatchedPairing**: the wrapper model.h actually calls — sums all three axes *and* pairs each velocity component with that axis's derivatives. A transposed-axis `QDerivs` must give a different answer, so the test constrains the pairing and not merely the sum
+- **DefaultSchemeFollowsSimConfig**: the default template argument tracks `kQAdvection`, so the shipped configuration is what the solver runs
+- **LaplacianIsUnchangedBitwise**: `lap` stays bit-identical to the original single six-neighbour sum over every cell, so enabling the feature cannot perturb existing centred-scheme results
+
 ### `test_idx.cc` — index function
 
 - **Uniqueness**: all `nx*ny*nz` values of `idx(x,y,z)` are distinct (fill a `std::set`, check size)
@@ -201,7 +263,7 @@ No params needed (only touches `lattice_stencil.h` arrays). Tests:
 
 **Purpose**: Verify `∑ρ` is conserved to machine precision throughout a full active + LBM run.
 
-**BC**: `FullyPeriodicConfig`. Run both solvers (full `ActiveNematicSim`-equivalent loop, but constructed manually without `SimIO`). `numprocs = 1` for determinism.
+**BC**: `FullyPeriodicConfig`. Run both solvers (full `ActiveNematicSim`-equivalent loop, but constructed manually without `SimIO`). `kNumOMPThreads = 1` for determinism.
 
 **Run**: 1000 steps. Check after every step.
 
@@ -211,9 +273,31 @@ No params needed (only touches `lattice_stencil.h` arrays). Tests:
 
 **Expected runtime**: ~8 seconds.
 
-### A5 (additional): equation of state sanity
+### A7: `test_coupled_backflow.cc` — coupled Q ↔ flow loop
 
-After `lbm.Initialize(ff)`, before any steps: `ff.rho[i] ≈ Params::RHO` everywhere and `ff.ux[i] ≈ 0` everywhere. Zero steps needed — tests initialization consistency.
+**Purpose**: Exercise the round trip `Q → body force (backflow + passive stress) → flow → advection/co-rotation of Q`. Every other integration test drives exactly one solver (A1 is LBM-only, A2 is Q-only at zero velocity, A3 zeroes the body force via `ZeroActivitySolver`), so nothing else covers the coupling.
+
+**params dir**: `coupled` — `DT = 1.0` (matching production and every other test), `ALPHA = 0`, `MU = 0`, 16³, `FullyPeriodicConfig`.
+
+**Setup**: Construct `FluidFields`, `QTensorFields`, `LbmSolver` and a `DistortedICSolver` subclass (seeds `qxx = 0.33 + noise`, `qyy = -0.15 + noise`, `std::mt19937(42)`). Run both solvers per step in `ActiveNematicSim::Step()` order: Q step then LBM step. Fluid starts at rest, so all flow is backflow-driven.
+
+**Run**: 2000 steps, checkpoint every 100.
+
+**Verification**:
+1. **Mass conservation**: `∑ρ_t / ∑ρ_0 ≈ 1.0` to `1e-10`. Note `∑ρ_0 = nx·ny·nz·kDensity` — `FluidFields` seeds `rho` with `kDensity` (`src/fluid_fields.cc:11`) and `LbmSolver::Initialize` only reads `ff.rho` (`src/lbm_solver.tpp:38`).
+2. **Backflow drives flow**: kinetic energy starts at 0 and becomes nonzero, else the coupling is untested and the rest is vacuous.
+3. **Relaxes to quiescence** (`KE_final/KE_peak < 1e-3`). This is the integration-level regression guard for the backflow contraction sign — see below.
+4. **Kinetic energy does not grow after the transient**: valid physics, but at `DT = 1.0` it does *not* discriminate the sign (both signs peak at the first checkpoint).
+5. **Total energy does not grow** / **relaxes over the run**: coupled-loop coverage, not sensitive to the backflow sign.
+6. **Stays in the low-Mach regime**: max speed `< 0.1`.
+
+**Why the late-time residual, not the total energy or the growth**: the nematic free energy changes by O(2.4) over the run while kinetic energy is O(1e-6) — six orders of magnitude smaller — so a total-energy bound cannot resolve injection at the backflow scale and does pass with the sign error present. The *growth* bound also fails to discriminate at `DT = 1.0`. What does discriminate is quiescence: measured, the correct sign settles at `KE_final/KE_peak = 5.5e-4`, the sign error at `1.9e-3` (3.5× more residual, flat from checkpoint 50 on). The `1e-3` threshold is the geometric midpoint, clearing both by ~1.8×; it is calibrated, not derived, so re-measure if `DT`, `GAMMA`, `L` or the grid changes. The pointwise algebra is guarded exactly and DT-independently by `tests/unit/test_backflow_contraction.cc`.
+
+Sampling is every 10 steps (not 100) so the early peak is captured; the discriminating signal is in the residual, but the peak sets its normalisation.
+
+**Prefer `EXPECT_NEAR` over `EXPECT_TRUE(std::isfinite(x))` for divergence checks.** Release now uses `-O3`, which keeps `std::isnan`/`std::isfinite` as real tests, so an `isfinite` assertion works again. It was inert under the previous `-Ofast` (which implies `-ffinite-math-only` and folds them to a constant), and would silently pass on a diverged run — so `EXPECT_NEAR`, whose `fabs(a-b) <= tol` comparison is false for NaN, remains the more robust choice and is what this file uses. Do not reintroduce `-Ofast` without `-fno-finite-math-only`.
+
+**Expected runtime**: ~4.5 s Debug, ~0.6 s Release.
 
 ### A6 (additional): rotational symmetry of Q-tensor dynamics
 
@@ -241,7 +325,7 @@ Key steps: install `cmake ninja-build g++ libhdf5-dev libomp-dev`, configure wit
 
 ### `.github/workflows/integration-tests.yml`
 
-Triggers on PRs into `main`. Uses `Release` build (`-Ofast`) so multi-thousand-step tests run fast.
+Triggers on PRs into `main`. Uses `Release` build (`-O3`) so multi-thousand-step tests run fast.
 
 ```yaml
 on:
@@ -253,6 +337,6 @@ Key steps: same dependencies + `actions/cache@v4` for `build/_deps` (keyed on `C
 
 **Note**: `find_package(HDF5 REQUIRED)` in the root CMakeLists runs unconditionally at configure time, so `libhdf5-dev` is needed in both workflows even though test targets do not link `sim_io.cc`. This is a known limitation to clean up eventually by guarding the HDF5 find behind a condition.
 
-### `numprocs` in test params
+### `kNumOMPThreads` in test params
 
-Set `numprocs = 1` in all `tests/params/*/params.h` files. GitHub-hosted runners have 2 vCPUs and OpenMP threading introduces ordering non-determinism that complicates exact-value assertions in integration tests.
+Set `kNumOMPThreads = 1` in all `tests/params/*/params.h` files. GitHub-hosted runners have 2 vCPUs and OpenMP threading introduces ordering non-determinism that complicates exact-value assertions in integration tests.

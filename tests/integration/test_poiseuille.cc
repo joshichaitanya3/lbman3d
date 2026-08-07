@@ -8,12 +8,14 @@
 #include "device_fields.h"
 #include "device_solver.h"
 #include "lbm_solver.h"
+#include "local_grid.h"
 
 using namespace Params;
 
 // Uses LbmSolver to simulate Poiseuille flow in 3D.
 template<typename BC>
 class PoiseuilleFlowBenchmark {
+    LocalGrid        grid_;
     FluidFields      fluid_;
     QTensorFields    qtensor_;
     LbmSolver<BC>    lbm_;
@@ -32,7 +34,11 @@ class PoiseuilleFlowBenchmark {
 public:
     // Default: constant-alpha active nematic.
     // Supply a QTensorSolver subclass to override the activity model.
-    PoiseuilleFlowBenchmark()
+    PoiseuilleFlowBenchmark() :
+        grid_(LocalGrid::SingleRank()),
+        fluid_(grid_),
+        qtensor_(grid_),
+        d_fields_(grid_)
     {
         Initialize();
     }
@@ -59,7 +65,7 @@ public:
         const int z = nz/2;
         double avg = 0.0;
         for (int x : std::views::iota(0, nx)) {
-            avg += fluid_.ux[idx(x, y, z)];
+            avg += fluid_.ux[grid_.halo_idx(x, y, z)];
         }
         avg /= static_cast<double>(nx);
         return avg;
@@ -70,7 +76,7 @@ public:
         for (int z : std::views::iota(0, nz)) {
             for (int y : std::views::iota(0, ny)) {
                 for (int x : std::views::iota(0, nx)) {
-                    mass += fluid_.rho[idx(x, y, z)];
+                    mass += fluid_.rho[grid_.halo_idx(x, y, z)];
                 }
             }
         }

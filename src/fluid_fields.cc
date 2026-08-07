@@ -1,15 +1,17 @@
 #include "fluid_fields.h"
 #include <params.h>
 #include "lattice_stencil.h"
+#include "local_grid.h"
 
-FluidFields::FluidFields() :
-    f       (Params::nx * Params::ny * Params::nz * Lattice::ndir, 0.0),
-    f_new   (Params::nx * Params::ny * Params::nz * Lattice::ndir, 0.0),
-    fx      (Params::nx * Params::ny * Params::nz, 0.0),
-    fy      (Params::nx * Params::ny * Params::nz, 0.0),
-    fz      (Params::nx * Params::ny * Params::nz, 0.0),
-    rho     (Params::nx * Params::ny * Params::nz, Params::kDensity),
-    ux      (Params::nx * Params::ny * Params::nz, 0.0),
-    uy      (Params::nx * Params::ny * Params::nz, 0.0),
-    uz      (Params::nx * Params::ny * Params::nz, 0.0)
+FluidFields::FluidFields(LocalGrid g) :
+    grid    (g),
+    f       (g.HaloVolume() * Lattice::ndir, 0.0),
+    f_new   (g.HaloVolume() * Lattice::ndir, 0.0),
+    fx      (g.HaloVolume(), 0.0),
+    fy      (g.HaloVolume(), 0.0),
+    fz      (g.HaloVolume(), 0.0),
+    rho     (g.HaloVolume(), Params::kDensity),
+    ux      (g.HaloVolume(), 0.0),
+    uy      (g.HaloVolume(), 0.0),
+    uz      (g.HaloVolume(), 0.0)
 {}

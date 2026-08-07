@@ -39,6 +39,9 @@
 #include <stdexcept>
 #include <string>
 
+// fixed chunk shape sized independent of both the grid and the rank count (target ~1 MiB per chunk)
+#define CHUNK_LINEAR_SIZE 64
+
 // ----------------------------------------------------------------------------
 // H5Handle: a generic RAII wrapper, one closer function per template
 // instantiation.
@@ -130,6 +133,7 @@ using H5Dataset   = H5Handle<H5Dclose>;
 using H5Dataspace = H5Handle<H5Sclose>;
 using H5Datatype  = H5Handle<H5Tclose>;
 using H5Attribute = H5Handle<H5Aclose>;
+using H5Plist     = H5Handle<H5Pclose>;
 
 // ----------------------------------------------------------------------------
 // H5Native<T>: maps a C++ scalar type to its HDF5 native type id.

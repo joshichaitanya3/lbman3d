@@ -15,11 +15,22 @@
 // no object to construct or pass around; a stateful Grid<BC> class used to
 // live here for exactly that purpose before nx/ny/nz became constexpr.
 //
-// QXoff/QYoff/QZoff's only remaining caller is P's (nematic stress tensor)
-// gradient in QTensorSolver::SetActiveStressAndComputeBodyForce: P has no
-// prescribed wall target of its own to build a Dirichlet ghost from, so a
-// Neumann-style clamp is the only available treatment there regardless of Q's
-// own wall type. Everything else that used to live here — the streaming
+// QXoff/QYoff/QZoff's only remaining caller is the nematic stress gradient in
+// QTensorSolver::SetActiveStressAndComputeBodyForce — that means BOTH parts of
+// the stress: the symmetric-traceless Sigma (Sigma_xx..Sigma_yz) and the antisymmetric
+// tau (Tau_xy/Tau_xz/Tau_yz). Neither has a prescribed wall target of its own to build a
+// Dirichlet ghost from, so a Neumann-style clamp is the only available treatment
+// there regardless of Q's own wall type.
+//
+// Known limitation, currently unquantified: at an Anchoring<S,θ,φ> wall the true
+// normal stress gradient is nonzero (anchoring generates elastic stress), so the
+// clamp is an O(1) boundary-layer error in ∇·Π at the wall node and its
+// neighbour. It is unreachable in the shipped configs — none use a non-Neumann Q
+// wall — and settling it needs a grid-refinement study on an anchored-wall
+// quiescent case (a consistent discretization error shrinks under refinement; a
+// boundary-condition error does not), not a blind change of stencil.
+//
+// Everything else that used to live here — the streaming
 // offset (StreamXoff/StreamYoff/StreamZoff), velocity's gradient ghost
 // (VelocityGhost/VelocityGradientTensor), and Q's own gradient/Laplacian
 // ghost (QGhost/QGradientAndLaplacian, correctly Dirichlet-aware for

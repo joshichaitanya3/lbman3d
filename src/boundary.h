@@ -1,6 +1,7 @@
 #ifndef LBM_AN_BOUNDARY_H_
 #define LBM_AN_BOUNDARY_H_
 
+#include <array>
 #include <string_view>
 #include <type_traits>
 
@@ -126,5 +127,25 @@ struct ChannelConfig {
 // Backward-compat alias — existing code using PeriodicBC keeps working
 // ─────────────────────────────────────────────────────────────────────────────
 using PeriodicBC = FullyPeriodicConfig;
+
+template <typename BCConfig>
+inline constexpr std::array<int, 3> periodicity_by_axis = {
+    static_cast<int>(std::is_same_v<typename BCConfig::XLo::UBC, Periodic>),
+    static_cast<int>(std::is_same_v<typename BCConfig::YLo::UBC, Periodic>),
+    static_cast<int>(std::is_same_v<typename BCConfig::ZLo::UBC, Periodic>),
+};
+
+// True on faces where the UBC is a physical wall (i.e., not Periodic). Order:
+// XLo, XHi, YLo, YHi, ZLo, ZHi. Used by HaloExchangeLBM to skip crossing-dir
+// unpacks at cells where a local wall bounce already wrote the same dir slot.
+template <typename BCConfig>
+inline constexpr std::array<bool, 6> is_wall_by_face = {
+    !std::is_same_v<typename BCConfig::XLo::UBC, Periodic>,
+    !std::is_same_v<typename BCConfig::XHi::UBC, Periodic>,
+    !std::is_same_v<typename BCConfig::YLo::UBC, Periodic>,
+    !std::is_same_v<typename BCConfig::YHi::UBC, Periodic>,
+    !std::is_same_v<typename BCConfig::ZLo::UBC, Periodic>,
+    !std::is_same_v<typename BCConfig::ZHi::UBC, Periodic>,
+};
 
 #endif // LBM_AN_BOUNDARY_H_

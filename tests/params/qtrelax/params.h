@@ -19,15 +19,13 @@ namespace Params {
     inline constexpr int nx = 16;
     inline constexpr int ny = 16;
     inline constexpr int nz = 16;
-    inline constexpr int nq = 3;
-    inline constexpr int numprocs = 1;
+    inline constexpr int kNumOMPThreads = 1;
 
     // Spatial / temporal
     inline constexpr double DX = 1.0, DY = 1.0, DZ = 1.0;
     inline constexpr double DT = 1.0;
 
     
-    inline constexpr double RHO = 1.1;        // initial lattice density
     inline constexpr double kDensity = 1.0;   // physical density scale
     inline constexpr double TAUF = 1.5 * DT;
     inline constexpr double omega         = 1.0 - DT / TAUF;

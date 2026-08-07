@@ -47,11 +47,18 @@ endif()
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# -DCMAKE_BUILD_TYPE=Release for -Ofast (NDEBUG also disables idx()'s
+# -DCMAKE_BUILD_TYPE=Release for -O3 (NDEBUG also disables idx()'s
 # InDomain() bounds-check asserts in physics_helpers.h). Omit, or pass
 # =Debug, to keep those asserts live.
+#
+# Deliberately -O3 and NOT -Ofast. -Ofast implies -ffinite-math-only, which lets
+# the compiler fold std::isnan/std::isfinite to a constant false — verified on
+# g++ 13: -O3 emits `ucomisd %xmm0,%xmm0; setp %al`, -Ofast emits
+# `xorl %eax,%eax; ret`. That silently kills the divergence guard in
+# SimIO::Log, so a diverged run writes NaN frames to completion with no error.
+# If -Ofast is ever restored for speed, pass -fno-finite-math-only with it.
 set(CMAKE_CXX_FLAGS "-fopenmp -g")
-set(CMAKE_CXX_FLAGS_RELEASE "-Ofast -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-Og")
 
 # Warning flags as an INTERFACE library so they apply only to project targets,
@@ -83,7 +90,22 @@ if(NOT HAVE_STD_FORMAT)
     FetchContent_MakeAvailable(fmt)
 endif()
 
+# MPI Setup
+option(LBM_ENABLE_MPI "Use MPI parallelization" OFF)
+
+if(LBM_ENABLE_MPI)
+    find_package(MPI REQUIRED)
+    set(HDF5_PREFER_PARALLEL TRUE)
+endif()
+
 find_package(HDF5 REQUIRED COMPONENTS C)
+
+if(LBM_ENABLE_MPI)
+    if(NOT HDF5_IS_PARALLEL)
+        message(FATAL_ERROR "Found a serial HDF5 (${HDF5_C_LIBRARIES}); a parallel (MPI-enabled) HDF5 is required. "
+                         "On Debian/Ubuntu, try: cmake -DHDF5_ROOT=/usr/lib/x86_64-linux-gnu/hdf5/openmpi ..")
+    endif()
+endif()
 
 foreach(target main benchmark)
     add_executable(${target})
@@ -107,6 +129,14 @@ foreach(target main benchmark)
             $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --use_fast_math>
         )
     endif()
+    if(LBM_ENABLE_MPI)
+        target_include_directories(${target} PUBLIC
+            ${MPI_INCLUDE_PATH}
+        )
+        target_link_libraries(${target} PRIVATE MPI::MPI_CXX)
+        target_compile_definitions(${target} PRIVATE LBM_ENABLE_MPI)
+    endif()
+
 endforeach()
 
 # Testing setup
