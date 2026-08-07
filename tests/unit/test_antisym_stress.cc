@@ -133,18 +133,36 @@ TEST(AntisymStress, MatchesCommutator) {
 
 // The decisive pointwise check: the symmetric container must hold ONLY the
 // symmetric part. Folding Tau in was the original defect.
+//
+// Compared on OFF-DIAGONAL components (xy, xz, yz) so that the +2 lambda
+// tr(QH) Q_ij Onsager-conjugate term restored on the third-Beris-Edwards
+// branch enters cleanly without pulling in the isotropic (2/3) lambda
+// tr(QH) delta_ij piece, which sits on the diagonal only. The teeth this
+// test cares about — that the antisymmetric commutator was not folded in —
+// live off the diagonal too, so nothing is lost.
 TEST(AntisymStress, SymmetricPartExcludesCommutator) {
     const SymTrLess5 H = MolecularField(kQ, kLap);
-    const Mat3 QH = MatMul(Full(kQ), Full(H));
-    const Mat3 HQ = MatMul(Full(H), Full(kQ));
+    const Mat3 Qf = Full(kQ);
+    const Mat3 Hf = Full(H);
+    const Mat3 QH = MatMul(Qf, Hf);
+    const Mat3 HQ = MatMul(Hf, Qf);
     const double ktwo_thirds = 2.0 / 3.0;
+    double tr_QH = 0.0;
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            tr_QH += Qf[i][j] * Hf[i][j];
 
     const PointwiseOut out = RunPointwise(kQ, kLap);
 
-    // S_ab = -(2/3) lambda H_ab - lambda (QH + HQ)_ab
-    const double Sigma_xy = -ktwo_thirds * LAMBDA * H.xy - LAMBDA * (QH[0][1] + HQ[0][1]);
-    const double Sigma_xz = -ktwo_thirds * LAMBDA * H.xz - LAMBDA * (QH[0][2] + HQ[0][2]);
-    const double Sigma_yz = -ktwo_thirds * LAMBDA * H.yz - LAMBDA * (QH[1][2] + HQ[1][2]);
+    // Off-diagonal Sigma:
+    //   Sigma_ij = -(2/3) lambda H_ij - lambda (QH + HQ)_ij + 2 lambda tr(QH) Q_ij
+    // (no delta_ij contribution off the diagonal)
+    const double Sigma_xy = -ktwo_thirds * LAMBDA * H.xy - LAMBDA * (QH[0][1] + HQ[0][1])
+                            + 2.0 * LAMBDA * tr_QH * Qf[0][1];
+    const double Sigma_xz = -ktwo_thirds * LAMBDA * H.xz - LAMBDA * (QH[0][2] + HQ[0][2])
+                            + 2.0 * LAMBDA * tr_QH * Qf[0][2];
+    const double Sigma_yz = -ktwo_thirds * LAMBDA * H.yz - LAMBDA * (QH[1][2] + HQ[1][2])
+                            + 2.0 * LAMBDA * tr_QH * Qf[1][2];
 
     EXPECT_NEAR(out.sym.xy, Sigma_xy, 1e-12);
     EXPECT_NEAR(out.sym.xz, Sigma_xz, 1e-12);

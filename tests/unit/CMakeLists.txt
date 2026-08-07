@@ -9,6 +9,7 @@ add_executable(unit_tests
     test_anchored_q.cc
     test_backflow_contraction.cc
     test_antisym_stress.cc
+    test_flow_alignment_trace.cc
     test_qtensor_init.cc
     test_upwind_advection.cc
     # Add more test files as needed
