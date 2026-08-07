@@ -88,8 +88,14 @@ using SimBC = SlitNoSlipConfig;
 // for. Only the advective term is affected — H, the stresses and the body force
 // are all still built from the centred Laplacian and gradients — which is
 // exactly why the Q dynamics and the free energy stop referring to the same
-// elastic constant. Going second order (linear-upwind/QUICK), whose leading
-// error is dispersive rather than diffusive, is the way out.
+// elastic constant.
+//
+// None of this matters while kQAdvection is Centred, which is the default and
+// what every benchmark number here refers to. If upwinding is ever wanted for
+// quantitative work, one option would be a second-order scheme (linear-upwind
+// or QUICK), whose leading error is dispersive rather than diffusive and so
+// does not shift L_eff. That is an option, not a plan: nothing in the current
+// benchmark path needs it.
 inline constexpr Advection kQAdvection = Advection::Centred;
 
 // ── Time loop ─────────────────────────────────────────────────────────────────

@@ -241,9 +241,21 @@ inline CUDA_HOST_DEVICE void PointwiseStepAndSetupBodyForce(
     //
     // Despite carrying \nabla Q it is not an advective term — there is no
     // velocity in it, hence no upstream direction, so kQAdvection does NOT apply
-    // here and these gradients stay centred. Biasing them would also break the
-    // cancellation against div(Sigma + Tau) that makes the total force integrate
-    // to zero over a periodic domain, injecting spurious momentum.
+    // here and these gradients stay centred.
+    //
+    // This is the body-force form of the distortion (double-gradient) stress
+    // that Marenduzzo et al., PRE 76, 031921 (2007), Eq. 9 writes as
+    // -d_alpha Q_gn dF/d(d_beta Q_gn). The two are related by the continuum
+    // identity
+    //
+    //   -H_ge d_alpha Q_ge = d_beta [ f_el delta_alpha,beta
+    //                                 - d_alpha Q_ge df_el/d(d_beta Q_ge) ]
+    //
+    // whose extra isotropic f_el piece is a gradient of a scalar, i.e. absorbed
+    // into the pressure. Being a continuum identity it holds only to
+    // discretisation error here, so unlike a true stress divergence this force
+    // does not telescope to exactly zero over a periodic domain. Upwinding these
+    // gradients would enlarge that error rather than reduce it.
     //
     // H:\nabla_k Q sums over all nine index pairs. With H_zz = -(H_xx + H_yy)
     // and \partial_k Q_zz = -(\partial_k Q_xx + \partial_k Q_yy), the zz pair
