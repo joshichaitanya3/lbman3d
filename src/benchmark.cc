@@ -6,25 +6,16 @@
 #include "mpi/mpi_context.h"
 #include <params.h>
 
-#ifdef LBM_ENABLE_MPI
-#include <mpi.h>
-#endif
-
 inline constexpr int kWarmupSteps    = 10;
 inline constexpr int kBenchmarkSteps = 1000;
 
-// Reduce a local millisecond count to the maximum across all ranks (single
-// value, MPI-aware). Wall time of a step is bounded by the slowest rank, so
-// max is the meaningful aggregate. No-op under CPU-only builds — the single
-// rank is trivially the "max".
+// Reduce a local millisecond count to the maximum across all ranks. Wall time
+// of a step is bounded by the slowest rank, so max is the meaningful
+// aggregate. Trivially the identity on CPU-only builds (single rank).
 static double MaxAcrossRanks(double local_ms) {
-#ifdef LBM_ENABLE_MPI
     double global_ms;
-    MPI_Allreduce(&local_ms, &global_ms, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+    MPIContext::MaxDoubles(&local_ms, &global_ms);
     return global_ms;
-#else
-    return local_ms;
-#endif
 }
 
 int main() {
