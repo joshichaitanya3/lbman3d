@@ -270,6 +270,25 @@ with h5py.File('data/lbm_00050.vtkhdf') as f:
 
 Without `h5py`, the `h5dump` binary that ships with HDF5 is enough — `h5ls -r file.vtkhdf` lists the datasets and their shapes, and `h5dump -d /VTKHDF/PointData/ux -b LE -o ux.bin file.vtkhdf` writes raw little-endian doubles for `numpy.fromfile`.
 
+## Monitoring a live run
+
+`monitor.py` tails `lbm.log` and plots the per-step diagnostics as the run progresses. Launch it from the same working directory as the simulation (i.e. the one that contains `lbm.log`):
+
+```bash
+python3 monitor.py
+```
+
+Requires `numpy` and `matplotlib`. The window refreshes every 2 s and shows:
+
+- **Kinetic Energy** (log scale) with **Max |u|** overlaid on a twin y-axis — useful for eyeballing the cell Péclet number `|u|·DX/(2·GAMMA·L)` against the centred-scheme stability bound, and for catching divergence early.
+- **Net momentum** components `Px`, `Py`, `Pz` — should stay near zero for periodic setups; a linear drift signals a body-force imbalance.
+- **Disclination count** over time.
+- **Info panel** with the run's parameters (as logged at startup) and a live mass-conservation indicator (`|ΔM/M₀|`).
+
+Pass `--total_energy` to swap the top panel from KE to the total energy (KE + nematic free energy). This requires the run to have been built with `Params::kTrackNematicEnergy = true` in [src/params.h](src/params.h), and is the right view for passive benchmarks (`ALPHA = 0`), where total energy must decrease monotonically.
+
+The parser is backwards-compatible with older log formats — fields introduced later (Total Energy, disclination count, Max |u|) are optional and simply omitted from the plot if absent.
+
 ## Visualization with Paraview
 
 The full sequence of output VTKHDF files can be visualized conveniently by running the included script from this directory:
