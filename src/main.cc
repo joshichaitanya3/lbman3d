@@ -9,7 +9,17 @@
 int main() {
     ActiveNematicSim<SimBC> sim{};
     for (int t : std::views::iota(0, kNumSteps)) {
-        if (t % kSaveInterval == 0) {
+        const bool save_tick = (t % kSaveInterval == 0);
+        // kDebugLogging overrides kLogInterval (logs every step) and, separately,
+        // causes SimIO::ExportVTKHDF to include the raw D3Q15 populations f0..f14.
+        const bool log_tick = (Params::kDebugLogging || t % kLogInterval == 0);
+        if (save_tick || log_tick) {
+            // Log/Export read only host buffers, so on GPU builds refresh the host
+            // snapshot before either runs. Explicit here (not inside Log/Export) so
+            // the Device-to-Host (D2H) sync point stays visible in the loop. No-op on CPU builds.
+            sim.SnapshotToHost();
+        }
+        if (save_tick) {
             if (MPIContext::IsRoot()) {
                 int bar_width = 50;
                 double progress = static_cast<double>(t) / kNumSteps;
@@ -21,9 +31,7 @@ int main() {
             }
             sim.Export("data");
         }
-        // kDebugLogging overrides kLogInterval (logs every step) and, separately,
-        // causes SimIO::ExportVTKHDF to include the raw D3Q15 populations f0..f14.
-        if (Params::kDebugLogging || t % kLogInterval == 0) {
+        if (log_tick) {
             if (!sim.Log()) {
                 if (MPIContext::IsRoot())
                     std::cerr << compat::format("Simulation diverged at step {} — exiting.\n", t);

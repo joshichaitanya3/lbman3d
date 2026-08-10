@@ -2,6 +2,7 @@
 #define LBM_AN_ACTIVE_NEMATIC_H_
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include "offsets.h"
@@ -56,6 +57,7 @@ class ActiveNematicSim {
     std::unique_ptr<QTensorSolver<BC>> qtensor_solver_;
     SimIO          io_;
     int            time_step_ = 0;
+    int host_snapshot_step_ = 0;
 
     void Initialize() {
         lbm_.Initialize(fluid_);
@@ -116,25 +118,45 @@ public:
         ++time_step_;
     }
 
-    // Returns false if the simulation has diverged (NaN detected).
-    bool Log() {
+    bool HostFieldsAreUpToDate() const {
+        return host_snapshot_step_ == time_step_;
+    }
+    void SnapshotToHost() {
         #ifdef SIM_WITH_CUDA
         d_fields_.CopyToHost(fluid_, qtensor_);
         #endif
+        host_snapshot_step_ = time_step_;
+    }
+
+    // Log()/Export() operate on the host snapshot. Fail loud rather than
+    // silently reading stale data if the caller forgot to SnapshotToHost.
+    // Runs once per event, so the throw path is a boundary guard, not a
+    // hot-path assert — it must survive Release, which strips assert().
+    void EnsureHostFieldsCurrent() const {
+        if (!HostFieldsAreUpToDate()) {
+            throw std::runtime_error(
+                "ActiveNematicSim::Log/Export called with stale host fields "
+                "(snapshot at step " + std::to_string(host_snapshot_step_) +
+                ", time_step_ is " + std::to_string(time_step_) +
+                "). Call SnapshotToHost() before Log/Export.");
+        }
+    }
+
+    // Returns false if the simulation has diverged (NaN detected).
+    bool Log() {
+        EnsureHostFieldsCurrent();
         double nematic_energy = 0.0;
         if constexpr (Params::kTrackNematicEnergy) {
             nematic_energy = TotalNematicFreeEnergy<BC>(qtensor_);
         }
-        return io_.Log(fluid_, af_, df_, time_step_, nematic_energy);
+        return io_.Log(fluid_, af_, df_, host_snapshot_step_, nematic_energy);
     }
 
     // Write one VTKHDF frame (plus the disclination mesh on non-MPI builds).
     // With kDebugLogging the frame also carries the raw D3Q15 populations
     // f0..f14, so nothing needs a second output format to inspect them.
     void Export(const std::string& path) {
-        #ifdef SIM_WITH_CUDA
-        d_fields_.CopyToHost(fluid_, qtensor_);
-        #endif
+        EnsureHostFieldsCurrent();
         QtensorToOrderDirector(qtensor_, af_);
         #ifndef LBM_ENABLE_MPI // MPI-parallel defect-detection not yet implemented
         finder_.FindDefects(af_, df_);
