@@ -77,7 +77,7 @@ OrderDirector QtensorToOrderDirectorPoint(
 void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
 
     const LocalGrid& g = qf.grid;
-    // #pragma omp parallel for num_threads(kNumOMPThreads) schedule(static)
+    #pragma omp parallel for num_threads(kNumOMPThreads) schedule(static)
     for (int z = 0; z < g.local_nz; ++z) {
         for (int y = 0; y < g.local_ny; ++y) {
             for (int x = 0; x < g.local_nx; ++x) {
