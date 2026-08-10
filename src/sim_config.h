@@ -45,7 +45,7 @@ struct SlitNoSlipConfig {
 };
 
 // This is the critical line. SimBC is what the main code will use
-using SimBC = SlitNoSlipConfig;
+using SimBC = ChannelConfig;
 // SlitNoSlipConfig with nx=20 for a benchmark run.
 
 // ── Q advection scheme ────────────────────────────────────────────────────────
@@ -99,7 +99,13 @@ using SimBC = SlitNoSlipConfig;
 inline constexpr Advection kQAdvection = Advection::Centred;
 
 // ── Time loop ─────────────────────────────────────────────────────────────────
-inline constexpr int kNumSteps     = 10001;
+inline constexpr int kNumSteps     = 10000;
 inline constexpr int kSaveInterval = 100;
+// Log cadence is independent from the VTKHDF export cadence: logs are cheap
+// (scalars per step) while exports are a full-grid write. For per-step
+// divergence tracking, enable Params::kDebugLogging instead — it overrides
+// kLogInterval and additionally embeds the raw D3Q15 populations in each
+// exported frame.
+inline constexpr int kLogInterval  = kSaveInterval;
 
 #endif // LBM_AN_SIM_CONFIG_H_

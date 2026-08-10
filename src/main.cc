@@ -20,21 +20,17 @@ int main() {
                 std::cout.flush();
             }
             sim.Export("data");
-            if constexpr (!Params::kDebugLogging) {
-                if (!sim.Log()) {
-                    std::cerr << compat::format("Simulation diverged at step {} — exiting.\n", t);
-                    return 1;
-                }
-            }
         }
-        sim.Step();
-        if constexpr (Params::kDebugLogging) {
+        // kDebugLogging overrides kLogInterval (logs every step) and, separately,
+        // causes SimIO::ExportVTKHDF to include the raw D3Q15 populations f0..f14.
+        if (Params::kDebugLogging || t % kLogInterval == 0) {
             if (!sim.Log()) {
                 if (MPIContext::IsRoot())
                     std::cerr << compat::format("Simulation diverged at step {} — exiting.\n", t);
                 return 1;
             }
         }
+        sim.Step();
     }
     return 0;
 }
