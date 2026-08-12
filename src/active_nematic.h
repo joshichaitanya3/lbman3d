@@ -57,7 +57,7 @@ class ActiveNematicSim {
     std::unique_ptr<QTensorSolver<BC>> qtensor_solver_;
     SimIO          io_;
     int            time_step_ = 0;
-    int host_snapshot_step_ = 0;
+    int host_snapshot_step_ = -1;
 
     void Initialize() {
         lbm_.Initialize(fluid_);
@@ -119,7 +119,7 @@ public:
     }
 
     bool HostFieldsAreUpToDate() const {
-        return host_snapshot_step_ == time_step_;
+        return host_snapshot_step_ >= 0;
     }
     void SnapshotToHost() {
         #ifdef SIM_WITH_CUDA
@@ -171,6 +171,7 @@ public:
     }
 
     int GetTimeStep() const { return time_step_; }
+    int GetHostSnapshotTimeStep() const { return host_snapshot_step_; }
 };
 
 #endif // LBM_AN_ACTIVE_NEMATIC_H_

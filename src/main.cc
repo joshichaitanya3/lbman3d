@@ -8,16 +8,58 @@
 
 int main() {
     ActiveNematicSim<SimBC> sim{};
+
+#ifdef SIM_WITH_CUDA
+    // On the GPU build, the simulation fields live on the GPU memory and the 
+    // Q-tensor and the moments are only copied over to the CPU 
+    // (via `SnapshotToHost`) for exporting and/or logging.
+    // This allows an optimization over the CPU workflow, where, once the fields are
+    // copied over, _the GPU can continue time-stepping while the CPU exports/logs. 
+    // 
+    // This pattern requires the "snapshot" to be a real copy that freezes a
+    // point-in-time view of the state, which only exists on GPU (device →
+    // host copy). Under CPU there is no separate host memory: sim.Step()
+    // mutates fluid_/qtensor_ in place, so a snapshot at the top of the batch
+    // can't reference the pre-Step state after the do-while has run.
+    // The #else branch below uses the sync pattern for correctness on CPU.
+    int t = 0;
+    bool save_tick = true;
+    bool log_tick = true;
+    while (t < kNumSteps) {
+        sim.SnapshotToHost();
+        bool save_tick_next, log_tick_next;
+        do {
+            sim.Step();
+            t++;
+            save_tick_next = (t % kSaveInterval == 0);
+            // kDebugLogging overrides kLogInterval (logs every step) and, separately,
+            // causes SimIO::ExportVTKHDF to include the raw D3Q15 populations f0..f14.
+            log_tick_next = (Params::kDebugLogging || t % kLogInterval == 0);
+        } while ((t < kNumSteps) && !save_tick_next && !log_tick_next);
+
+        if (save_tick) {
+            if (MPIContext::IsRoot())
+                std::cout << compat::format("Step {}", sim.GetHostSnapshotTimeStep()) << "\n";
+            sim.Export("data");
+        }
+        if (log_tick) {
+            if (!sim.Log()) {
+                if (MPIContext::IsRoot())
+                    std::cerr << compat::format("Simulation diverged at step {} — exiting.\n", sim.GetHostSnapshotTimeStep());
+                return 1;
+            }
+        }
+        save_tick = save_tick_next;
+        log_tick = log_tick_next;
+    }
+#else
     for (int t : std::views::iota(0, kNumSteps)) {
         const bool save_tick = (t % kSaveInterval == 0);
         // kDebugLogging overrides kLogInterval (logs every step) and, separately,
         // causes SimIO::ExportVTKHDF to include the raw D3Q15 populations f0..f14.
         const bool log_tick = (Params::kDebugLogging || t % kLogInterval == 0);
         if (save_tick || log_tick) {
-            // Log/Export read only host buffers, so on GPU builds refresh the host
-            // snapshot before either runs. Explicit here (not inside Log/Export) so
-            // the Device-to-Host (D2H) sync point stays visible in the loop. No-op on CPU builds.
-            sim.SnapshotToHost();
+            sim.SnapshotToHost(); // This is a no-op on CPU, but it stamps host_snapshot_step_ so the guard in Log/Export passes
         }
         if (save_tick) {
             if (MPIContext::IsRoot()) {
@@ -40,5 +82,7 @@ int main() {
         }
         sim.Step();
     }
+#endif
+
     return 0;
 }
