@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <params.h>
 #include "mpi/mpi_context.h"
+#include "format_compat.h"
 
 using namespace Params;
 
@@ -422,7 +423,7 @@ public:
                                int components = 3) {
         if (static_cast<int64_t>(data.size()) != n_points_ * components)
             throw std::runtime_error(
-                std::format("WriteVectorPointField: size mismatch for {} [data.size(): {}, n_points_: {}]", name, data.size(), n_points_)
+                compat::format("WriteVectorPointField: size mismatch for {} [data.size(): {}, n_points_: {}]", name, data.size(), n_points_)
             );
         if (pdata_.get() < 0)
             pdata_ = create_group(root_, "PointData");
