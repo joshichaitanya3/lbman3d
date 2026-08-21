@@ -163,6 +163,18 @@ foreach(target main benchmark)
         target_compile_definitions(${target} PRIVATE LBM_ENABLE_MPI)
     endif()
 
+    # LBM_PARAMS_DIR: same params.h shadowing seam as tests/, exposed at
+    # configure time. Prepends the user-supplied directory so its params.h
+    # wins over src/params.h. Used by sweep_height/ (parameter sweeps over
+    # slit geometry) and any other out-of-tree parameter override.
+    if(LBM_PARAMS_DIR)
+        if(NOT EXISTS "${LBM_PARAMS_DIR}/params.h")
+            message(FATAL_ERROR
+                "LBM_PARAMS_DIR = ${LBM_PARAMS_DIR} but no params.h found there")
+        endif()
+        target_include_directories(${target} BEFORE PUBLIC ${LBM_PARAMS_DIR})
+    endif()
+
 endforeach()
 
 # find_defects: standalone offline analysis binary. Built serial (no
@@ -194,6 +206,10 @@ endif()
 if(LBM_ENABLE_MPI)
     target_include_directories(find_defects PUBLIC ${MPI_INCLUDE_PATH})
     target_link_libraries(find_defects PRIVATE MPI::MPI_CXX)
+endif()
+
+if(LBM_PARAMS_DIR)
+    message(STATUS "Shadowing params.h from ${LBM_PARAMS_DIR}")
 endif()
 
 # Testing setup
