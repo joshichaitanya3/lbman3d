@@ -234,8 +234,15 @@ void SimIO::ExportDisclinations(
     writer.WriteTopology(mesh.Points(), mesh.Connectivity(),
                          mesh.Offsets(), mesh.CellTypes());
 
-    if (mesh.TangentsAvailable()) {
+    // On empty frames we still emit the point-data arrays (as empty
+    // datasets) so the time-series schema is uniform — ParaView Calculators
+    // in the visualise script trip when an array shows up midway through
+    // the sequence.
+    if (mesh.TangentsAvailable() || mesh.NumPoints() == 0) {
         writer.WriteVectorPointField("Tangents", mesh.Tangents());
+    }
+    if (mesh.BetaAvailable() || mesh.NumPoints() == 0) {
+        writer.WriteScalarPointField("Beta", mesh.Beta());
     }
 
 }

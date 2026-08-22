@@ -16,6 +16,7 @@
 #include "analysis/defect_fields.h"
 #include "analysis/defect_finder.h"
 #include "analysis/defect_analyzer.h"
+#include "analysis/defect_analysis_config.h"
 #include "device_fields.h"
 #include "device_solver.h"
 #include "local_grid.h"
@@ -42,9 +43,9 @@ class ActiveNematicSim {
     DeviceFields   d_fields_;
     DeviceSolver<BC> d_solver_;
     AnalysisFields af_;
-    DefectFields   df_;
+    DefectFields   df_{periodicity_by_axis<BC>};
     DefectFinder<BC> finder_;
-    DefectAnalyzer da_;
+    DefectAnalyzer<BC> da_;
     LbmSolver<BC>  lbm_;
     std::unique_ptr<QTensorSolver<BC>> qtensor_solver_;
     SimIO          io_;
@@ -131,7 +132,7 @@ public:
         QtensorToOrderDirector(qtensor_, af_);
         #ifndef LBM_ENABLE_MPI // MPI-parallel defect-detection not yet implemented
         finder_.FindDefects(af_, df_);
-        da_.AnalyzeDefects(df_);
+        da_.AnalyzeDefects(df_, qtensor_);
         #endif
 
         io_.ExportVTKHDF(fluid_, af_, path, num_files_exported, mpi_, grid_);

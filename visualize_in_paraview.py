@@ -188,21 +188,42 @@ def setup_display(pipeline, reader, view, disc_reader=None):
     # ColorBy(disp_glyph, ('POINTS', 'S'))
 
     # --- Defect isosurface: semi-transparent, coloured by S ---
-    disp_defects = Show(pipeline['defects'], view)
-    disp_defects.Representation = 'Surface'
-    disp_defects.Opacity = 0.5
-    ColorBy(disp_defects, ('POINTS', 'order'))
-    if S_RANGE:
-        lut = GetColorTransferFunction('order')
-        lut.RescaleTransferFunction(*S_RANGE)
+    # Only show if disclination files don't exist
+    if disc_reader is None:
+        disp_defects = Show(pipeline['defects'], view)
+        disp_defects.Representation = 'Surface'
+        disp_defects.Opacity = 0.5
+        ColorBy(disp_defects, ('POINTS', 'order'))
+        if S_RANGE:
+            lut = GetColorTransferFunction('order')
+            lut.RescaleTransferFunction(*S_RANGE)
+    else:
+        disp_defects = None
 
-    # --- Disclination lines ---
+    # --- Disclination lines: wireframe coloured by β (rad → deg) ---
     if disc_reader is not None:
-        disp_disc = Show(disc_reader, view)
+        # Beta was written in radians; convert to degrees for display so the
+        # 0..90° wedge↔twist scale is legible on the colour bar.
+        beta_calc = Calculator(Input=disc_reader)
+        beta_calc.AttributeType   = 'Point Data'
+        beta_calc.Function        = 'Beta * 180.0 / 3.141592653589793'
+        beta_calc.ResultArrayName = 'Beta_deg'
+        RenameSource('disclination_beta_deg', beta_calc)
+        beta_calc.UpdatePipeline()
+
+        disp_disc = Show(beta_calc, view)
         disp_disc.Representation = 'Wireframe'
         disp_disc.LineWidth = 3
-        disp_disc.AmbientColor = [1.0, 1.0, 1.0]
-        disp_disc.DiffuseColor = [1.0, 1.0, 1.0]
+        ColorBy(disp_disc, ('POINTS', 'Beta_deg'))
+        beta_lut = GetColorTransferFunction('Beta_deg')
+        beta_lut.RescaleTransferFunction(0.0, 90.0)
+        # Wedge → twist: cool → warm reads intuitively. "Cool to Warm" is a
+        # ParaView-shipped preset; if absent, ApplyPreset silently no-ops.
+        try:
+            beta_lut.ApplyPreset('Cool to Warm', True)
+        except Exception:
+            pass
+        disp_disc.SetScalarBarVisibility(view, True)
 
     return {
         'slice_yz': disp_yz,
