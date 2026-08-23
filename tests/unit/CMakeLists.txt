@@ -12,6 +12,7 @@ add_executable(unit_tests
     test_flow_alignment_trace.cc
     test_qtensor_init.cc
     test_upwind_advection.cc
+    test_boundary_names.cc
     # Add more test files as needed
 )
 
