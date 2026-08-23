@@ -19,7 +19,7 @@
 // FluidFields pure simulation state with no IO bookkeeping in it.
 class SimIO {
     std::ofstream log_file_;
-    
+
 public:
     SimIO();
     ~SimIO();
@@ -35,12 +35,18 @@ public:
     // Returns false (and logs a message) if any quantity is NaN.
     bool Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& df, int time_step, double nematic_energy);
 
+    // Templated on BC so the exported files can be stamped with the compile-time
+    // sim config (BC face slots + Params), which find_defects validates on read.
+    template<typename BC>
     void ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
                 const std::string& path, int step, const MPIContext& ctx, const LocalGrid& grid);
-    
+
+    template<typename BC>
     void ExportDisclinations(const DefectFields& df,
                 const std::string& path, int step, const MPIContext& ctx, const LocalGrid&);
 
 };
+
+#include "sim_io.tpp"
 
 #endif // LBM_AN_SIM_IO_H_

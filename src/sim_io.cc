@@ -6,12 +6,9 @@
 #include <cmath>
 #include <ranges>
 #include <stdexcept>
-#include "vtkhdf_writer.h"
 #include "analysis/defect_fields.h"
 #include "physics_helpers.h"
-#include "lattice_stencil.h"
 #include "local_grid.h"
-#include "analysis/disclination.h"
 #include "mpi/mpi_context.h"
 
 using namespace Params;
@@ -165,84 +162,6 @@ bool SimIO::Log(const FluidFields& ff, AnalysisFields& af, const DefectFields& d
     return true;
 }
 
-void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
-                         const std::string& path, int step, const MPIContext& ctx, const LocalGrid& grid) {
-    constexpr int kStepWidth = [] {
-        int w = 1, n = kNumSteps - 1;
-        while (n >= 10) { n /= 10; ++w; }
-        return w;
-    }();
-    const LocalGrid& g = ff.grid;
-
-    const std::string file_path = std::format("{}/lbm_{:0{}}.vtkhdf", path, step, kStepWidth);
-
-    ImageDataWriter writer(file_path, ctx);
-
-    // --- PointData datasets, shape [nz, ny, nx] (z slowest, x fastest) ---
-
-    writer.WriteScalarField("rho", ff.rho.data(), grid);
-
-    if constexpr (Params::kDebugLogging) {
-        // ff.f is laid out with i fastest-varying (host idx() layout), so we still
-        // need a scratch buffer per direction with the export's [z,y,x] layout.
-        std::vector<double> buf(g.HaloVolume());
-        for (int i = 0; i < Lattice::ndir; i++) {
-            for (int z = 0; z < g.local_nz; ++z)
-                for (int y = 0; y < g.local_ny; ++y)
-                    for (int x = 0; x < g.local_nx; ++x)
-                        buf[g.halo_idx(x, y, z)] = ff.f[g.halo_idx(x, y, z, i)];
-            writer.WriteScalarField(std::format("f{}", i).c_str(), buf.data(), grid);
-        }
-    }
-
-    writer.WriteScalarField("order", af.order_.data(), grid);
-
-    // Velocity: three independent scalar fields, written directly from backing stores.
-    writer.WriteScalarField("ux", ff.ux.data(), grid);
-    writer.WriteScalarField("uy", ff.uy.data(), grid);
-    writer.WriteScalarField("uz", ff.uz.data(), grid);
-
-    // Director: AoS layout [nz, ny, nx, 3] (see dirIdx in analysis_fields.h) passes
-    // straight through to WriteVectorField without repacking.
-    writer.WriteVectorField("director", af.director_.data(), grid);
-
-}
-
-void SimIO::ExportDisclinations(
-    const DefectFields& df,
-    const std::string& path,
-    int step,
-    const MPIContext& ctx,
-    const LocalGrid&
-) {
-    
-    DisclinationMesh mesh;
-
-    for (Disclination d : df.disclinations) {
-        mesh.AddDisclination(d);
-    }
-
-    constexpr int kStepWidth = [] {
-        int w = 1, n = kNumSteps - 1;
-        while (n >= 10) { n /= 10; ++w; }
-        return w;
-    }();
-    const std::string file_path = std::format("{}/disclinations_{:0{}}.vtkhdf", path, step, kStepWidth);
-
-    UnstructuredGridWriter writer(file_path, ctx);
-
-    writer.WriteTopology(mesh.Points(), mesh.Connectivity(),
-                         mesh.Offsets(), mesh.CellTypes());
-
-    // On empty frames we still emit the point-data arrays (as empty
-    // datasets) so the time-series schema is uniform — ParaView Calculators
-    // in the visualise script trip when an array shows up midway through
-    // the sequence.
-    if (mesh.TangentsAvailable() || mesh.NumPoints() == 0) {
-        writer.WriteVectorPointField("Tangents", mesh.Tangents());
-    }
-    if (mesh.BetaAvailable() || mesh.NumPoints() == 0) {
-        writer.WriteScalarPointField("Beta", mesh.Beta());
-    }
-
-}
+// ExportVTKHDF and ExportDisclinations are templated on BC (they stamp the
+// compile-time SimBC onto the VTKHDF /VTKHDF group as attributes so
+// find_defects can validate on read). Definitions live in sim_io.tpp.

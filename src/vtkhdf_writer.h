@@ -131,6 +131,10 @@ public:
     virtual ~VTKHDFWriter() = default;
     VTKHDFWriter(const VTKHDFWriter&) = delete;
     VTKHDFWriter& operator=(const VTKHDFWriter&) = delete;
+
+    // Expose the /VTKHDF group so callers can stamp attributes on it
+    // (see StampSimConfigAttributes in sim_config_attrs.h). Read-only.
+    hid_t root() const { return root_.get(); }
 };
 
 

@@ -1,0 +1,8 @@
+#ifndef LBM_AN_GIT_COMMIT_H_
+#define LBM_AN_GIT_COMMIT_H_
+
+// Baked at CMake configure time via execute_process(git rev-parse HEAD).
+// Empty string if not a git checkout or git is unavailable at configure time.
+inline constexpr const char* kGitCommit = "@LBM_GIT_COMMIT@";
+
+#endif // LBM_AN_GIT_COMMIT_H_

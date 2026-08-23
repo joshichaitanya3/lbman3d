@@ -4,6 +4,7 @@ function(lbm_add_test target params_dir)
     target_include_directories(${target} PRIVATE
         ${CMAKE_SOURCE_DIR}/tests/params/${params_dir}  # shadows src/params.h
         ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_BINARY_DIR}/generated                   # for the configured git_commit.h
         ${HDF5_INCLUDE_DIRS}
     )
     target_link_libraries(${target} PRIVATE GTest::gtest_main ${HDF5_C_LIBRARIES} lbm_warnings)
