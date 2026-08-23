@@ -4,6 +4,7 @@
 #include <vector>
 #include <params.h>
 #include "qtensor_fields.h"
+#include "qtensor_types.h"    // SymTrLessTensor5, reused for uniaxial-Q reconstruction
 #include "physics_helpers.h"
 #include "offsets.h"
 #include "local_grid.h"
@@ -135,5 +136,39 @@ OrderDirector QtensorToOrderDirectorPoint(
     double Qxx, double Qxy, double Qxz, double Qyy, double Qyz);
 
 void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af);
+
+/*!
+ * Inverse of QtensorToOrderDirectorPoint, exact on the uniaxial subset:
+ *
+ *     Q_αβ = (3S/2) · (n_α · n_β − δ_αβ/3)
+ *
+ * where S is the **largest eigenvalue** of Q — the same quantity
+ * QtensorToOrderDirectorPoint returns, not the scalar prefactor in the
+ * classical convention Q = s(nnᵀ − I/3).
+ *
+ * Derivation: for uniaxial Q with director n̂ and largest eigenvalue S,
+ * Q = S·nnᵀ + λ_⊥·(I − nnᵀ); tracelessness fixes λ_⊥ = −S/2, hence
+ * Q = (3S/2)(nnᵀ − I/3).
+ *
+ * QtensorToOrderDirectorPoint discards the biaxial degrees of freedom
+ * (intermediate eigenvalue + its axis) that a general symmetric-traceless Q
+ * carries, so this inverse only recovers Q where the discarded pieces vanish
+ * — i.e. in the uniaxial regime, and only when the largest eigenvalue is
+ * positive (n̂ is the director). That is exact away from disclination cores,
+ * which is where the β pipeline samples Q (ring radius R ≥ 2 lattice units,
+ * well beyond ξ). Not suitable for reconstructing Q at defect cores.
+ */
+// Returns the 5 independent components of the reconstructed uniaxial Q.
+// SymTrLessTensor5 is the codebase-wide container for symmetric-traceless
+// tensors (see qtensor_types.h); reusing it keeps this in the same shape
+// as the QStencil / model.h intermediaries and avoids a duplicate struct.
+SymTrLessTensor5 OrderDirectorToQtensorPoint(
+    double S, double nx, double ny, double nz);
+
+// Bulk reconstruction: reads af.order_ and af.director_, writes qf.qxx..qyz.
+// The QTensorFields grid is not required to match AnalysisFields'; both must
+// share nx/ny/nz. Halo cells are not touched (they'll be zero from
+// QTensorFields' constructor).
+void OrderDirectorToQtensor(const AnalysisFields& af, QTensorFields& qf);
 
 #endif // LBM_AN_ANALYSIS_FIELDS_H_
