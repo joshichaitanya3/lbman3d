@@ -165,6 +165,29 @@ foreach(target main benchmark)
 
 endforeach()
 
+# find_defects: standalone offline analysis binary. Deliberately built serial
+# (no LBM_ENABLE_MPI define, no MPI link) even when the rest of the project
+# is built with MPI — the defect finder itself isn't MPI-parallel yet
+# (see the #ifndef LBM_ENABLE_MPI guard in active_nematic.h::Export). The
+# reader is MPI-capable so once the finder catches up this becomes an MPI
+# target with no reader change. Never links CUDA — this binary never touches
+# the GPU.
+add_executable(find_defects)
+target_include_directories(find_defects PUBLIC
+    ${HDF5_INCLUDE_DIRS}
+    src/
+    ${CMAKE_BINARY_DIR}/generated
+)
+target_link_libraries(find_defects PRIVATE
+    ${HDF5_C_LIBRARIES}
+    lbm_warnings
+)
+if(HAVE_STD_FORMAT)
+    target_compile_definitions(find_defects PRIVATE HAVE_STD_FORMAT)
+else()
+    target_link_libraries(find_defects PRIVATE fmt::fmt)
+endif()
+
 # Testing setup
 option(LBM_BUILD_TESTS "Build unit and integration tests" ON)
 if(LBM_BUILD_TESTS)

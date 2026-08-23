@@ -4,3 +4,9 @@ foreach(target main benchmark)
         defect_fields.cc
     )
 endforeach()
+
+target_sources(find_defects
+    PRIVATE
+    defect_fields.cc
+    find_defects.cc
+)
