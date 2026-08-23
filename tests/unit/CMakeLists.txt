@@ -14,6 +14,7 @@ add_executable(unit_tests
     test_upwind_advection.cc
     test_boundary_names.cc
     test_sim_config_validate.cc
+    test_order_director_roundtrip.cc
     # Add more test files as needed
 )
 

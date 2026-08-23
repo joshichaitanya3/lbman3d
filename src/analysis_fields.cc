@@ -99,3 +99,43 @@ void QtensorToOrderDirector(const QTensorFields& qf, AnalysisFields& af) {
     }
 }
 
+SymTrLessTensor5 OrderDirectorToQtensorPoint(
+    double S, double dnx, double dny, double dnz) {
+    // S is the largest eigenvalue of Q (per QtensorToOrderDirectorPoint's
+    // convention), so the uniaxial inverse carries the 3/2 prefactor —
+    // see the docstring in analysis_fields.h. Reconstructing without the
+    // prefactor would return (2/3)·Q_original, a silent factor-2/3 error
+    // in the β sampler's ring interpolation.
+    constexpr double kThird = 1.0 / 3.0;
+    const double f = 1.5 * S;
+    return {
+        f * (dnx * dnx - kThird),
+        f * (dnx * dny),
+        f * (dnx * dnz),
+        f * (dny * dny - kThird),
+        f * (dny * dnz)
+    };
+}
+
+void OrderDirectorToQtensor(const AnalysisFields& af, QTensorFields& qf) {
+
+    const LocalGrid& g = qf.grid;
+    for (int z = 0; z < g.local_nz; ++z) {
+        for (int y = 0; y < g.local_ny; ++y) {
+            for (int x = 0; x < g.local_nx; ++x) {
+                const int idxp = g.halo_idx(x, y, z);
+                const double S   = af.order_[idxp];
+                const double dnx = af.director_[g.halo_dirIdx(x, y, z, 0)];
+                const double dny = af.director_[g.halo_dirIdx(x, y, z, 1)];
+                const double dnz = af.director_[g.halo_dirIdx(x, y, z, 2)];
+                const auto qc = OrderDirectorToQtensorPoint(S, dnx, dny, dnz);
+                qf.qxx[idxp] = qc.xx;
+                qf.qxy[idxp] = qc.xy;
+                qf.qxz[idxp] = qc.xz;
+                qf.qyy[idxp] = qc.yy;
+                qf.qyz[idxp] = qc.yz;
+            }
+        }
+    }
+}
+
