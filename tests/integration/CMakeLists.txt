@@ -48,3 +48,13 @@ target_sources(coupled_backflow_test
 )
 
 lbm_add_test(coupled_backflow_test coupled)
+
+# ImageDataWriter → ImageDataReader roundtrip. No physics — reuses the unit
+# params (8³ grid, single OMP thread). The test does touch the HDF5 write
+# path, so it lives here rather than in unit_tests (per tests/CLAUDE.md
+# guidance to keep unit tests off the HDF5 write path).
+add_executable(vtkhdf_roundtrip_test
+    test_vtkhdf_roundtrip.cc
+)
+
+lbm_add_test(vtkhdf_roundtrip_test unit)
