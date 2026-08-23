@@ -13,6 +13,7 @@ add_executable(unit_tests
     test_qtensor_init.cc
     test_upwind_advection.cc
     test_boundary_names.cc
+    test_sim_config_validate.cc
     # Add more test files as needed
 )
 

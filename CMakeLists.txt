@@ -78,6 +78,31 @@ check_source_compiles(CXX
     HAVE_STD_FORMAT
 )
 
+# Capture the current git commit hash at configure time so exported VTKHDF
+# frames can be traced back to the exact source revision. Silently produces
+# an empty string if this isn't a git checkout or `git` is unavailable —
+# find_defects treats an empty stamp as "unknown" (soft-warn only).
+set(LBM_GIT_COMMIT "")
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        OUTPUT_VARIABLE LBM_GIT_COMMIT_RAW
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE LBM_GIT_RESULT
+    )
+    if(LBM_GIT_RESULT EQUAL 0)
+        set(LBM_GIT_COMMIT "${LBM_GIT_COMMIT_RAW}")
+    endif()
+endif()
+configure_file(
+    ${CMAKE_SOURCE_DIR}/cmake/git_commit.h.in
+    ${CMAKE_BINARY_DIR}/generated/git_commit.h
+    @ONLY
+)
+
 include(FetchContent)
 
 # Fetch {fmt} only when the standard library lacks <format>/<print>
@@ -112,6 +137,7 @@ foreach(target main benchmark)
     target_include_directories(${target} PUBLIC
             ${HDF5_INCLUDE_DIRS}
             src/
+            ${CMAKE_BINARY_DIR}/generated
     )
     target_link_libraries(${target} PRIVATE
         ${HDF5_C_LIBRARIES}
