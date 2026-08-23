@@ -7,6 +7,7 @@
 #include "offsets.h"
 #include <params.h>
 #include "boundary.h"
+#include "boundary_names.h"
 #include "fluid_fields.h"
 #include "qtensor_fields.h"
 #include "analysis_fields.h"
@@ -34,6 +35,11 @@
 // To run without any Q-tensor dynamics use LbmSolver directly.
 template<typename BC>
 class ActiveNematicSim {
+    static_assert(bc_periodicity_consistent_v<BC>,
+        "BC has an axis with mixed Periodic/non-Periodic between its QBC and UBC "
+        "slots. The finder walks QBC-periodicity; DefectFields sizes off "
+        "UBC-periodicity. These must agree per axis.");
+
     MPIContext         mpi_; // Needs to be the first member
     LocalGrid          grid_;
     HaloExchangeQTensor qtensor_halo_;
@@ -135,9 +141,9 @@ public:
         da_.AnalyzeDefects(df_, qtensor_);
         #endif
 
-        io_.ExportVTKHDF(fluid_, af_, path, num_files_exported, mpi_, grid_);
+        io_.ExportVTKHDF<BC>(fluid_, af_, path, num_files_exported, mpi_, grid_);
         #ifndef LBM_ENABLE_MPI // MPI-parallel defect-export not yet implemented
-        io_.ExportDisclinations(df_, path, num_files_exported, mpi_, grid_);
+        io_.ExportDisclinations<BC>(df_, path, num_files_exported, mpi_, grid_);
         #endif
         num_files_exported++;
     }
