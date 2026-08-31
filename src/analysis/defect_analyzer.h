@@ -29,7 +29,7 @@ class DefectAnalyzer {
         };
     }
 
-    void CheckAndSetIfLoop(Disclination& d) {
+    void CheckAndSetISLoop(Disclination& d) {
         d.is_loop = IsLoop(d.points);
     }
 
@@ -37,7 +37,7 @@ class DefectAnalyzer {
     // closing-duplicate convention with the appropriate period offset for
     // cross-boundary loops.
     void UnwrapAndSmoothen(Disclination& d) {
-        CheckAndSetIfLoop(d);
+        CheckAndSetISLoop(d);
         const auto periods = Periods();
 
         if (d.is_loop) {
