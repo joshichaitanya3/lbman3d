@@ -122,6 +122,13 @@ if(LBM_ENABLE_MPI)
         ${HDF5_INCLUDE_DIRS}
     )
     target_compile_definitions(test_vtkhdf_write PRIVATE LBM_ENABLE_MPI)
+    # vtkhdf_writer.h pulls in format_compat.h; match the format backend the
+    # rest of the build uses.
+    if(HAVE_STD_FORMAT)
+        target_compile_definitions(test_vtkhdf_write PRIVATE HAVE_STD_FORMAT)
+    else()
+        target_link_libraries(test_vtkhdf_write PRIVATE fmt::fmt)
+    endif()
 
     # np=1: single-rank baseline; np=2,3: even and odd decompositions;
     # np=5: uneven split (8 cells / 5 ranks) — exercises shared-chunk writes

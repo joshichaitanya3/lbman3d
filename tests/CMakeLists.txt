@@ -21,6 +21,14 @@ function(lbm_add_test target params_dir)
             $<$<COMPILE_LANGUAGE:CUDA>:--extended-lambda --use_fast_math>
         )
     endif()
+    # When LBM_ENABLE_MPI=ON, CMake selects the parallel HDF5 build whose
+    # headers transitively include <mpi.h>. Tests that include HDF5 headers
+    # (e.g. vtkhdf_roundtrip_test via vtkhdf_writer.h) therefore need MPI on
+    # their include/link path — even though no test here calls MPI functions.
+    if(LBM_ENABLE_MPI)
+        target_include_directories(${target} PRIVATE ${MPI_INCLUDE_PATH})
+        target_link_libraries(${target} PRIVATE MPI::MPI_CXX)
+    endif()
     gtest_discover_tests(${target})
 endfunction()
 
