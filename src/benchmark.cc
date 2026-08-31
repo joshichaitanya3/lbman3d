@@ -69,7 +69,9 @@ int main() {
     // Wall clock around the whole loop, once — closer to what `time ./benchmark`
     // reports than the sum of per-launch chrono deltas, and doesn't accumulate
     // launch-overhead artefacts.
+#ifdef SIM_WITH_CUDA
     auto loop_t0 = clock::now();
+#endif
 
     double ms_qtensor_cpu = 0, ms_lbm_cpu = 0;
     int num_successful_steps = 0;
@@ -94,10 +96,9 @@ int main() {
         num_successful_steps += 1;
     }
 
+#ifdef SIM_WITH_CUDA
     auto loop_t1 = clock::now();
     const double ms_loop_cpu = MaxAcrossRanks(ms(loop_t1 - loop_t0).count());
-
-#ifdef SIM_WITH_CUDA
     cudaEventRecord(gpu_end, 0);
     // The GPU is still processing the tail of the queue at this point;
     // block until gpu_end fires so cudaEventElapsedTime returns a valid
