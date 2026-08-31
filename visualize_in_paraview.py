@@ -38,7 +38,7 @@ DATA_DIR   = './data'
 OUTPUT_DIR = os.path.join(DATA_DIR, 'frames')
 
 # Physical dimensions (must match what was passed to VTKHDF3DNematicWriter)
-NX, NY, NZ = 20, 100, 100
+NX, NY, NZ = 128, 128, 256
 LX, LY, LZ = NX, NY, NZ
 ORIGIN      = (0.0, 0.0, 0.0)
 
@@ -57,6 +57,11 @@ DEFECT_S_MAX = 0.2
 
 # Colormap ranges — set to None to auto-scale per frame (slower)
 S_RANGE = [0.0, 0.7]    # scalar order parameter
+
+# Vorticity LUT range. Set to a [min, max] pair to skip the global pre-scan
+# across all timesteps (much faster for large datasets).
+# None = sample only the first timestep as a heuristic.
+VORTICITY_RANGE = None
 
 # Output image resolution
 IMAGE_WIDTH  = 1920
@@ -160,7 +165,7 @@ def setup_display(pipeline, reader, view, disc_reader=None):
 
     # --- YZ slice: vorticity magnitude ---
     # ComputeDerivatives outputs cell data, so colour by CELLS not POINTS.
-    # The LUT range is set later in main() after a pre-pass over all timesteps.
+    # The LUT range is applied in main() from VORTICITY_RANGE or a first-timestep probe.
     disp_yz = Show(pipeline['slice_yz'], view)
     disp_yz.Representation = 'Surface'
     ColorBy(disp_yz, ('CELLS', 'Vorticity', 'Magnitude'))
@@ -220,7 +225,8 @@ def setup_display(pipeline, reader, view, disc_reader=None):
         # Wedge → twist: cool → warm reads intuitively. "Cool to Warm" is a
         # ParaView-shipped preset; if absent, ApplyPreset silently no-ops.
         try:
-            beta_lut.ApplyPreset('Cool to Warm', True)
+            # beta_lut.ApplyPreset('Cool to Warm', True)
+            beta_lut.ApplyPreset('Viridis', True)
         except Exception:
             pass
         disp_disc.SetScalarBarVisibility(view, True)
@@ -237,8 +243,10 @@ def setup_display(pipeline, reader, view, disc_reader=None):
 
 def compute_vorticity_range(pipeline, scene, timesteps):
     """
-    Iterate over all timesteps and return the global (min, max) of the
-    vorticity magnitude across the YZ slice cell data.
+    Iterate over the given timesteps and return the global (min, max) of the
+    vorticity magnitude across the YZ slice cell data. Pass a single-element
+    list to sample only one timestep; pass all timesteps for a global scan
+    (slow for large datasets).
     """
     vort_min =  float('inf')
     vort_max = -float('inf')
@@ -319,9 +327,12 @@ def main():
     scene.UpdateAnimationUsingDataTimeSteps()
     timesteps = reader.TimestepValues if reader.TimestepValues else [0]
 
-    print("Computing vorticity range over all timesteps...")
-    vort_min, vort_max = compute_vorticity_range(pipeline, scene, timesteps)
-    print(f"  Vorticity magnitude range: [{vort_min:.4g}, {vort_max:.4g}]")
+    if VORTICITY_RANGE:
+        vort_min, vort_max = VORTICITY_RANGE
+        print(f"  Vorticity range: [{vort_min:.4g}, {vort_max:.4g}] (fixed; set VORTICITY_RANGE=None to sample)")
+    else:
+        vort_min, vort_max = compute_vorticity_range(pipeline, scene, [timesteps[-1]])
+        print(f"  Vorticity range from first timestep: [{vort_min:.4g}, {vort_max:.4g}]")
 
     # ---- Set up display with the correct LUT range already known ----
     view = GetActiveViewOrCreate('RenderView')
