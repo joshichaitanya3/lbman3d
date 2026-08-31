@@ -162,9 +162,9 @@ public:
         finder_.FindDefects(af_, df_);
         da_.AnalyzeDefects(df_, qtensor_);
         #endif
-        io_.ExportVTKHDF(fluid_, af_, path, time_step_, mpi_, grid_);
+        io_.ExportVTKHDF<BC>(fluid_, af_, path, time_step_, mpi_, grid_);
         #ifndef LBM_ENABLE_MPI // MPI-parallel defect-export not yet implemented
-        io_.ExportDisclinations(df_, path, time_step_, mpi_, grid_);
+        io_.ExportDisclinations<BC>(df_, path, time_step_, mpi_, grid_);
         #endif
         num_files_exported++;
     }
