@@ -104,6 +104,7 @@ void DefectFinder<BC>::ComputeWindingNumbers(const AnalysisFields& af, DefectFie
     };
 
     // def_x: plaquettes in the y-z plane, one per x-vertex layer.
+    #pragma omp parallel for default(shared) num_threads(kNumOMPThreads)
     for (int z = 0; z < df.nfx_z; ++z) {
         const int zp = z + 1; // "next" z-vertex; may equal nz under periodic-z (Dir wraps)
         for (int y = 0; y < df.nfx_y; ++y) {
@@ -128,6 +129,7 @@ void DefectFinder<BC>::ComputeWindingNumbers(const AnalysisFields& af, DefectFie
     }
 
     // def_y: plaquettes in the x-z plane, one per y-vertex layer.
+    #pragma omp parallel for default(shared) num_threads(kNumOMPThreads)
     for (int z = 0; z < df.nfy_z; ++z) {
         const int zp = z + 1;
         for (int y = 0; y < df.nfy_y; ++y) {
@@ -152,6 +154,7 @@ void DefectFinder<BC>::ComputeWindingNumbers(const AnalysisFields& af, DefectFie
     }
 
     // def_z: plaquettes in the x-y plane, one per z-vertex layer.
+    #pragma omp parallel for default(shared) num_threads(kNumOMPThreads)
     for (int z = 0; z < df.nfz_z; ++z) {
         for (int y = 0; y < df.nfz_y; ++y) {
             const int yp = y + 1;
