@@ -132,6 +132,41 @@ if(LBM_ENABLE_MPI)
     endif()
 endif()
 
+# NVSHMEM Setup (PR VII-a — build+link scaffolding only, no exchanges yet).
+# The full roadmap lives in src/cuda/CLAUDE.md → "NVSHMEM multi-GPU roadmap".
+option(LBM_ENABLE_NVSHMEM "Enable NVSHMEM one-sided halo exchange on the GPU path" OFF)
+
+if(LBM_ENABLE_NVSHMEM)
+    if(NOT LBM_ENABLE_MPI)
+        message(FATAL_ERROR
+            "LBM_ENABLE_NVSHMEM requires LBM_ENABLE_MPI=ON — NVSHMEM bootstraps from "
+            "MPIContext::cart_comm (see src/cuda/CLAUDE.md → \"Bootstrap: MPI still runs the show for topology\").")
+    endif()
+    if(NOT LBM_USE_CUDA)
+        message(FATAL_ERROR
+            "LBM_ENABLE_NVSHMEM requires a CUDA build; do not combine with LBM_FORCE_CPU=ON.")
+    endif()
+
+    # NVSHMEM ships one CMake config per CUDA major on Debian/Ubuntu
+    # (`nvshmem-cuda-12`, `nvshmem-cuda-13`). The unversioned symlink at
+    # /usr/lib/x86_64-linux-gnu/cmake/nvshmem points at whichever variant was
+    # installed last, which is often not the one that matches CUDAToolkit. Hint
+    # find_package at the versioned copy when the user hasn't already pinned
+    # NVSHMEM_DIR themselves (e.g., via -DNVSHMEM_DIR=… on the cluster).
+    if(NOT NVSHMEM_DIR)
+        set(_lbm_nvshmem_hint
+            "/usr/lib/x86_64-linux-gnu/nvshmem/${CUDAToolkit_VERSION_MAJOR}/cmake/nvshmem")
+        if(EXISTS "${_lbm_nvshmem_hint}/NVSHMEMConfig.cmake")
+            set(NVSHMEM_DIR "${_lbm_nvshmem_hint}" CACHE PATH
+                "Directory containing NVSHMEMConfig.cmake")
+        endif()
+        unset(_lbm_nvshmem_hint)
+    endif()
+
+    find_package(NVSHMEM REQUIRED)
+    message(STATUS "NVSHMEM ${NVSHMEM_VERSION} found (headers: ${NVSHMEM_INCLUDE_DIR})")
+endif()
+
 foreach(target main benchmark)
     add_executable(${target})
     target_include_directories(${target} PUBLIC
@@ -161,6 +196,17 @@ foreach(target main benchmark)
         )
         target_link_libraries(${target} PRIVATE MPI::MPI_CXX)
         target_compile_definitions(${target} PRIVATE LBM_ENABLE_MPI)
+    endif()
+    if(LBM_ENABLE_NVSHMEM)
+        target_compile_definitions(${target} PRIVATE LBM_ENABLE_NVSHMEM)
+        target_link_libraries(${target} PRIVATE
+            nvshmem::nvshmem_host
+            nvshmem::nvshmem_device
+        )
+        # nvshmem_halo.cu is compiled with -rdc=true (see src/cuda/CMakeLists.txt);
+        # this tells CMake to run the intermediate device-link step at final link
+        # so libnvshmem_device's device-side symbols are resolved by nvlink.
+        set_target_properties(${target} PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
     endif()
 
     # LBM_PARAMS_DIR: same params.h shadowing seam as tests/, exposed at
