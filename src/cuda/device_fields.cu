@@ -7,7 +7,36 @@
 #include "local_grid.h"
 
 std::string InitializeComputeBackend(const MPIContext& mpi) {
-    checkCudaErrors(cudaSetDevice(0));
+    // Per-node local rank derivation. NVSHMEM (VII-c) will bind to whichever
+    // device is current at nvshmemx_init time — hardcoding device 0 pins every
+    // rank on a node to the same GPU and produces no error message, just
+    // catastrophic contention. Splitting MPI_COMM_WORLD by MPI_COMM_TYPE_SHARED
+    // yields a communicator per shared-memory domain (one per node in typical
+    // launches); rank inside it is the intra-node ordinal we bind to.
+    int local_rank = 0;
+    int local_size = 1;
+#ifdef LBM_ENABLE_MPI
+    MPI_Comm node_comm;
+    MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, mpi.world_rank,
+                        MPI_INFO_NULL, &node_comm);
+    MPI_Comm_rank(node_comm, &local_rank);
+    MPI_Comm_size(node_comm, &local_size);
+    MPI_Comm_free(&node_comm);
+#endif
+
+    int device_count = 0;
+    checkCudaErrors(cudaGetDeviceCount(&device_count));
+    if (device_count <= 0) {
+        throw std::runtime_error("No CUDA devices visible to this rank");
+    }
+    // Modulo maps two common launch patterns cleanly:
+    //   - launcher exposes all node GPUs to every rank (device_count == GPUs
+    //     per node): each local_rank picks a distinct device up to device_count,
+    //     then wraps (oversubscription — visible in the log, not silent).
+    //   - launcher sets CUDA_VISIBLE_DEVICES per rank (device_count == 1):
+    //     every rank maps to device 0, which is the only device it sees.
+    const int assigned_device = local_rank % device_count;
+    checkCudaErrors(cudaSetDevice(assigned_device));
 
     int device_id = 0;
     checkCudaErrors(cudaGetDevice(&device_id));
@@ -31,12 +60,15 @@ std::string InitializeComputeBackend(const MPIContext& mpi) {
         "   asyncEngineCount: {}\n"
         "   canMapHostMemory: {}\n"
         "    MPI world_size: {}\n"
-        "         MPI dims: [{}, {}, {}]\n",
+        "         MPI dims: [{}, {}, {}]\n"
+        "         node rank: {} / {}\n"
+        "     visible GPUs: {}\n",
         device_id, props.name, props.multiProcessorCount,
         props.major, props.minor,
         props.totalGlobalMem / bytesPerMiB, free_mem / bytesPerMiB,
         props.asyncEngineCount, props.canMapHostMemory,
-        mpi.world_size, mpi.dims[0], mpi.dims[1], mpi.dims[2]);
+        mpi.world_size, mpi.dims[0], mpi.dims[1], mpi.dims[2],
+        local_rank, local_size, device_count);
 }
 
 // HaloVolume() (not Volume()) so device buffers include the ghost layer that
