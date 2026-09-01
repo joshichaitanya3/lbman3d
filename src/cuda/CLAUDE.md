@@ -98,7 +98,15 @@ individual field.
 pinned-buffer staging"*. We are **replacing that with NVSHMEM**. This section
 is that replacement.
 
-### Why NVSHMEM, not CUDA-aware MPI
+### Why NVSHMEM first (CUDA-aware MPI is a planned second transport)
+
+NVSHMEM is the transport we are implementing **first**, but not the only one
+we intend to support. A CUDA-aware MPI backend is planned as a second
+transport so the code runs on clusters without an NVSHMEM stack (see
+"Portability goal" below and the design invariants at the end). This section
+records why NVSHMEM is worth doing first even though CUDA-aware MPI is more
+portable; the "Portability goal" section that follows records what VII-*
+must do to keep the door open for the second transport.
 
 CUDA-aware MPI would work — its two-sided `Isend`/`Irecv` semantics can be
 kicked from CUDA streams — but PR VI's post-stream LBM exchange design is
@@ -136,6 +144,78 @@ The face exchange for Q-tensor / passive stresses gains less relative to
 CUDA-aware MPI — those are pure face-to-face — but still benefits from
 one-sided semantics: no `Isend`/`Irecv` pairing, no `Waitall`, no receive-side
 buffer allocation. Pack, put, barrier.
+
+### Portability goal: keep the transport swappable
+
+Choosing NVSHMEM first is deliberate (previous section), but **a CUDA-aware
+MPI backend is a planned second transport**. Reasons the door must stay open:
+
+- Not every cluster this code will run on has NVSHMEM available (correct
+  driver + UCX/GDRCopy stack + IB configuration). CUDA-aware MPI is nearly
+  universal on modern HPC systems and gives the code broad portability once
+  the NVSHMEM path exists.
+- Having two backends validates the abstraction — anywhere the two paths
+  cannot be swapped without touching physics or the halo interface, the
+  abstraction is leaky and worth fixing before it ossifies.
+
+The VII-* PRs must therefore be designed so that swapping NVSHMEM for
+CUDA-aware MPI (or vice versa) is a transport-only change. Concretely, when
+designing VII-b through VII-h keep the following seams clean:
+
+- **Pack/unpack kernels are transport-agnostic.** They write into (or read
+  from) a plain `double*` device buffer whose lifetime and location the
+  caller provides. They do not call NVSHMEM, do not assume the buffer is
+  on the symmetric heap, and do not know which PE the buffer will end up on.
+  The same kernel serves both backends.
+- **Neighbour addressing is by `(cart_rank, offset)`, not by raw device
+  pointers.** The MPI cart topology built by `MPIContext` is the source of
+  truth. The NVSHMEM layer resolves `(cart_rank, field_id)` to a
+  symmetric-heap pointer; a future MPI layer resolves the same pair to an
+  `MPI_Isend/Irecv` peer. The exchange orchestration (6 faces + 12 edges +
+  8 corners for LBM, 6 faces for Q / stresses) does not care which happens.
+- **Allocations go through a thin backend allocator.** NVSHMEM builds route
+  halo-exchanged fields through `nvshmem_malloc`; MPI builds would route
+  them through ordinary `cudaMalloc`. The rest of the code sees a device
+  pointer either way. The symmetric-heap sizing table above becomes
+  "which fields use the backend allocator"; on the MPI backend the answer
+  collapses to "all device fields, one allocator".
+- **Completion is behind a common seam.** NVSHMEM uses
+  `nvshmemx_barrier_all_on_stream`; CUDA-aware MPI would use `MPI_Waitall`
+  on host-issued nonblocking calls (or `MPIX_Stream_*` on MPI-4
+  stream-triggered ops). The Step() body calls a single
+  `HaloExchange::WaitComplete(stream)`; both backends implement it.
+- **The CPU-MPI corner sweep does not resurrect on GPU.** A future GPU-MPI
+  backend uses point-to-point `Isend/Irecv` directly to the diagonal PE
+  (same target as NVSHMEM's put), **not** the sequential x→y→z sweep. The
+  sweep was a CPU-MPI-era workaround for a pack-widening tradeoff; every
+  GPU rank knows its diagonal neighbour via `MPI_Cart_rank`, so direct
+  addressing is strictly simpler and matches NVSHMEM's shape.
+
+What is **not** required to keep swappable: the specifics of which CUDA
+stream NVSHMEM uses, the `LBM_ENABLE_NVSHMEM` build flag itself, or the
+symmetric-heap sizing check. Those are NVSHMEM-only concerns and can stay
+NVSHMEM-shaped.
+
+Where this matters most during design:
+
+- **VII-d (allocation migration)** — introduce the backend allocator
+  abstraction here, even though the second backend does not yet exist. A
+  single header + inline shim (e.g. `AllocHaloField(nelems)` → dispatches to
+  `nvshmem_malloc` or `cudaMalloc` at compile time) is enough. Skipping the
+  abstraction and calling `nvshmem_malloc` directly at every field site
+  turns the future MPI backend from a bounded PR into a repo-wide refactor.
+- **VII-e / VII-f / VII-g (exchange kernels)** — the pack kernel signature
+  takes a plain `double* out_buf` and geometry; the caller decides whether
+  the buffer is symmetric-heap or ordinary. The put/barrier calls live
+  behind a helper (`HaloExchange::PostSend`, `HaloExchange::WaitComplete`)
+  that an MPI backend can reimplement without touching the pack kernel or
+  the Step() body.
+
+The second transport is **not** a scheduled PR — no VII-i or PR VIII is
+planned right now. But if a future collaborator or a target cluster needs
+GPU-MPI on NVSHMEM-less hardware, the goal is that adding a CUDA-aware MPI
+backend is a bounded, self-contained PR against the abstraction VII-d/e/f/g
+establishes, not a rewrite.
 
 Additional wins that fall out of the choice:
 
@@ -564,3 +644,14 @@ CUDA-aware MPI temporarily — the transports coexist trivially.
   ordinary `cudaMalloc`. Moving them to the symmetric heap wastes memory
   and, more subtly, invites future code to `nvshmem_put` them, which would
   be a physics bug (their values are step-local and rank-local).
+- **The halo transport is a swappable backend, not a set of scattered
+  NVSHMEM calls.** A CUDA-aware MPI backend is a planned second transport
+  (see "Portability goal" above). Pack/unpack kernels must take a plain
+  `double*` device buffer with no NVSHMEM assumptions; halo-field
+  allocation goes through the backend allocator shim introduced in VII-d;
+  neighbour addressing uses `(cart_rank, offset)` from `MPIContext`, not
+  raw symmetric-heap pointers; completion is a single
+  `HaloExchange::WaitComplete(stream)` call. Any VII-* change that inlines
+  `nvshmem_*` calls into a pack kernel, a Step() body, or a field
+  allocation site is a portability regression — treat it as a review
+  blocker, not a style nit.
