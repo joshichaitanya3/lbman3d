@@ -43,6 +43,12 @@ class ActiveNematicSim {
 
     MPIContext         mpi_; // Needs to be the first member
     LocalGrid          grid_;
+    // Backend init (VII-b/c): cudaSetDevice to this rank's GPU, NVSHMEM
+    // bootstrap + symmetric heap sizing under LBM_ENABLE_NVSHMEM. Declared
+    // before d_fields_ so it runs before thrust::device_vector allocations
+    // in DeviceFields — otherwise those pin to device 0 while kernels bind
+    // to local_rank.
+    BackendInfo        backend_info_;
     HaloExchangeQTensor qtensor_halo_;
     HaloExchangeLBM    lbm_halo_;
     FluidFields        fluid_;
@@ -74,12 +80,15 @@ public:
     // without depending on the internals being non-const.
     const MPIContext& mpi() const { return mpi_; }
     const LocalGrid&  grid() const { return grid_; }
+    const BackendInfo& backend_info() const { return backend_info_; }
+    std::string backend_summary() const { return FormatBackendSummary(backend_info_); }
 
     // Default: constant-alpha active nematic.
     // Supply a QTensorSolver subclass to override the activity model.
     explicit ActiveNematicSim(std::unique_ptr<QTensorSolver<BC>> solver = nullptr)
         : mpi_(periodicity_by_axis<BC>),
           grid_(mpi_.MakeLocalGrid()),
+          backend_info_(InitializeComputeBackend(mpi_, grid_)),
           qtensor_halo_(grid_, mpi_),
           lbm_halo_(grid_, mpi_, is_wall_by_face<BC>),
           fluid_(grid_),
@@ -89,7 +98,7 @@ public:
                                  : std::make_unique<QTensorSolver<BC>>())
     {
         Initialize();
-        io_.LogSetupSummary(BC::name, InitializeComputeBackend(mpi_));
+        io_.LogSetupSummary(BC::name, FormatBackendSummary(backend_info_));
     }
 
     void QTensorStep() {

@@ -28,7 +28,7 @@ int main() {
     ActiveNematicSim<SimBC> sim{};
 
     if (MPIContext::IsRoot())
-        std::cout << "Running on: " << InitializeComputeBackend(sim.mpi()) << "\n";
+        std::cout << "Running on: " << sim.backend_summary() << "\n";
 
     using clock = std::chrono::high_resolution_clock;
     using ms    = std::chrono::duration<double, std::milli>;
