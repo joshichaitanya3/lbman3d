@@ -573,6 +573,97 @@ wrong silently pins every PE to GPU 0, causing catastrophic contention with
 no error message. Compute local rank from the MPI world with
 `MPI_Comm_split_type(MPI_COMM_TYPE_SHARED)`.
 
+### Backend initialization structure (VII-c refactor)
+
+VII-c refactored backend initialization to separate side effects (GPU device
+binding, NVSHMEM bootstrap, PE-ID validation) from result reporting. This
+structure is the foundation for VII-d's allocator abstraction and future
+backend swapping.
+
+**Purpose:** `BackendInfo` (defined in `src/device_fields.h`) captures all
+decisions made by `InitializeComputeBackend(mpi, grid)` in one structured
+record. This enables:
+
+- Decoupling side effects from formatting: `InitializeComputeBackend` mutates
+  GPU state, fills and returns `BackendInfo`; `FormatBackendSummary` reads it
+  without side effects. This split is required for VII-d: the allocator
+  abstraction introduced there will read `backend_info_` to decide whether to
+  call `nvshmem_malloc` or `cudaMalloc`, and that decision must not repeat
+  initialization or trigger redundant NVSHMEM barriers.
+- Portability to future backends: same `FormatBackendSummary` function
+  branches on `is_gpu` and `is_nvshmem` flags; a CUDA-aware MPI backend would
+  add `is_cuda_aware_mpi`, and the formatter handles both by gating NVSHMEM-
+  and MPI-specific fields. No need to fork the formatting logic.
+- Structured queries from the solver: `ActiveNematicSim` exposes `backend_info()`
+  accessor so any subsystem can check device properties, NVSHMEM status, or
+  heap budget without parsing a log string.
+
+**Struct fields:**
+
+- `world_size`, `dims[3]` — MPI topology, from `MPIContext::world_size` and
+  `::dims`. Used to reconstruct job shape in logs and validate NVSHMEM PE
+  counts.
+- `local_rank`, `node_size` — per-node rank and total ranks per node, derived
+  from `MPI_Comm_split_type(MPI_COMM_TYPE_SHARED)`. Used by GPU affinity
+  (VII-b) and for reporting node-level parallelism.
+- `is_gpu`, `is_nvshmem` — backend kind flags. Gates interpretation of
+  device-specific fields (below) and allocation strategy (VII-d). Non-GPU
+  builds set `is_gpu=false, is_nvshmem=false`; GPU-only builds set
+  `is_gpu=true, is_nvshmem=false`; NVSHMEM builds set both `true`.
+- Device properties: `device_id`, `visible_gpus`, `device_name`, `compute_major/minor`,
+  `multiprocessors`, `total_dram_bytes`, `free_dram_bytes`, `async_engine_count`,
+  `can_map_host_memory` — CUDA device capabilities. Zero-initialized on CPU builds.
+- NVSHMEM heap accounting (gated by `is_nvshmem`): `symmetric_bytes`,
+  `regular_bytes` — sizes of the symmetric heap and regular device heap
+  required for this rank. VII-d uses these to validate that the chosen
+  allocator (nvshmem_malloc vs. cudaMalloc) has enough room before making
+  any allocations.
+
+**`FormatBackendSummary` design:**
+
+This pure function (no side effects) takes a `BackendInfo` reference and
+returns a formatted log string. It branches on `is_gpu` to format either
+CPU (MPI dims, OMP thread count) or GPU (device name, compute capability,
+DRAM) output. If `is_nvshmem` is also set, it appends a second block with
+symmetric-heap and regular-heap budgets. This design allows:
+
+- A future CUDA-aware MPI backend to set `is_cuda_aware_mpi=true` and append
+  its own fields and formatting blocks without touching existing code.
+- The same log line to be produced whether the backend is NVSHMEM, CUDA-aware
+  MPI, or future transport — callers of `FormatBackendSummary` do not care
+  which backend is active.
+- The formatter to live alongside the struct in `device_fields.h`, a
+  natural home that does not pull in transport-specific headers.
+
+**Guidance for VII-d (allocator abstraction):**
+
+When introducing the backend allocator shim in VII-d (allocate halo-exchanged
+device fields through `nvshmem_malloc` vs. `cudaMalloc`), extend `BackendInfo`
+with:
+
+- `allocator_name` — a string like `"nvshmem"` or `"cuda"` for logging, set
+  during `InitializeComputeBackend`.
+- Backend-specific heap limits (optional, but useful for validation): if a
+  future MPI backend introduces pinned-buffer staging, it might track
+  `pinned_heap_bytes` similarly to how NVSHMEM tracks `symmetric_bytes`.
+
+Do **not** add per-backend callback pointers or virtual dispatch to
+`BackendInfo` itself — the struct is a data record, not an interface. The
+allocator abstraction belongs in a separate allocation-policy header
+(e.g., `src/cuda/device_allocator.h`) that reads `backend_info_.allocator_name`
+to choose compile-time branches or `if constexpr` overloads.
+
+**Design invariant (load-bearing for VII-d):**
+
+The `is_nvshmem` flag (and any future `is_*_backend` flag) **must** gate not
+only formatting but also which fields in `BackendInfo` are meaningful. Do not
+leak allocator-specific fields (e.g., `symmetric_bytes`) into non-NVSHMEM
+builds as garbage zeros — they will confuse future readers and tempt someone
+to use them without the matching `is_nvshmem` guard. Conversely, do not
+re-compute these values during every halo exchange — compute once in
+`InitializeComputeBackend`, store in `BackendInfo`, and read throughout the
+run.
+
 ### Interaction with CPU-MPI CI
 
 The MPI-only CPU build stays the primary CI target for decomposition
@@ -593,7 +684,7 @@ multi-step VII:
 |-------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
 | VII-a | `LBM_ENABLE_NVSHMEM` CMake option, `find_package(NVSHMEM)`, `-rdc=true` on one isolated TU, empty stub kernel that just links against `libnvshmem`.                                                                            | Local (single-PE build + link only). |
 | VII-b | GPU affinity: `cudaSetDevice(local_rank_on_node)` in `InitializeComputeBackend`; local-rank derivation from `MPI_COMM_TYPE_SHARED`.                                                                                            | Local build; **cluster** to validate (needs ≥2 ranks/node). |
-| VII-c | NVSHMEM init from `MPIContext::cart_comm`; symmetric heap sizing via extended `CheckGpuMemory`; PE-ID sanity check (`nvshmem_my_pe() == mpi.rank`).                                                                            | Local (single-PE run exercises init path). |
+| VII-c | `BackendInfo` struct refactor (separate side effects from result reporting); NVSHMEM init from `MPIContext::cart_comm`; symmetric heap sizing via extended `CheckGpuMemory`; PE-ID sanity check (`nvshmem_my_pe() == mpi.rank`). See "Backend initialization structure" section. | Local (single-PE run exercises init path). |
 | VII-d | Move `d_f`, `d_f_new`, `d_qxx…d_qyz`, `d_Sigma_*`, `d_Tau_*` from `thrust::device_vector` to `nvshmem_malloc` allocations. All existing kernels keep working — these are still device pointers with the same layout. Correctness: existing 1-GPU tests must pass unchanged. | Local (regression on `nranks = 1`). |
 | VII-e | `ExchangeQTensor` on NVSHMEM (star-stencil face-only). Two-GPU Poiseuille integration test.                                                                                                                                   | Local pack unit tests + `nranks = 1` regression; **cluster** for two-PE assertion. |
 | VII-f | `ExchangePassiveStresses` on NVSHMEM (same shape as VII-e).                                                                                                                                                                   | Same split as VII-e. |
