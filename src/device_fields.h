@@ -40,6 +40,11 @@ struct BackendInfo {
     // NVSHMEM heap accounting (zeros unless is_nvshmem)
     std::size_t symmetric_bytes = 0;
     std::size_t regular_bytes   = 0;
+
+    // Backend allocator name: "nvshmem" (when is_nvshmem), "cuda" (GPU CPU builds),
+    // or "" (CPU builds). Used by device_allocator.h to route halo-field allocations
+    // through the appropriate backend.
+    std::string allocator_name;
 };
 
 inline std::string FormatBackendSummary(const BackendInfo& info) {
@@ -72,10 +77,14 @@ inline std::string FormatBackendSummary(const BackendInfo& info) {
         info.local_rank, info.node_size, info.visible_gpus);
     if (info.is_nvshmem) {
         s += compat::format(
+            "  allocator: {}\n"
             "  symmetric heap: {:.1f} MiB (per PE)\n"
             "  regular device: {:.1f} MiB (this PE, halo-inclusive)\n",
+            info.allocator_name,
             info.symmetric_bytes / bytesPerMiB,
             info.regular_bytes / bytesPerMiB);
+    } else if (info.is_gpu) {
+        s += compat::format("  allocator: {}\n", info.allocator_name);
     }
     return s;
 }
@@ -87,6 +96,7 @@ inline std::string FormatBackendSummary(const BackendInfo& info) {
 #include "qtensor_fields.h"
 #include "fluid_fields.h"
 #include <thrust/device_vector.h>
+#include <thrust/device_ptr.h>
 
 // Binds this MPI rank's CUDA device (VII-b: per-node local rank via
 // MPI_COMM_TYPE_SHARED) and — under LBM_ENABLE_NVSHMEM (VII-c) — sizes the
@@ -103,28 +113,38 @@ struct DeviceFields {
     // int gpu_id;
     // cudaStream_t stream;
     LocalGrid grid;
-    thrust::device_vector<double> d_f, d_f_new;
+    std::size_t halo_volume;
+
+    // Halo-exchanged fields allocated via backend allocator (VII-d):
+    // nvshmem_malloc on NVSHMEM builds, cudaMalloc otherwise.
+    double* d_f;
+    double* d_f_new;
+    double* d_qxx;
+    double* d_qxy;
+    double* d_qxz;
+    double* d_qyy;
+    double* d_qyz;
+    double* d_qxx_new;
+    double* d_qxy_new;
+    double* d_qxz_new;
+    double* d_qyy_new;
+    double* d_qyz_new;
+    double* d_Sigma_xx;
+    double* d_Sigma_xy;
+    double* d_Sigma_xz;
+    double* d_Sigma_yy;
+    double* d_Sigma_yz;
+    double* d_Tau_xy;
+    double* d_Tau_xz;
+    double* d_Tau_yz;
+
+    // Local-only fields stay on regular cudaMalloc (not exchanged across ranks).
     thrust::device_vector<double> d_rho, d_ux, d_uy, d_uz;
     thrust::device_vector<double> d_force_x, d_force_y, d_force_z;
-    thrust::device_vector<double> d_qxx, d_qxx_new;
-    thrust::device_vector<double> d_qxy, d_qxy_new;
-    thrust::device_vector<double> d_qxz, d_qxz_new;
-    thrust::device_vector<double> d_qyy, d_qyy_new;
-    thrust::device_vector<double> d_qyz, d_qyz_new;
-
-    thrust::device_vector<double> d_Sigma_xx;
-    thrust::device_vector<double> d_Sigma_xy;
-    thrust::device_vector<double> d_Sigma_xz;
-    thrust::device_vector<double> d_Sigma_yy;
-    thrust::device_vector<double> d_Sigma_yz;
-
-    // Antisymmetric (torque-carrying) part of the nematic stress, upper
-    // triangle only; see QTensorFields::Tau_xy/Tau_xz/Tau_yz
-    thrust::device_vector<double> d_Tau_xy;
-    thrust::device_vector<double> d_Tau_xz;
-    thrust::device_vector<double> d_Tau_yz;
 
     explicit DeviceFields(LocalGrid g = LocalGrid::SingleRank());
+
+    ~DeviceFields();
 
     // ff is mutated transiently: ff.f_new is reused as scratch space for the
     // host->device layout transpose, then restored to its normal contents.

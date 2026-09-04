@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include "local_grid.h"
+#include "device_allocator.h"
 
 #ifdef LBM_ENABLE_NVSHMEM
 #include <nvshmem.h>
@@ -136,8 +137,10 @@ BackendInfo InitializeComputeBackend(const MPIContext& mpi, const LocalGrid& gri
             "NVSHMEM bootstrap invariant broken: PE {}/{} != cart rank {}/{}",
             my_pe, n_pes, mpi.world_rank, mpi.world_size));
     }
+    info.allocator_name = "nvshmem";
 #else
     (void)grid;  // symmetric-heap sizing needs the grid; non-NVSHMEM does not
+    info.allocator_name = "cuda";
 #endif
 
     return info;
@@ -149,36 +152,130 @@ BackendInfo InitializeComputeBackend(const MPIContext& mpi, const LocalGrid& gri
 // lands inside [0, HaloVolume) — the change is a no-op today and correct
 // for the MPI+GPU path without further edits.
 DeviceFields::DeviceFields(LocalGrid g) :
-    grid      (g),
-    d_f       (g.HaloVolume() * Lattice::ndir, 0.0),
-    d_f_new   (g.HaloVolume() * Lattice::ndir, 0.0),
+    grid(g),
+    halo_volume(g.HaloVolume()),
+    d_f(nullptr),
+    d_f_new(nullptr),
+    d_qxx(nullptr),
+    d_qxy(nullptr),
+    d_qxz(nullptr),
+    d_qyy(nullptr),
+    d_qyz(nullptr),
+    d_qxx_new(nullptr),
+    d_qxy_new(nullptr),
+    d_qxz_new(nullptr),
+    d_qyy_new(nullptr),
+    d_qyz_new(nullptr),
+    d_Sigma_xx(nullptr),
+    d_Sigma_xy(nullptr),
+    d_Sigma_xz(nullptr),
+    d_Sigma_yy(nullptr),
+    d_Sigma_yz(nullptr),
+    d_Tau_xy(nullptr),
+    d_Tau_xz(nullptr),
+    d_Tau_yz(nullptr),
     d_rho     (g.HaloVolume(), Params::kDensity),
     d_ux      (g.HaloVolume(), 0.0),
     d_uy      (g.HaloVolume(), 0.0),
     d_uz      (g.HaloVolume(), 0.0),
     d_force_x (g.HaloVolume(), 0.0),
     d_force_y (g.HaloVolume(), 0.0),
-    d_force_z (g.HaloVolume(), 0.0),
-    d_qxx     (g.HaloVolume(), 0.0),
-    d_qxx_new (g.HaloVolume(), 0.0),
-    d_qxy     (g.HaloVolume(), 0.0),
-    d_qxy_new (g.HaloVolume(), 0.0),
-    d_qxz     (g.HaloVolume(), 0.0),
-    d_qxz_new (g.HaloVolume(), 0.0),
-    d_qyy     (g.HaloVolume(), 0.0),
-    d_qyy_new (g.HaloVolume(), 0.0),
-    d_qyz     (g.HaloVolume(), 0.0),
-    d_qyz_new (g.HaloVolume(), 0.0),
-    d_Sigma_xx     (g.HaloVolume(), 0.0),
-    d_Sigma_xy     (g.HaloVolume(), 0.0),
-    d_Sigma_xz     (g.HaloVolume(), 0.0),
-    d_Sigma_yy     (g.HaloVolume(), 0.0),
-    d_Sigma_yz     (g.HaloVolume(), 0.0),
-    d_Tau_xy     (g.HaloVolume(), 0.0),
-    d_Tau_xz     (g.HaloVolume(), 0.0),
-    d_Tau_yz     (g.HaloVolume(), 0.0)
+    d_force_z (g.HaloVolume(), 0.0)
+{
+    // Allocate halo-exchanged fields via backend allocator (VII-d).
+    // These fields will be exchanged across ranks and must live on the
+    // symmetric heap under NVSHMEM, or regular device memory otherwise.
+    try {
+        d_f         = AllocateHaloField(halo_volume * Lattice::ndir);
+        d_f_new     = AllocateHaloField(halo_volume * Lattice::ndir);
+        d_qxx       = AllocateHaloField(halo_volume);
+        d_qxy       = AllocateHaloField(halo_volume);
+        d_qxz       = AllocateHaloField(halo_volume);
+        d_qyy       = AllocateHaloField(halo_volume);
+        d_qyz       = AllocateHaloField(halo_volume);
+        d_qxx_new   = AllocateHaloField(halo_volume);  // Double-buffer for Q
+        d_qxy_new   = AllocateHaloField(halo_volume);
+        d_qxz_new   = AllocateHaloField(halo_volume);
+        d_qyy_new   = AllocateHaloField(halo_volume);
+        d_qyz_new   = AllocateHaloField(halo_volume);
+        d_Sigma_xx  = AllocateHaloField(halo_volume);
+        d_Sigma_xy  = AllocateHaloField(halo_volume);
+        d_Sigma_xz  = AllocateHaloField(halo_volume);
+        d_Sigma_yy  = AllocateHaloField(halo_volume);
+        d_Sigma_yz  = AllocateHaloField(halo_volume);
+        d_Tau_xy    = AllocateHaloField(halo_volume);
+        d_Tau_xz    = AllocateHaloField(halo_volume);
+        d_Tau_yz    = AllocateHaloField(halo_volume);
 
-{}
+        // Zero-initialize the allocated memory.
+        checkCudaErrors(cudaMemset(d_f, 0, halo_volume * Lattice::ndir * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_f_new, 0, halo_volume * Lattice::ndir * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxx, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxy, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxz, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qyy, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qyz, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxx_new, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxy_new, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxz_new, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qyy_new, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qyz_new, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_xx, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_xy, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_xz, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_yy, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_yz, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Tau_xy, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Tau_xz, 0, halo_volume * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Tau_yz, 0, halo_volume * sizeof(double)));
+    } catch (...) {
+        // On allocation failure, clean up any successfully allocated fields.
+        if (d_f)         DeallocateHaloField(d_f);
+        if (d_f_new)     DeallocateHaloField(d_f_new);
+        if (d_qxx)       DeallocateHaloField(d_qxx);
+        if (d_qxy)       DeallocateHaloField(d_qxy);
+        if (d_qxz)       DeallocateHaloField(d_qxz);
+        if (d_qyy)       DeallocateHaloField(d_qyy);
+        if (d_qyz)       DeallocateHaloField(d_qyz);
+        if (d_qxx_new)   DeallocateHaloField(d_qxx_new);
+        if (d_qxy_new)   DeallocateHaloField(d_qxy_new);
+        if (d_qxz_new)   DeallocateHaloField(d_qxz_new);
+        if (d_qyy_new)   DeallocateHaloField(d_qyy_new);
+        if (d_qyz_new)   DeallocateHaloField(d_qyz_new);
+        if (d_Sigma_xx)  DeallocateHaloField(d_Sigma_xx);
+        if (d_Sigma_xy)  DeallocateHaloField(d_Sigma_xy);
+        if (d_Sigma_xz)  DeallocateHaloField(d_Sigma_xz);
+        if (d_Sigma_yy)  DeallocateHaloField(d_Sigma_yy);
+        if (d_Sigma_yz)  DeallocateHaloField(d_Sigma_yz);
+        if (d_Tau_xy)    DeallocateHaloField(d_Tau_xy);
+        if (d_Tau_xz)    DeallocateHaloField(d_Tau_xz);
+        if (d_Tau_yz)    DeallocateHaloField(d_Tau_yz);
+        throw;
+    }
+}
+
+DeviceFields::~DeviceFields() {
+    DeallocateHaloField(d_f);
+    DeallocateHaloField(d_f_new);
+    DeallocateHaloField(d_qxx);
+    DeallocateHaloField(d_qxy);
+    DeallocateHaloField(d_qxz);
+    DeallocateHaloField(d_qyy);
+    DeallocateHaloField(d_qyz);
+    DeallocateHaloField(d_qxx_new);
+    DeallocateHaloField(d_qxy_new);
+    DeallocateHaloField(d_qxz_new);
+    DeallocateHaloField(d_qyy_new);
+    DeallocateHaloField(d_qyz_new);
+    DeallocateHaloField(d_Sigma_xx);
+    DeallocateHaloField(d_Sigma_xy);
+    DeallocateHaloField(d_Sigma_xz);
+    DeallocateHaloField(d_Sigma_yy);
+    DeallocateHaloField(d_Sigma_yz);
+    DeallocateHaloField(d_Tau_xy);
+    DeallocateHaloField(d_Tau_xz);
+    DeallocateHaloField(d_Tau_yz);
+}
 
 void DeviceFields::Initialize(FluidFields& ff, const QTensorFields& qf) {
 
@@ -201,7 +298,9 @@ void DeviceFields::Initialize(FluidFields& ff, const QTensorFields& qf) {
                 for (int i = 0; i < Lattice::ndir; ++i)
                     ff.f_new[i * n + g.halo_idx(x, y, z)] = ff.f[g.halo_idx(x, y, z, i)];
 
-    thrust::copy(ff.f_new.begin(), ff.f_new.end(), d_f.begin());
+    // Wrap raw device pointers in thrust::device_ptr for thrust::copy.
+    thrust::copy(ff.f_new.begin(), ff.f_new.end(),
+                 thrust::device_ptr<double>(d_f));
     std::copy(ff.f.begin(), ff.f.end(), ff.f_new.begin());
 
     // Copy Force fields initialized on the host to the device
@@ -210,11 +309,11 @@ void DeviceFields::Initialize(FluidFields& ff, const QTensorFields& qf) {
     thrust::copy(ff.fz.begin(),  ff.fz.end(),  d_force_z.begin());
 
     // Copy QTensor fields initialized on the host to the device
-    thrust::copy(qf.qxx.begin(),  qf.qxx.end(),  d_qxx.begin());
-    thrust::copy(qf.qxy.begin(),  qf.qxy.end(),  d_qxy.begin());
-    thrust::copy(qf.qxz.begin(),  qf.qxz.end(),  d_qxz.begin());
-    thrust::copy(qf.qyy.begin(),  qf.qyy.end(),  d_qyy.begin());
-    thrust::copy(qf.qyz.begin(),  qf.qyz.end(),  d_qyz.begin());
+    thrust::copy(qf.qxx.begin(),  qf.qxx.end(),  thrust::device_ptr<double>(d_qxx));
+    thrust::copy(qf.qxy.begin(),  qf.qxy.end(),  thrust::device_ptr<double>(d_qxy));
+    thrust::copy(qf.qxz.begin(),  qf.qxz.end(),  thrust::device_ptr<double>(d_qxz));
+    thrust::copy(qf.qyy.begin(),  qf.qyy.end(),  thrust::device_ptr<double>(d_qyy));
+    thrust::copy(qf.qyz.begin(),  qf.qyz.end(),  thrust::device_ptr<double>(d_qyz));
 
 }
 
@@ -223,9 +322,20 @@ void DeviceFields::CopyToHost(FluidFields& ff, QTensorFields& qf) const {
     thrust::copy(d_ux.begin(),  d_ux.end(),  ff.ux.begin());
     thrust::copy(d_uy.begin(),  d_uy.end(),  ff.uy.begin());
     thrust::copy(d_uz.begin(),  d_uz.end(),  ff.uz.begin());
-    thrust::copy(d_qxx.begin(),  d_qxx.end(),  qf.qxx.begin());
-    thrust::copy(d_qxy.begin(),  d_qxy.end(),  qf.qxy.begin());
-    thrust::copy(d_qxz.begin(),  d_qxz.end(),  qf.qxz.begin());
-    thrust::copy(d_qyy.begin(),  d_qyy.end(),  qf.qyy.begin());
-    thrust::copy(d_qyz.begin(),  d_qyz.end(),  qf.qyz.begin());
+    // Wrap raw device pointers for thrust::copy (Q-tensor is halo-exchanged).
+    thrust::copy(thrust::device_ptr<const double>(d_qxx),
+                 thrust::device_ptr<const double>(d_qxx + halo_volume),
+                 qf.qxx.begin());
+    thrust::copy(thrust::device_ptr<const double>(d_qxy),
+                 thrust::device_ptr<const double>(d_qxy + halo_volume),
+                 qf.qxy.begin());
+    thrust::copy(thrust::device_ptr<const double>(d_qxz),
+                 thrust::device_ptr<const double>(d_qxz + halo_volume),
+                 qf.qxz.begin());
+    thrust::copy(thrust::device_ptr<const double>(d_qyy),
+                 thrust::device_ptr<const double>(d_qyy + halo_volume),
+                 qf.qyy.begin());
+    thrust::copy(thrust::device_ptr<const double>(d_qyz),
+                 thrust::device_ptr<const double>(d_qyz + halo_volume),
+                 qf.qyz.begin());
 }

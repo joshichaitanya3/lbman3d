@@ -38,60 +38,61 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
     const dim3 kernel_grid = KernelGrid(df.grid);
 
     GpuQTensorStep<BC><<<kernel_grid, kernel_block>>>(
-        df.d_qxx.data().get(),
-        df.d_qxy.data().get(),
-        df.d_qxz.data().get(),
-        df.d_qyy.data().get(),
-        df.d_qyz.data().get(),
-        df.d_qxx_new.data().get(),
-        df.d_qxy_new.data().get(),
-        df.d_qxz_new.data().get(),
-        df.d_qyy_new.data().get(),
-        df.d_qyz_new.data().get(),
+        df.d_qxx,
+        df.d_qxy,
+        df.d_qxz,
+        df.d_qyy,
+        df.d_qyz,
+        df.d_qxx_new,
+        df.d_qxy_new,
+        df.d_qxz_new,
+        df.d_qyy_new,
+        df.d_qyz_new,
         df.d_ux.data().get(),
         df.d_uy.data().get(),
         df.d_uz.data().get(),
         df.d_force_x.data().get(),
         df.d_force_y.data().get(),
         df.d_force_z.data().get(),
-        df.d_Sigma_xx.data().get(),
-        df.d_Sigma_xy.data().get(),
-        df.d_Sigma_xz.data().get(),
-        df.d_Sigma_yy.data().get(),
-        df.d_Sigma_yz.data().get(),
-        df.d_Tau_xy.data().get(),
-        df.d_Tau_xz.data().get(),
-        df.d_Tau_yz.data().get(),
+        df.d_Sigma_xx,
+        df.d_Sigma_xy,
+        df.d_Sigma_xz,
+        df.d_Sigma_yy,
+        df.d_Sigma_yz,
+        df.d_Tau_xy,
+        df.d_Tau_xz,
+        df.d_Tau_yz,
         df.grid
     );
     checkCudaErrors(cudaGetLastError());
 
-    df.d_qxx.swap(df.d_qxx_new);
-    df.d_qxy.swap(df.d_qxy_new);
-    df.d_qxz.swap(df.d_qxz_new);
-    df.d_qyy.swap(df.d_qyy_new);
-    df.d_qyz.swap(df.d_qyz_new);
+    // Swap Q-tensor buffers (both are raw pointers now).
+    std::swap(df.d_qxx, df.d_qxx_new);
+    std::swap(df.d_qxy, df.d_qxy_new);
+    std::swap(df.d_qxz, df.d_qxz_new);
+    std::swap(df.d_qyy, df.d_qyy_new);
+    std::swap(df.d_qyz, df.d_qyz_new);
 
     GpuComputeBodyForce<BC><<<kernel_grid, kernel_block>>>(
-        df.d_qxx.data().get(),
-        df.d_qxy.data().get(),
-        df.d_qxz.data().get(),
-        df.d_qyy.data().get(),
-        df.d_qyz.data().get(),
+        df.d_qxx,
+        df.d_qxy,
+        df.d_qxz,
+        df.d_qyy,
+        df.d_qyz,
         df.d_ux.data().get(),
         df.d_uy.data().get(),
         df.d_uz.data().get(),
         df.d_force_x.data().get(),
         df.d_force_y.data().get(),
         df.d_force_z.data().get(),
-        df.d_Sigma_xx.data().get(),
-        df.d_Sigma_xy.data().get(),
-        df.d_Sigma_xz.data().get(),
-        df.d_Sigma_yy.data().get(),
-        df.d_Sigma_yz.data().get(),
-        df.d_Tau_xy.data().get(),
-        df.d_Tau_xz.data().get(),
-        df.d_Tau_yz.data().get(),
+        df.d_Sigma_xx,
+        df.d_Sigma_xy,
+        df.d_Sigma_xz,
+        df.d_Sigma_yy,
+        df.d_Sigma_yz,
+        df.d_Tau_xy,
+        df.d_Tau_xz,
+        df.d_Tau_yz,
         df.grid
     );
     checkCudaErrors(cudaGetLastError());
@@ -104,8 +105,8 @@ void DeviceSolver<BC>::LBMStep(DeviceFields& df) {
     const dim3 kernel_grid = KernelGrid(df.grid);
 
     GpuCollideAndStream<BC><<<kernel_grid, kernel_block>>>(
-        df.d_f.data().get(),
-        df.d_f_new.data().get(),
+        df.d_f,
+        df.d_f_new,
         df.d_force_x.data().get(),
         df.d_force_y.data().get(),
         df.d_force_z.data().get(),
@@ -117,7 +118,7 @@ void DeviceSolver<BC>::LBMStep(DeviceFields& df) {
     );
     checkCudaErrors(cudaGetLastError());
 
-    df.d_f.swap(df.d_f_new);
+    std::swap(df.d_f, df.d_f_new);
 }
 
 #include <sim_config.h>   // for SimBC
