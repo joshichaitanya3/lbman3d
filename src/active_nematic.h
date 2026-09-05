@@ -25,6 +25,9 @@
 #include "mpi/mpi_context.h"
 #include "mpi/halo_exchange_lbm.h"
 #include "mpi/halo_exchange_qtensor.h"
+#ifdef SIM_WITH_CUDA
+#include "cuda/halo_exchange_qtensor_nvshmem.h"
+#endif
 
 
 // Orchestrates LbmSolver + QTensorSolver + SimIO for 3D active nematics.
@@ -54,6 +57,12 @@ class ActiveNematicSim {
     FluidFields        fluid_;
     QTensorFields  qtensor_;
     DeviceFields   d_fields_;
+    #ifdef LBM_ENABLE_NVSHMEM
+    // NVSHMEM Q-tensor halo. Must be declared after d_fields_ (which forces
+    // backend init / symmetric-heap sizing to run first) and before d_solver_
+    // so ExchangeQTensor is available on the first Step().
+    HaloExchangeQTensorNvshmem qtensor_halo_nvshmem_;
+    #endif
     DeviceSolver<BC> d_solver_;
     AnalysisFields af_;
     DefectFields   df_{periodicity_by_axis<BC>};
@@ -94,6 +103,9 @@ public:
           fluid_(grid_),
           qtensor_(grid_),
           d_fields_(grid_),
+          #ifdef LBM_ENABLE_NVSHMEM
+          qtensor_halo_nvshmem_(grid_, mpi_),
+          #endif
           qtensor_solver_(solver ? std::move(solver)
                                  : std::make_unique<QTensorSolver<BC>>())
     {
@@ -103,6 +115,20 @@ public:
 
     void QTensorStep() {
         #ifdef SIM_WITH_CUDA
+        #ifdef LBM_ENABLE_NVSHMEM
+        // VII-e: fill Q + velocity ghost cells with the neighbour's owned
+        // values so d_solver_.QTensorStep's phase-1 stencil reads valid data
+        // across the seam. Enqueued on the default stream — same stream the
+        // subsequent QTensorStep kernels run on, so the barrier at the end of
+        // ExchangeQTensor also serialises them behind the halo.
+        //
+        // VII-f will add an ExchangePassiveStresses call between
+        // GpuQTensorStep (phase 1) and GpuComputeBodyForce (phase 2); today
+        // d_solver_.QTensorStep fuses both, so phase 2's neighbour reads on Σ/τ
+        // are the outstanding correctness gap under a multi-rank split — see
+        // src/cuda/CLAUDE.md's VII-e/f rows.
+        qtensor_halo_nvshmem_.ExchangeQTensor(d_fields_);
+        #endif
         d_solver_.QTensorStep(d_fields_);
         #else
         qtensor_halo_.ExchangeQTensor(qtensor_, fluid_);

@@ -437,7 +437,11 @@ NVSHMEM sits on the top row.
    integration test (`tests/mpi/test_poiseuille_mpi.cc`-shaped, adapted to
    GPU). Correctness: assert bit-identical (up to reduction order) to the
    single-GPU run at low step counts, then bulk match to analytic parabola
-   at 10 000 steps.
+   at 10 000 steps. **Lands in VII-g**, not VII-e — Poiseuille is LBM-only
+   (`tests/CLAUDE.md` A1: `LbmSolver<PoiseuilleBC>` only, no Q-tensor), so
+   `ExchangeLBM` (VII-g) is the exchange it actually exercises. VII-e's
+   two-PE assertion is a Q-tensor halo round-trip; VII-f's is
+   `test_qtensor_relaxation` — see the PR table below for the mapping.
 2. **Single-node, 4 GPUs, `dims = {2,2,1}`.** Exercises edge puts (in the
    (x,y) plane) and the four in-plane "corners" which are actually edge PEs
    for D3Q15. Same Poiseuille assertion.
@@ -537,11 +541,15 @@ so that each one can be *developed* on the local box, and only the
 correctness-on-≥2-PEs assertions require cluster time. VII-a, VII-c, VII-d
 land purely on local single-PE regression. VII-b needs a two-rank cluster run
 to actually validate the affinity logic (local single-GPU cannot distinguish
-"correct" from "silently wrong"). VII-e/f/g each need a two-PE Poiseuille
-assertion from the cluster in addition to the local `nranks = 1` regression.
-VII-h is cluster-only. Batch cluster work when possible: land VII-a → VII-d
-locally, then submit VII-b's affinity test alongside VII-e's exchange test in
-one cluster session.
+"correct" from "silently wrong"). VII-e/f/g each need a cluster two-PE
+assertion in addition to the local `nranks = 1` regression, but the specific
+assertion differs per PR: VII-e — Q-tensor halo round-trip (fill Q + velocity
+with rank-encoded values, exchange, assert ghosts); VII-f — `test_qtensor_relaxation`
+(both Q and passive-stress halos now exist, so phase 2 is correct under a
+split); VII-g — Poiseuille (LBM-only per `tests/CLAUDE.md` A1). VII-h is
+cluster-only. Batch cluster work when possible: land VII-a → VII-d locally,
+then submit VII-b's affinity test alongside VII-e's exchange test in one
+cluster session.
 
 ### Build integration
 
@@ -686,10 +694,10 @@ multi-step VII:
 | VII-b | GPU affinity: `cudaSetDevice(local_rank_on_node)` in `InitializeComputeBackend`; local-rank derivation from `MPI_COMM_TYPE_SHARED`.                                                                                            | Local build; **cluster** to validate (needs ≥2 ranks/node). |
 | VII-c | `BackendInfo` struct refactor (separate side effects from result reporting); NVSHMEM init from `MPIContext::cart_comm`; symmetric heap sizing via extended `CheckGpuMemory`; PE-ID sanity check (`nvshmem_my_pe() == mpi.rank`). See "Backend initialization structure" section. | Local (single-PE run exercises init path). |
 | VII-d | Move `d_f`, `d_f_new`, `d_qxx…d_qyz`, `d_Sigma_*`, `d_Tau_*` from `thrust::device_vector` to `nvshmem_malloc` allocations. All existing kernels keep working — these are still device pointers with the same layout. Correctness: existing 1-GPU tests must pass unchanged. | Local (regression on `nranks = 1`). |
-| VII-e | `ExchangeQTensor` on NVSHMEM (star-stencil face-only). Two-GPU Poiseuille integration test.                                                                                                                                   | Local pack unit tests + `nranks = 1` regression; **cluster** for two-PE assertion. |
-| VII-f | `ExchangePassiveStresses` on NVSHMEM (same shape as VII-e).                                                                                                                                                                   | Same split as VII-e. |
-| VII-g | `ExchangeLBM` on NVSHMEM: face puts first, then edge, then corner. Single-hop corner test lands here.                                                                                                                         | Local pack unit tests; **cluster** for 2×2×1 (edge) and 2×2×2 (corner) assertions. |
-| VII-h | Multi-node IB smoke test; scaling perf run; retire the CPU-MPI corner-sweep code path (dead once NVSHMEM is the shipping GPU-MPI implementation, but keep the CPU sweep — that is the CI target).                              | **Cluster only** (multi-node IB). |
+| VII-e | `ExchangeQTensor` on NVSHMEM (star-stencil face-only). Halo round-trip test (rank-encoded Q + velocity, `ExchangeQTensor`, assert ghost cells hold neighbour's owned values). **No physics integration test at this stage** — `test_qtensor_relaxation` on GPU calls both `GpuQTensorStep` and `GpuComputeBodyForce` (per `device_solver.cu:QTensorStep`), and phase 2's `PassiveStressDivergence` reads Σ/τ at neighbour ghosts, so it also needs VII-f before it is correct under a split. Testing only what this PR builds means: pack unit tests + halo round-trip. | Local pack unit tests + `nranks = 1` regression; **cluster** for two-PE halo round-trip. |
+| VII-f | `ExchangePassiveStresses` on NVSHMEM (same shape as VII-e). Two-GPU `test_qtensor_relaxation_nvshmem` integration test lands here — both Q and Σ/τ halos exist, phase 2 becomes correct under a split, and no LBM path is exercised so it does not depend on VII-g.                                                                                        | Local pack unit tests + `nranks = 1` regression; **cluster** for the two-PE relaxation assertion. |
+| VII-g | `ExchangeLBM` on NVSHMEM: face puts first, then edge, then corner. Single-hop corner test lands here. Two-GPU `test_poiseuille_nvshmem` becomes the LBM-only integration test (Poiseuille is LBM-only per `tests/CLAUDE.md` A1), plus `test_coupled_backflow_nvshmem` / `test_active_mass_nvshmem` for full-step coverage.                                                                                                                        | Local pack unit tests; **cluster** for 2×1×1 (Poiseuille), 2×2×1 (edge) and 2×2×2 (corner) assertions. |
+| VII-h | Multi-node IB smoke test; scaling perf run; document `NVSHMEM_INFO=1` transport-selection check. **Do not retire the CPU-MPI corner sweep** — a pure CPU build (`LBM_FORCE_CPU=ON` + `LBM_ENABLE_MPI=ON`) has no other halo path, and CPU-MPI remains the primary CI target for decomposition correctness (see "Interaction with CPU-MPI CI" above).       | **Cluster only** (multi-node IB). |
 
 VII-d is the pivot: after it lands, the halo exchanges in VII-e/f/g can be
 developed and tested one at a time, each landing as a working two-GPU build

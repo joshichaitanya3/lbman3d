@@ -111,6 +111,77 @@ if(LBM_ENABLE_MPI)
 
     # np=2 exchange round-trip deferred to PR VII when idx() covers halo coordinates
 
+    # PR VII-e — NVSHMEM Q-tensor halo tests. Gated on LBM_ENABLE_NVSHMEM
+    # because they call NVSHMEM directly (via HaloExchangeQTensorNvshmem) and
+    # the class disappears without that flag. Each test binary is its own
+    # executable so mpirun -n N picks up NVSHMEM's per-rank GPU affinity;
+    # gtest_discover_tests is not used (matches every other MPI target above —
+    # see "Do not use gtest_discover_tests for MPI targets" in src/mpi/CLAUDE.md).
+    if(LBM_ENABLE_NVSHMEM)
+        set(_lbm_nvshmem_test_common_sources
+            mpi_test_main.cc
+            ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
+            ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
+            ${CMAKE_SOURCE_DIR}/src/cuda/nvshmem_halo.cu
+            ${CMAKE_SOURCE_DIR}/src/cuda/device_fields.cu
+        )
+        set(_lbm_nvshmem_test_include_dirs
+            ${CMAKE_SOURCE_DIR}/tests/params/unit
+            ${CMAKE_SOURCE_DIR}/src/
+            ${CMAKE_BINARY_DIR}/generated
+        )
+        foreach(_lbm_nvshmem_test IN ITEMS test_pack_qtensor_nvshmem test_exchange_qtensor_nvshmem)
+            add_executable(${_lbm_nvshmem_test}
+                ${_lbm_nvshmem_test}.cu
+                ${_lbm_nvshmem_test_common_sources}
+            )
+            target_link_libraries(${_lbm_nvshmem_test} PRIVATE
+                MPI::MPI_CXX GTest::gtest CUDA::toolkit
+                nvshmem::nvshmem_host nvshmem::nvshmem_device
+            )
+            target_include_directories(${_lbm_nvshmem_test} PRIVATE
+                ${_lbm_nvshmem_test_include_dirs}
+            )
+            target_compile_definitions(${_lbm_nvshmem_test} PRIVATE
+                LBM_ENABLE_MPI LBM_ENABLE_NVSHMEM SIM_WITH_CUDA
+            )
+            # nvshmem_halo.cu needs -rdc=true (device-side nvshmem_my_pe use);
+            # scope the flag to that TU inside this target — mirrors the same
+            # set_source_files_properties call in src/cuda/CMakeLists.txt.
+            set_source_files_properties(
+                ${CMAKE_SOURCE_DIR}/src/cuda/nvshmem_halo.cu
+                TARGET_DIRECTORY ${_lbm_nvshmem_test}
+                PROPERTIES COMPILE_FLAGS "-rdc=true"
+            )
+            set_target_properties(${_lbm_nvshmem_test} PROPERTIES
+                CUDA_RESOLVE_DEVICE_SYMBOLS ON
+            )
+            # device_fields.h -> format_compat.h; match the format backend used
+            # by the rest of the build (test_poiseuille_mpi does the same).
+            if(HAVE_STD_FORMAT)
+                target_compile_definitions(${_lbm_nvshmem_test} PRIVATE HAVE_STD_FORMAT)
+            else()
+                target_link_libraries(${_lbm_nvshmem_test} PRIVATE fmt::fmt)
+            endif()
+        endforeach()
+
+        # Pack test runs with a single PE — the pack kernel is purely local and
+        # nranks=1 is where a wrong slot layout is loudest (nranks=2 would hide
+        # it if pack and unpack shared the same wrong stride).
+        add_test(NAME nvshmem_pack_qtensor_np1
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 1
+                    $<TARGET_FILE:test_pack_qtensor_nvshmem>)
+
+        # Halo round-trip needs a real neighbour. np=1 (self-put) is a useful
+        # smoke check on the dev box; np=2 is the actual VII-e correctness gate.
+        add_test(NAME nvshmem_exchange_qtensor_np1
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 1
+                    $<TARGET_FILE:test_exchange_qtensor_nvshmem>)
+        add_test(NAME nvshmem_exchange_qtensor_np2
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
+                    $<TARGET_FILE:test_exchange_qtensor_nvshmem>)
+    endif()
+
     add_executable(test_vtkhdf_write
         test_vtkhdf_write.cc
         mpi_test_main.cc
