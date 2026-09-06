@@ -118,6 +118,26 @@ if(LBM_ENABLE_MPI)
     # gtest_discover_tests is not used (matches every other MPI target above —
     # see "Do not use gtest_discover_tests for MPI targets" in src/mpi/CLAUDE.md).
     if(LBM_ENABLE_NVSHMEM)
+        # On Cray/NERSC, find_package(MPI) leaves MPI_CXX_INCLUDE_DIRS empty
+        # because the Cray wrapper compiler (CC/mpicxx) injects the path itself.
+        # nvcc does not go through that wrapper, so locate mpi.h explicitly via
+        # the environment variables set by the cray-mpich module.
+        if(NOT MPI_CXX_INCLUDE_DIRS)
+            find_path(_lbm_cray_mpi_inc mpi.h
+                HINTS
+                    $ENV{CRAY_MPICH_DIR}/include
+                    $ENV{MPICH_DIR}/include
+                    $ENV{MPI_HOME}/include
+                    $ENV{MPI_ROOT}/include
+                NO_DEFAULT_PATH
+            )
+            if(_lbm_cray_mpi_inc)
+                message(STATUS
+                    "NVSHMEM tests: MPI_CXX_INCLUDE_DIRS empty; using ${_lbm_cray_mpi_inc} (from env)")
+                set(MPI_CXX_INCLUDE_DIRS "${_lbm_cray_mpi_inc}")
+            endif()
+        endif()
+
         set(_lbm_nvshmem_test_common_sources
             mpi_test_main.cc
             ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
@@ -129,6 +149,7 @@ if(LBM_ENABLE_MPI)
             ${CMAKE_SOURCE_DIR}/tests/params/unit
             ${CMAKE_SOURCE_DIR}/src/
             ${CMAKE_BINARY_DIR}/generated
+            ${MPI_CXX_INCLUDE_DIRS}
         )
         foreach(_lbm_nvshmem_test IN ITEMS test_pack_qtensor_nvshmem test_exchange_qtensor_nvshmem)
             add_executable(${_lbm_nvshmem_test}

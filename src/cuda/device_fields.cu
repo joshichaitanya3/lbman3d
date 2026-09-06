@@ -122,7 +122,7 @@ BackendInfo InitializeComputeBackend(const MPIContext& mpi, const LocalGrid& gri
     // are the addresses NVSHMEM puts target, no parallel PE↔rank map.
     nvshmemx_init_attr_t attr = NVSHMEMX_INIT_ATTR_INITIALIZER;
     MPI_Comm comm = mpi.cart_comm;
-    nvshmemx_set_attr_mpi_comm_args(&comm, &attr);
+    attr.mpi_comm = &comm;
     if (nvshmemx_init_attr(NVSHMEMX_INIT_WITH_MPI_COMM, &attr) != 0) {
         throw std::runtime_error("nvshmemx_init_attr failed");
     }
