@@ -152,7 +152,11 @@ if(LBM_ENABLE_MPI)
             ${CMAKE_BINARY_DIR}/generated
             ${MPI_CXX_INCLUDE_DIRS}
         )
-        foreach(_lbm_nvshmem_test IN ITEMS test_pack_qtensor_nvshmem test_exchange_qtensor_nvshmem)
+        foreach(_lbm_nvshmem_test IN ITEMS
+                test_pack_qtensor_nvshmem
+                test_exchange_qtensor_nvshmem
+                test_pack_passive_stresses_nvshmem
+                test_exchange_passive_stresses_nvshmem)
             add_executable(${_lbm_nvshmem_test}
                 ${_lbm_nvshmem_test}.cu
                 ${_lbm_nvshmem_test_common_sources}
@@ -202,6 +206,69 @@ if(LBM_ENABLE_MPI)
         add_test(NAME nvshmem_exchange_qtensor_np2
             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
                     $<TARGET_FILE:test_exchange_qtensor_nvshmem>)
+
+        # VII-f pack test — same rationale as the QTensor pack test but for
+        # the wider 13-field bundle. Runs at nranks=1.
+        add_test(NAME nvshmem_pack_passive_stresses_np1
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 1
+                    $<TARGET_FILE:test_pack_passive_stresses_nvshmem>)
+
+        # VII-f halo round-trip. np=1 self-put on the dev box, np=2 on cluster.
+        add_test(NAME nvshmem_exchange_passive_stresses_np1
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 1
+                    $<TARGET_FILE:test_exchange_passive_stresses_nvshmem>)
+        add_test(NAME nvshmem_exchange_passive_stresses_np2
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
+                    $<TARGET_FILE:test_exchange_passive_stresses_nvshmem>)
+
+        # VII-f headline correctness gate: two-GPU Q-tensor relaxation with
+        # both halos (Q and passive-stress) in play. Uses the qtrelax params
+        # (16^3, ALPHA=0, A=0 B=-0.3 C=0.3) — matches the single-rank
+        # integration test so results are directly comparable. Shadows
+        # src/sim_config.h with tests/params/qtrelax/sim_config.h to pin
+        # SimBC = FullyPeriodicConfig for the explicit template instantiation
+        # of DeviceSolver<SimBC> in device_solver.cu.
+        add_executable(test_qtensor_relaxation_nvshmem
+            test_qtensor_relaxation_nvshmem.cu
+            ${_lbm_nvshmem_test_common_sources}
+            ${CMAKE_SOURCE_DIR}/src/analysis_fields.cc
+            ${CMAKE_SOURCE_DIR}/src/cuda/device_solver.cu
+        )
+        target_link_libraries(test_qtensor_relaxation_nvshmem PRIVATE
+            MPI::MPI_CXX GTest::gtest CUDA::toolkit
+            nvshmem::nvshmem_host nvshmem::nvshmem_device
+        )
+        target_include_directories(test_qtensor_relaxation_nvshmem PRIVATE
+            ${CMAKE_SOURCE_DIR}/tests/params/qtrelax
+            ${CMAKE_SOURCE_DIR}/src/
+            ${CMAKE_BINARY_DIR}/generated
+            ${MPI_CXX_INCLUDE_DIRS}
+        )
+        target_compile_definitions(test_qtensor_relaxation_nvshmem PRIVATE
+            LBM_ENABLE_MPI LBM_ENABLE_NVSHMEM SIM_WITH_CUDA
+        )
+        set_source_files_properties(
+            ${CMAKE_SOURCE_DIR}/src/cuda/nvshmem_halo.cu
+            TARGET_DIRECTORY test_qtensor_relaxation_nvshmem
+            PROPERTIES COMPILE_FLAGS "-rdc=true"
+        )
+        set_target_properties(test_qtensor_relaxation_nvshmem PROPERTIES
+            CUDA_RESOLVE_DEVICE_SYMBOLS ON
+        )
+        if(HAVE_STD_FORMAT)
+            target_compile_definitions(test_qtensor_relaxation_nvshmem PRIVATE HAVE_STD_FORMAT)
+        else()
+            target_link_libraries(test_qtensor_relaxation_nvshmem PRIVATE fmt::fmt)
+        endif()
+
+        # np=1 is the single-PE regression (must match the non-MPI integration
+        # test bit-for-bit); np=2 is the actual VII-f correctness gate.
+        add_test(NAME nvshmem_qtensor_relaxation_np1
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 1
+                    $<TARGET_FILE:test_qtensor_relaxation_nvshmem>)
+        add_test(NAME nvshmem_qtensor_relaxation_np2
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
+                    $<TARGET_FILE:test_qtensor_relaxation_nvshmem>)
     endif()
 
     add_executable(test_vtkhdf_write

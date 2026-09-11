@@ -32,7 +32,7 @@ static dim3 KernelGrid(const LocalGrid& g) {
 }
 
 template<typename BC>
-void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
+void DeviceSolver<BC>::StepAndSetupBodyForce(DeviceFields& df) {
 
     const dim3 kernel_block{kBlockX, kBlockY, kBlockZ};
     const dim3 kernel_grid = KernelGrid(df.grid);
@@ -72,6 +72,13 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
     std::swap(df.d_qxz, df.d_qxz_new);
     std::swap(df.d_qyy, df.d_qyy_new);
     std::swap(df.d_qyz, df.d_qyz_new);
+}
+
+template<typename BC>
+void DeviceSolver<BC>::SetActiveStressAndComputeBodyForce(DeviceFields& df) {
+
+    const dim3 kernel_block{kBlockX, kBlockY, kBlockZ};
+    const dim3 kernel_grid = KernelGrid(df.grid);
 
     GpuComputeBodyForce<BC><<<kernel_grid, kernel_block>>>(
         df.d_qxx,
@@ -96,6 +103,12 @@ void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
         df.grid
     );
     checkCudaErrors(cudaGetLastError());
+}
+
+template<typename BC>
+void DeviceSolver<BC>::QTensorStep(DeviceFields& df) {
+    StepAndSetupBodyForce(df);
+    SetActiveStressAndComputeBodyForce(df);
 }
 
 template<typename BC>

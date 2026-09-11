@@ -26,6 +26,7 @@
 #include "mpi/halo_exchange_lbm.h"
 #include "mpi/halo_exchange_qtensor.h"
 #ifdef SIM_WITH_CUDA
+#include "cuda/halo_exchange_passive_stresses_nvshmem.h"
 #include "cuda/halo_exchange_qtensor_nvshmem.h"
 #endif
 
@@ -58,10 +59,16 @@ class ActiveNematicSim {
     QTensorFields  qtensor_;
     DeviceFields   d_fields_;
     #ifdef LBM_ENABLE_NVSHMEM
-    // NVSHMEM Q-tensor halo. Must be declared after d_fields_ (which forces
-    // backend init / symmetric-heap sizing to run first) and before d_solver_
-    // so ExchangeQTensor is available on the first Step().
-    HaloExchangeQTensorNvshmem qtensor_halo_nvshmem_;
+    // NVSHMEM halos. Must be declared after d_fields_ (which forces backend
+    // init / symmetric-heap sizing to run first) and before d_solver_ so both
+    // exchanges are available on the first Step(). Declaration order also
+    // fixes the nvshmem_malloc order across PEs — every PE constructs
+    // qtensor_halo_nvshmem_ first, so its symmetric-heap offsets are lower
+    // than passive_stresses_halo_nvshmem_'s on every PE. NVSHMEM's symmetric
+    // heap only guarantees offset stability if every PE calls
+    // nvshmem_malloc in the same order with the same sizes.
+    HaloExchangeQTensorNvshmem          qtensor_halo_nvshmem_;
+    HaloExchangePassiveStressesNvshmem  passive_stresses_halo_nvshmem_;
     #endif
     DeviceSolver<BC> d_solver_;
     AnalysisFields af_;
@@ -105,6 +112,7 @@ public:
           d_fields_(grid_),
           #ifdef LBM_ENABLE_NVSHMEM
           qtensor_halo_nvshmem_(grid_, mpi_),
+          passive_stresses_halo_nvshmem_(grid_, mpi_),
           #endif
           qtensor_solver_(solver ? std::move(solver)
                                  : std::make_unique<QTensorSolver<BC>>())
@@ -117,19 +125,25 @@ public:
         #ifdef SIM_WITH_CUDA
         #ifdef LBM_ENABLE_NVSHMEM
         // VII-e: fill Q + velocity ghost cells with the neighbour's owned
-        // values so d_solver_.QTensorStep's phase-1 stencil reads valid data
-        // across the seam. Enqueued on the default stream — same stream the
-        // subsequent QTensorStep kernels run on, so the barrier at the end of
-        // ExchangeQTensor also serialises them behind the halo.
-        //
-        // VII-f will add an ExchangePassiveStresses call between
-        // GpuQTensorStep (phase 1) and GpuComputeBodyForce (phase 2); today
-        // d_solver_.QTensorStep fuses both, so phase 2's neighbour reads on Σ/τ
-        // are the outstanding correctness gap under a multi-rank split — see
-        // src/cuda/CLAUDE.md's VII-e/f rows.
+        // values so StepAndSetupBodyForce's stencil reads valid data across
+        // the seam. Enqueued on the default stream — same stream the
+        // subsequent kernels run on, so the barrier at the end of
+        // ExchangeQTensor serialises them behind the halo.
         qtensor_halo_nvshmem_.ExchangeQTensor(d_fields_);
-        #endif
+        d_solver_.StepAndSetupBodyForce(d_fields_);
+
+        // VII-f: refresh Q ghosts (phase 1 rewrote Q owned) and populate Σ/τ
+        // ghosts (phase 1 just wrote them owned). Phase 2's
+        // PassiveStressDivergence reads Σ/τ at neighbours and its active-
+        // stress / distortion stencils read Q at neighbours — both would
+        // silently read stale data across the seam without this exchange.
+        passive_stresses_halo_nvshmem_.ExchangePassiveStresses(d_fields_);
+        d_solver_.SetActiveStressAndComputeBodyForce(d_fields_);
+        #else
+        // Non-NVSHMEM GPU build: single-rank device path; boundary_handler
+        // resolves neighbour reads at wall/edge, no cross-rank halo needed.
         d_solver_.QTensorStep(d_fields_);
+        #endif
         #else
         qtensor_halo_.ExchangeQTensor(qtensor_, fluid_);
         qtensor_solver_->StepAndSetupBodyForce(qtensor_, fluid_);

@@ -21,6 +21,7 @@
 
 #include "cuda_utils.h"
 #include "device_fields.h"
+#include "halo_exchange_passive_stresses_nvshmem.h"
 #include "halo_exchange_qtensor_nvshmem.h"
 #include "halo_pack_kernels.h"
 #include "local_grid.h"
@@ -56,6 +57,47 @@ HaloFieldPtrsMut BuildQTensorFieldPtrsMut(DeviceFields& df) {
     ptrs.p[5] = df.d_ux.data().get();
     ptrs.p[6] = df.d_uy.data().get();
     ptrs.p[7] = df.d_uz.data().get();
+    return ptrs;
+}
+
+// Field order matches HaloExchangeQTensor::ExchangePassiveStresses on the CPU
+// path so a side-by-side pack-buffer diff between backends stays trivial:
+// 5 Q + 5 Σ + 3 τ. Q lives at slots 0-4 because both phase-1 (writes Q_new
+// pointwise) and phase-2 (reads Q at neighbours) need fresh Q ghosts here;
+// see halo_exchange_passive_stresses_nvshmem.h.
+HaloFieldPtrsConst BuildPassiveStressFieldPtrs(const DeviceFields& df) {
+    HaloFieldPtrsConst ptrs{};
+    ptrs.p[0]  = df.d_qxx;
+    ptrs.p[1]  = df.d_qxy;
+    ptrs.p[2]  = df.d_qxz;
+    ptrs.p[3]  = df.d_qyy;
+    ptrs.p[4]  = df.d_qyz;
+    ptrs.p[5]  = df.d_Sigma_xx;
+    ptrs.p[6]  = df.d_Sigma_xy;
+    ptrs.p[7]  = df.d_Sigma_xz;
+    ptrs.p[8]  = df.d_Sigma_yy;
+    ptrs.p[9]  = df.d_Sigma_yz;
+    ptrs.p[10] = df.d_Tau_xy;
+    ptrs.p[11] = df.d_Tau_xz;
+    ptrs.p[12] = df.d_Tau_yz;
+    return ptrs;
+}
+
+HaloFieldPtrsMut BuildPassiveStressFieldPtrsMut(DeviceFields& df) {
+    HaloFieldPtrsMut ptrs{};
+    ptrs.p[0]  = df.d_qxx;
+    ptrs.p[1]  = df.d_qxy;
+    ptrs.p[2]  = df.d_qxz;
+    ptrs.p[3]  = df.d_qyy;
+    ptrs.p[4]  = df.d_qyz;
+    ptrs.p[5]  = df.d_Sigma_xx;
+    ptrs.p[6]  = df.d_Sigma_xy;
+    ptrs.p[7]  = df.d_Sigma_xz;
+    ptrs.p[8]  = df.d_Sigma_yy;
+    ptrs.p[9]  = df.d_Sigma_yz;
+    ptrs.p[10] = df.d_Tau_xy;
+    ptrs.p[11] = df.d_Tau_xz;
+    ptrs.p[12] = df.d_Tau_yz;
     return ptrs;
 }
 
@@ -187,6 +229,147 @@ void HaloExchangeQTensorNvshmem::ExchangeQTensor(DeviceFields& df, cudaStream_t 
 }
 
 void HaloExchangeQTensorNvshmem::PackSingleFieldForTest(
+    const double* d_field, std::size_t field_idx, int axis, cudaStream_t stream) {
+    HaloFieldPtrsConst src{};
+    for (std::size_t i = 0; i < kMaxFields; ++i) src.p[i] = d_field;
+    const int nfields = static_cast<int>(field_idx) + 1;
+
+    switch (axis) {
+        case 0: LaunchPackAxisX(src, nfields, send_buf_[0], send_buf_[1], grid_, max_yz_, stream); break;
+        case 1: LaunchPackAxisY(src, nfields, send_buf_[2], send_buf_[3], grid_, max_xz_, stream); break;
+        case 2: LaunchPackAxisZ(src, nfields, send_buf_[4], send_buf_[5], grid_, max_xy_, stream); break;
+        default: throw std::runtime_error("PackSingleFieldForTest: axis out of range");
+    }
+}
+
+// ===========================================================================
+// VII-f — HaloExchangePassiveStressesNvshmem
+// ===========================================================================
+
+HaloExchangePassiveStressesNvshmem::HaloExchangePassiveStressesNvshmem(
+    const LocalGrid& grid, const MPIContext& mpi)
+    : grid_(grid),
+      world_size_(mpi.world_size),
+      max_yz_(0),
+      max_xz_(0),
+      max_xy_(0)
+{
+    for (int f = 0; f < 6; ++f) {
+        send_buf_[f] = nullptr;
+        recv_buf_[f] = nullptr;
+    }
+    for (int d = 0; d < 3; ++d) {
+        neighbor_lo_[d] = MPI_PROC_NULL;
+        neighbor_hi_[d] = MPI_PROC_NULL;
+        MPI_Cart_shift(mpi.cart_comm, d, 1, &neighbor_lo_[d], &neighbor_hi_[d]);
+    }
+
+    // Max face area over all ranks — deterministic from global dims and rank
+    // count, so every PE computes the same value without a collective. Matches
+    // HaloExchangeQTensorNvshmem sizing exactly (the two exchanges share
+    // face geometry; only the field count differs).
+    auto ceil_div = [](int global, int n) { return (global + n - 1) / n; };
+    max_yz_ = static_cast<size_t>(ceil_div(Params::ny, mpi.dims[1]))
+            * static_cast<size_t>(ceil_div(Params::nz, mpi.dims[2]));
+    max_xz_ = static_cast<size_t>(ceil_div(Params::nx, mpi.dims[0]))
+            * static_cast<size_t>(ceil_div(Params::nz, mpi.dims[2]));
+    max_xy_ = static_cast<size_t>(ceil_div(Params::nx, mpi.dims[0]))
+            * static_cast<size_t>(ceil_div(Params::ny, mpi.dims[1]));
+
+    // Symmetric-heap allocation. Every PE allocates the same number of bytes
+    // in the same order — NVSHMEM's symmetric-offset guarantee is that the
+    // k-th nvshmem_malloc lands at the same virtual offset on every PE, and
+    // the one-sided put uses exactly that offset. The QTensor halo class
+    // allocates its buffers first (constructor ordering in ActiveNematicSim);
+    // this class's k-th malloc is stable across PEs because every PE runs the
+    // constructors in the same order.
+    const size_t bytes_yz = sizeof(double) * kMaxFields * max_yz_;
+    const size_t bytes_xz = sizeof(double) * kMaxFields * max_xz_;
+    const size_t bytes_xy = sizeof(double) * kMaxFields * max_xy_;
+    const size_t face_bytes[6] = { bytes_yz, bytes_yz,
+                                   bytes_xz, bytes_xz,
+                                   bytes_xy, bytes_xy };
+
+    for (int f = 0; f < 6; ++f) {
+        send_buf_[f] = static_cast<double*>(nvshmem_malloc(face_bytes[f]));
+        recv_buf_[f] = static_cast<double*>(nvshmem_malloc(face_bytes[f]));
+        if (!send_buf_[f] || !recv_buf_[f]) {
+            throw std::runtime_error(
+                "HaloExchangePassiveStressesNvshmem: nvshmem_malloc failed for face buffer");
+        }
+        // Zero recv so an untouched slot (physical-wall face where no put
+        // lands) does not surface last run's leftover into ghost cells.
+        checkCudaErrors(cudaMemset(recv_buf_[f], 0, face_bytes[f]));
+    }
+}
+
+HaloExchangePassiveStressesNvshmem::~HaloExchangePassiveStressesNvshmem() {
+    for (int f = 0; f < 6; ++f) {
+        if (send_buf_[f]) nvshmem_free(send_buf_[f]);
+        if (recv_buf_[f]) nvshmem_free(recv_buf_[f]);
+    }
+}
+
+std::size_t HaloExchangePassiveStressesNvshmem::face_area(int axis) const {
+    switch (axis) {
+        case 0: return max_yz_;
+        case 1: return max_xz_;
+        case 2: return max_xy_;
+        default: return 0;
+    }
+}
+
+void HaloExchangePassiveStressesNvshmem::ExchangePassiveStresses(
+    DeviceFields& df, cudaStream_t stream) {
+    // Single-rank fast path — matches ExchangeQTensor's early-return and keeps
+    // the exchange out of the timeline entirely at nranks = 1.
+    if (world_size_ == 1) return;
+
+    HaloFieldPtrsConst src_ptrs = BuildPassiveStressFieldPtrs(df);
+    HaloFieldPtrsMut   dst_ptrs = BuildPassiveStressFieldPtrsMut(df);
+    const int nfields = static_cast<int>(kMaxFields);
+
+    // ---- 1. Pack all six faces on the stream. ----
+    LaunchPackAxisX(src_ptrs, nfields, send_buf_[0], send_buf_[1], grid_, max_yz_, stream);
+    LaunchPackAxisY(src_ptrs, nfields, send_buf_[2], send_buf_[3], grid_, max_xz_, stream);
+    LaunchPackAxisZ(src_ptrs, nfields, send_buf_[4], send_buf_[5], grid_, max_xy_, stream);
+
+    // ---- 2. One-sided puts. ----
+    // Same routing as ExchangeQTensor: rank r's lo face is neighbor_lo's hi
+    // ghost (and vice versa). Skip on MPI_PROC_NULL (physical wall).
+    const size_t n_yz = kMaxFields * max_yz_;
+    const size_t n_xz = kMaxFields * max_xz_;
+    const size_t n_xy = kMaxFields * max_xy_;
+
+    if (neighbor_lo_[0] != MPI_PROC_NULL)
+        nvshmemx_double_put_nbi_on_stream(
+            recv_buf_[1], send_buf_[0], n_yz, neighbor_lo_[0], stream);
+    if (neighbor_hi_[0] != MPI_PROC_NULL)
+        nvshmemx_double_put_nbi_on_stream(
+            recv_buf_[0], send_buf_[1], n_yz, neighbor_hi_[0], stream);
+    if (neighbor_lo_[1] != MPI_PROC_NULL)
+        nvshmemx_double_put_nbi_on_stream(
+            recv_buf_[3], send_buf_[2], n_xz, neighbor_lo_[1], stream);
+    if (neighbor_hi_[1] != MPI_PROC_NULL)
+        nvshmemx_double_put_nbi_on_stream(
+            recv_buf_[2], send_buf_[3], n_xz, neighbor_hi_[1], stream);
+    if (neighbor_lo_[2] != MPI_PROC_NULL)
+        nvshmemx_double_put_nbi_on_stream(
+            recv_buf_[5], send_buf_[4], n_xy, neighbor_lo_[2], stream);
+    if (neighbor_hi_[2] != MPI_PROC_NULL)
+        nvshmemx_double_put_nbi_on_stream(
+            recv_buf_[4], send_buf_[5], n_xy, neighbor_hi_[2], stream);
+
+    // ---- 3. Barrier: all incoming puts have completed and are visible. ----
+    nvshmemx_barrier_all_on_stream(stream);
+
+    // ---- 4. Unpack all six faces on the stream. ----
+    LaunchUnpackAxisX(dst_ptrs, nfields, recv_buf_[0], recv_buf_[1], grid_, max_yz_, stream);
+    LaunchUnpackAxisY(dst_ptrs, nfields, recv_buf_[2], recv_buf_[3], grid_, max_xz_, stream);
+    LaunchUnpackAxisZ(dst_ptrs, nfields, recv_buf_[4], recv_buf_[5], grid_, max_xy_, stream);
+}
+
+void HaloExchangePassiveStressesNvshmem::PackSingleFieldForTest(
     const double* d_field, std::size_t field_idx, int axis, cudaStream_t stream) {
     HaloFieldPtrsConst src{};
     for (std::size_t i = 0; i < kMaxFields; ++i) src.p[i] = d_field;

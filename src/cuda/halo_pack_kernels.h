@@ -18,9 +18,12 @@
 
 #include "local_grid.h"
 
-// Upper bound on fields packed in one launch. Exchange classes alias this as
-// their kMaxFields so there is one authoritative definition.
-inline constexpr std::size_t kHaloMaxFields = 8;
+// Upper bound on fields packed in one launch. Sized to the widest exchange
+// (HaloExchangePassiveStressesNvshmem's 13 = 5 Q + 5 Σ + 3 τ). Narrower
+// exchanges — HaloExchangeQTensorNvshmem's 8 — pass their own smaller
+// nfields; the pointer bundle wastes ~40 B in kernel-parameter space, but the
+// pack kernel launches only nfields field-blocks so no work is duplicated.
+inline constexpr std::size_t kHaloMaxFields = 13;
 
 // Field pointer bundles passed by value into kernels (~64 B, fits in
 // registers). Callers set nfields <= kHaloMaxFields to limit active slots.

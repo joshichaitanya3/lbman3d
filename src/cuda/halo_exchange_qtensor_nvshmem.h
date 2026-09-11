@@ -37,10 +37,11 @@ struct HaloExchangeQTensorNvshmem {
     int       neighbor_hi_[3];
 
     // Field list = 5 Q + 3 velocity. Kept aligned with the CPU exchange's 8-field
-    // pack (halo_exchange_qtensor.h::ExchangeQTensor). VII-f will introduce a
-    // separate class for passive stresses; keeping this class 8-field-sized keeps
-    // the symmetric-heap footprint per PR minimal and honest.
-    static constexpr std::size_t kMaxFields = kHaloMaxFields;
+    // pack (halo_exchange_qtensor.h::ExchangeQTensor). VII-f introduced a
+    // separate HaloExchangePassiveStressesNvshmem class for the mid-timestep
+    // 13-field exchange; this class stays 8-field-sized so its symmetric-heap
+    // footprint reflects only what ExchangeQTensor actually moves.
+    static constexpr std::size_t kMaxFields = 8;
 
     // Face-area upper bounds (over all ranks) for buffer sizing. Face indices:
     //   0 = lo-x, 1 = hi-x   (buffers sized max_yz_ * kMaxFields)

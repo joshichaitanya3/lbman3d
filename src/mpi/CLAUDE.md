@@ -308,7 +308,7 @@ Mark each PR done as it merges to `dev`.
 | IV | done | Wire `HaloExchange` into the three-phase timestep: before Q update, between phases 1–2, before LBM step |
 | V | done | Global reductions in `SimIO`: `MPI_Allreduce` for diagnostics; parallel HDF5 export with collective MPI-IO |
 | VI | done | Actual decomposition: `LocalGrid::FromMpiContext`; uneven-split arithmetic; `CheckMinSubdomainSize`; `idx()`/`InDomain` move onto `LocalGrid` (runtime local dims, no modulo wrap); loop bounds switch to local dims; pack/unpack tests now runnable |
-| VII | — | GPU-aware path: CUDA-aware MPI or pinned-buffer staging; isolated to `HaloExchange`; `CheckGpuMemory`; decomposition already validated on CPU |
+| VII | in progress | GPU-aware path (NVSHMEM); isolated to `HaloExchange*Nvshmem`; `CheckGpuMemory`; decomposition already validated on CPU. See `src/cuda/CLAUDE.md` for the VII-a..VII-h sub-PR table. VII-a..VII-f landed (last: `ExchangePassiveStresses` on NVSHMEM). Remaining: VII-g (`ExchangeLBM`) and VII-h (multi-node IB). |
 
 PRs III–V are single-rank no-ops that wire infrastructure before decomposition exists.
 VI is where MPI does real distributed work on CPU — validate correctness here before
