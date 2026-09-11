@@ -142,6 +142,7 @@ if(LBM_ENABLE_MPI)
             mpi_test_main.cc
             ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
             ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
+            ${CMAKE_SOURCE_DIR}/src/cuda/halo_pack_kernels.cu
             ${CMAKE_SOURCE_DIR}/src/cuda/nvshmem_halo.cu
             ${CMAKE_SOURCE_DIR}/src/cuda/device_fields.cu
         )

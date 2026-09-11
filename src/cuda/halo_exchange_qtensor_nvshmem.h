@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cuda_runtime.h>
+#include "halo_pack_kernels.h"
 
 struct DeviceFields;   // fwd decl (device_fields.h is CUDA-heavy)
 
@@ -39,7 +40,7 @@ struct HaloExchangeQTensorNvshmem {
     // pack (halo_exchange_qtensor.h::ExchangeQTensor). VII-f will introduce a
     // separate class for passive stresses; keeping this class 8-field-sized keeps
     // the symmetric-heap footprint per PR minimal and honest.
-    static constexpr std::size_t kMaxFields = 8;
+    static constexpr std::size_t kMaxFields = kHaloMaxFields;
 
     // Face-area upper bounds (over all ranks) for buffer sizing. Face indices:
     //   0 = lo-x, 1 = hi-x   (buffers sized max_yz_ * kMaxFields)

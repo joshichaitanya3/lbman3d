@@ -7,12 +7,14 @@ if(LBM_USE_CUDA)
             device_solver.cu
         )
         if(LBM_ENABLE_NVSHMEM)
-            # Isolate all NVSHMEM device-API surface to this one TU so the
-            # rest of the CUDA path stays on whole-program compilation. The
-            # matching CUDA_RESOLVE_DEVICE_SYMBOLS on the executable target
-            # (top-level CMakeLists.txt) is what makes the -rdc=true here
-            # actually resolve at link time.
-            target_sources(${target} PRIVATE nvshmem_halo.cu)
+            # halo_pack_kernels.cu — transport-agnostic pack/unpack kernels,
+            # no NVSHMEM device API, no -rdc=true.
+            # nvshmem_halo.cu — NVSHMEM transport only; all NVSHMEM device-API
+            # surface is isolated here so the rest of the build stays on
+            # whole-program compilation. CUDA_RESOLVE_DEVICE_SYMBOLS on the
+            # executable target (top-level CMakeLists.txt) resolves -rdc=true
+            # symbols at link time.
+            target_sources(${target} PRIVATE halo_pack_kernels.cu nvshmem_halo.cu)
         endif()
     endforeach()
 
