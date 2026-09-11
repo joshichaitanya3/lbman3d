@@ -26,6 +26,7 @@
 #include "mpi/halo_exchange_lbm.h"
 #include "mpi/halo_exchange_qtensor.h"
 #ifdef SIM_WITH_CUDA
+#include "cuda/halo_exchange_lbm_nvshmem.h"
 #include "cuda/halo_exchange_passive_stresses_nvshmem.h"
 #include "cuda/halo_exchange_qtensor_nvshmem.h"
 #endif
@@ -69,6 +70,11 @@ class ActiveNematicSim {
     // nvshmem_malloc in the same order with the same sizes.
     HaloExchangeQTensorNvshmem          qtensor_halo_nvshmem_;
     HaloExchangePassiveStressesNvshmem  passive_stresses_halo_nvshmem_;
+    // VII-g: post-LBM halo (ghost → neighbour's owned) for D3Q15 face
+    // crossings. Face-only stage; correct for 1-D splits (Plan A wraps
+    // unsplit periodic axes locally). Wall-bounce skip is derived from
+    // is_wall_by_face<BC> — same shape as the CPU HaloExchangeLBM.
+    HaloExchangeLbmNvshmem              lbm_halo_nvshmem_;
     #endif
     DeviceSolver<BC> d_solver_;
     AnalysisFields af_;
@@ -113,6 +119,7 @@ public:
           #ifdef LBM_ENABLE_NVSHMEM
           qtensor_halo_nvshmem_(grid_, mpi_),
           passive_stresses_halo_nvshmem_(grid_, mpi_),
+          lbm_halo_nvshmem_(grid_, mpi_, is_wall_by_face<BC>),
           #endif
           qtensor_solver_(solver ? std::move(solver)
                                  : std::make_unique<QTensorSolver<BC>>())
@@ -155,6 +162,20 @@ public:
     void LBMStep() {
         #ifdef SIM_WITH_CUDA
         d_solver_.LBMStep(d_fields_);
+        #ifdef LBM_ENABLE_NVSHMEM
+        // VII-g: after push streaming has deposited outgoing crossings into
+        // MY ghost layer, ship them (5 crossing dirs × face area) to each
+        // face neighbour's owned boundary so its next-step collision reads
+        // valid data. Ghost -> owned; only crossing subset per face; walls
+        // skipped so local bounces are preserved. Face-only stage: correct
+        // for 1-D splits; 2-D/3-D need edge/corner puts (follow-up).
+        //
+        // Prerequisite: GpuCollideAndStream must have deposited crossings
+        // into the ghost layer on split axes (Plan A). Until that update
+        // lands, this call is a well-defined no-op on any axis that isn't
+        // split — safe to leave wired.
+        lbm_halo_nvshmem_.ExchangeLBM(d_fields_);
+        #endif
         #else
         lbm_.LatticeBoltzmannStep(fluid_);
         lbm_halo_.ExchangeLBM(fluid_);

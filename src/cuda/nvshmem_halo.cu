@@ -21,9 +21,11 @@
 
 #include "cuda_utils.h"
 #include "device_fields.h"
+#include "halo_exchange_lbm_nvshmem.h"
 #include "halo_exchange_passive_stresses_nvshmem.h"
 #include "halo_exchange_qtensor_nvshmem.h"
 #include "halo_pack_kernels.h"
+#include "lattice_stencil.h"
 #include "local_grid.h"
 #include "mpi/mpi_context.h"
 #include <params.h>
@@ -381,6 +383,245 @@ void HaloExchangePassiveStressesNvshmem::PackSingleFieldForTest(
         case 2: LaunchPackAxisZ(src, nfields, send_buf_[4], send_buf_[5], grid_, max_xy_, stream); break;
         default: throw std::runtime_error("PackSingleFieldForTest: axis out of range");
     }
+}
+
+// ===========================================================================
+// VII-g — HaloExchangeLbmNvshmem (face-only stage)
+// ===========================================================================
+//
+// Design notes:
+//   - Ghost -> owned direction (opposite of Q-tensor halo).
+//   - Only the 5-direction crossing subset per face (Lattice::missing*).
+//   - Skip-unpack at physical walls preserves local bounce values.
+//   - `split_[d]==false` on unsplit axes turns pack/put/unpack into a no-op
+//     (Plan A wraps unsplit periodic axes at streaming time, leaving the
+//     ghost untouched; unpacking would overwrite valid owned values with
+//     stale zeros).
+//   - Edge and corner puts (needed for 2-D and 3-D splits) are a follow-up.
+//     Face-only is correct for the 2-GPU {2,1,1} Poiseuille case.
+
+namespace {
+
+// Build a LbmFaceCrossings struct from a Lattice::missing* array and the
+// two transverse velocity component arrays. Runs on the host at ctor time;
+// the result is passed by value into pack/unpack kernels.
+LbmFaceCrossings MakeFaceCrossings(const int (&dirs)[5],
+                                   const int (&e_a)[Lattice::ndir],
+                                   const int (&e_b)[Lattice::ndir]) {
+    LbmFaceCrossings c{};
+    for (int k = 0; k < 5; ++k) {
+        c.dir[k]         = dirs[k];
+        c.e_trans_a[k]   = e_a[dirs[k]];
+        c.e_trans_b[k]   = e_b[dirs[k]];
+    }
+    return c;
+}
+
+// Build a per-axis skip context from is_wall[6] and grid geometry.
+// For the X-face: transverse axes are Y (a) and Z (b).
+LbmFaceSkipCtx MakeSkipCtxX(const std::array<bool, 6>& w, const LocalGrid& g) {
+    return LbmFaceSkipCtx{
+        /*wall_a_lo=*/w[2], /*wall_a_hi=*/w[3],
+        /*wall_b_lo=*/w[4], /*wall_b_hi=*/w[5],
+        g.offset_y, g.offset_z,
+        Params::ny, Params::nz
+    };
+}
+LbmFaceSkipCtx MakeSkipCtxY(const std::array<bool, 6>& w, const LocalGrid& g) {
+    return LbmFaceSkipCtx{
+        w[0], w[1],
+        w[4], w[5],
+        g.offset_x, g.offset_z,
+        Params::nx, Params::nz
+    };
+}
+LbmFaceSkipCtx MakeSkipCtxZ(const std::array<bool, 6>& w, const LocalGrid& g) {
+    return LbmFaceSkipCtx{
+        w[0], w[1],
+        w[2], w[3],
+        g.offset_x, g.offset_y,
+        Params::nx, Params::ny
+    };
+}
+
+}  // namespace
+
+HaloExchangeLbmNvshmem::HaloExchangeLbmNvshmem(
+    const LocalGrid& grid, const MPIContext& mpi,
+    std::array<bool, 6> is_wall)
+    : grid_(grid),
+      world_size_(mpi.world_size),
+      is_wall_(is_wall),
+      max_yz_(0),
+      max_xz_(0),
+      max_xy_(0)
+{
+    for (int f = 0; f < 6; ++f) {
+        send_buf_[f] = nullptr;
+        recv_buf_[f] = nullptr;
+    }
+
+    // Cart neighbours along each axis; MPI_PROC_NULL where the axis is a
+    // physical wall or unsplit non-periodic. MPI_Cart_shift handles both.
+    for (int d = 0; d < 3; ++d) {
+        int lo, hi;
+        MPI_Cart_shift(mpi.cart_comm, d, 1, &lo, &hi);
+        neighbor_[2 * d]     = lo;
+        neighbor_[2 * d + 1] = hi;
+        split_[d] = (mpi.dims[d] > 1);
+    }
+
+    // Max face area over all ranks. Deterministic from Params::n* and MPI
+    // dims, so every PE computes the same value → symmetric heap alignment
+    // is preserved when we allocate below.
+    auto ceil_div = [](int global, int n) { return (global + n - 1) / n; };
+    max_yz_ = static_cast<size_t>(ceil_div(Params::ny, mpi.dims[1]))
+            * static_cast<size_t>(ceil_div(Params::nz, mpi.dims[2]));
+    max_xz_ = static_cast<size_t>(ceil_div(Params::nx, mpi.dims[0]))
+            * static_cast<size_t>(ceil_div(Params::nz, mpi.dims[2]));
+    max_xy_ = static_cast<size_t>(ceil_div(Params::nx, mpi.dims[0]))
+            * static_cast<size_t>(ceil_div(Params::ny, mpi.dims[1]));
+
+    // Symmetric-heap allocation. Every PE allocates 6 face buffers of
+    // identical size in identical order → the k-th nvshmem_malloc lands at
+    // the same virtual offset on every PE, which is what makes
+    // `recv_buf_[f]` valid as both a local pointer AND a remote destination
+    // handle in the one-sided put below.
+    const size_t bytes_yz = sizeof(double) * kCrossingDirs * max_yz_;
+    const size_t bytes_xz = sizeof(double) * kCrossingDirs * max_xz_;
+    const size_t bytes_xy = sizeof(double) * kCrossingDirs * max_xy_;
+    const size_t face_bytes[6] = { bytes_yz, bytes_yz,
+                                   bytes_xz, bytes_xz,
+                                   bytes_xy, bytes_xy };
+
+    for (int f = 0; f < 6; ++f) {
+        send_buf_[f] = static_cast<double*>(nvshmem_malloc(face_bytes[f]));
+        recv_buf_[f] = static_cast<double*>(nvshmem_malloc(face_bytes[f]));
+        if (!send_buf_[f] || !recv_buf_[f]) {
+            throw std::runtime_error(
+                "HaloExchangeLbmNvshmem: nvshmem_malloc failed for face buffer");
+        }
+        checkCudaErrors(cudaMemset(recv_buf_[f], 0, face_bytes[f]));
+    }
+}
+
+HaloExchangeLbmNvshmem::~HaloExchangeLbmNvshmem() {
+    for (int f = 0; f < 6; ++f) {
+        if (send_buf_[f]) nvshmem_free(send_buf_[f]);
+        if (recv_buf_[f]) nvshmem_free(recv_buf_[f]);
+    }
+}
+
+std::size_t HaloExchangeLbmNvshmem::face_area(int axis) const {
+    switch (axis) {
+        case 0: return max_yz_;
+        case 1: return max_xz_;
+        case 2: return max_xy_;
+        default: return 0;
+    }
+}
+
+void HaloExchangeLbmNvshmem::ExchangeLBM(DeviceFields& df, cudaStream_t stream) {
+    // Single-rank fast path.
+    if (world_size_ == 1) return;
+
+    // Precompute the six face-crossings tables and three per-axis skip
+    // contexts once per call. These are small PODs passed by value into
+    // the kernels — cheap to build on the host.
+    const LbmFaceCrossings lo_x = MakeFaceCrossings(Lattice::missingXHi,
+                                                    Lattice::ey, Lattice::ez);
+    const LbmFaceCrossings hi_x = MakeFaceCrossings(Lattice::missingXLo,
+                                                    Lattice::ey, Lattice::ez);
+    const LbmFaceCrossings lo_y = MakeFaceCrossings(Lattice::missingYHi,
+                                                    Lattice::ex, Lattice::ez);
+    const LbmFaceCrossings hi_y = MakeFaceCrossings(Lattice::missingYLo,
+                                                    Lattice::ex, Lattice::ez);
+    const LbmFaceCrossings lo_z = MakeFaceCrossings(Lattice::missingZHi,
+                                                    Lattice::ex, Lattice::ey);
+    const LbmFaceCrossings hi_z = MakeFaceCrossings(Lattice::missingZLo,
+                                                    Lattice::ex, Lattice::ey);
+    const LbmFaceSkipCtx skip_x = MakeSkipCtxX(is_wall_, grid_);
+    const LbmFaceSkipCtx skip_y = MakeSkipCtxY(is_wall_, grid_);
+    const LbmFaceSkipCtx skip_z = MakeSkipCtxZ(is_wall_, grid_);
+
+    // ---- 1. Pack owned ghosts on split axes only. ----
+    if (split_[0])
+        LaunchPackLbmAxisX(df.d_f, send_buf_[0], send_buf_[1],
+                           lo_x, hi_x, grid_, stream);
+    if (split_[1])
+        LaunchPackLbmAxisY(df.d_f, send_buf_[2], send_buf_[3],
+                           lo_y, hi_y, grid_, stream);
+    if (split_[2])
+        LaunchPackLbmAxisZ(df.d_f, send_buf_[4], send_buf_[5],
+                           lo_z, hi_z, grid_, stream);
+
+    // ---- 2. One-sided puts. ----
+    // Rank r's -X send goes to -X neighbour's +X recv slot: I packed my
+    // -X ghost from cells (-1, y, z) — those pops originated at MY (0, y, z)
+    // and are meant for -X neighbour's owned (local_nx-1, y, z), which is
+    // its "+X owned boundary" = recv_buf_[+X] slot on the -X neighbour side.
+    // Same crossed pattern on every axis (send_buf_[i] → recv_buf_[i XOR 1]).
+    // MPI_PROC_NULL and unsplit axes are skipped: no put means recv_buf_
+    // keeps its cudaMemset-zero, and the unpack is likewise gated below.
+    const size_t n_yz = kCrossingDirs * max_yz_;
+    const size_t n_xz = kCrossingDirs * max_xz_;
+    const size_t n_xy = kCrossingDirs * max_xy_;
+
+    if (split_[0]) {
+        if (neighbor_[0] != MPI_PROC_NULL)
+            nvshmemx_double_put_nbi_on_stream(
+                recv_buf_[1], send_buf_[0], n_yz, neighbor_[0], stream);
+        if (neighbor_[1] != MPI_PROC_NULL)
+            nvshmemx_double_put_nbi_on_stream(
+                recv_buf_[0], send_buf_[1], n_yz, neighbor_[1], stream);
+    }
+    if (split_[1]) {
+        if (neighbor_[2] != MPI_PROC_NULL)
+            nvshmemx_double_put_nbi_on_stream(
+                recv_buf_[3], send_buf_[2], n_xz, neighbor_[2], stream);
+        if (neighbor_[3] != MPI_PROC_NULL)
+            nvshmemx_double_put_nbi_on_stream(
+                recv_buf_[2], send_buf_[3], n_xz, neighbor_[3], stream);
+    }
+    if (split_[2]) {
+        if (neighbor_[4] != MPI_PROC_NULL)
+            nvshmemx_double_put_nbi_on_stream(
+                recv_buf_[5], send_buf_[4], n_xy, neighbor_[4], stream);
+        if (neighbor_[5] != MPI_PROC_NULL)
+            nvshmemx_double_put_nbi_on_stream(
+                recv_buf_[4], send_buf_[5], n_xy, neighbor_[5], stream);
+    }
+
+    // ---- 3. Barrier: every PE participates (world_size_ == 1 already
+    //         returned). Guarantees all inbound puts have landed before
+    //         unpack fires. ----
+    nvshmemx_barrier_all_on_stream(stream);
+
+    // ---- 4. Unpack recv buffers into owned boundary cells (with wall
+    //         skip). Gated on split_[d] for the same reason as pack —
+    //         Plan A means an unsplit axis's owned boundary is already
+    //         correct from local streaming. ----
+    if (split_[0])
+        LaunchUnpackLbmAxisX(df.d_f, recv_buf_[0], recv_buf_[1],
+                             MakeFaceCrossings(Lattice::missingXLo,
+                                               Lattice::ey, Lattice::ez),
+                             MakeFaceCrossings(Lattice::missingXHi,
+                                               Lattice::ey, Lattice::ez),
+                             skip_x, grid_, stream);
+    if (split_[1])
+        LaunchUnpackLbmAxisY(df.d_f, recv_buf_[2], recv_buf_[3],
+                             MakeFaceCrossings(Lattice::missingYLo,
+                                               Lattice::ex, Lattice::ez),
+                             MakeFaceCrossings(Lattice::missingYHi,
+                                               Lattice::ex, Lattice::ez),
+                             skip_y, grid_, stream);
+    if (split_[2])
+        LaunchUnpackLbmAxisZ(df.d_f, recv_buf_[4], recv_buf_[5],
+                             MakeFaceCrossings(Lattice::missingZLo,
+                                               Lattice::ex, Lattice::ey),
+                             MakeFaceCrossings(Lattice::missingZHi,
+                                               Lattice::ex, Lattice::ey),
+                             skip_z, grid_, stream);
 }
 
 // Keep the VII-a link-only stubs so anything already referencing them still links.

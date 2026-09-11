@@ -156,7 +156,9 @@ if(LBM_ENABLE_MPI)
                 test_pack_qtensor_nvshmem
                 test_exchange_qtensor_nvshmem
                 test_pack_passive_stresses_nvshmem
-                test_exchange_passive_stresses_nvshmem)
+                test_exchange_passive_stresses_nvshmem
+                test_pack_lbm_nvshmem
+                test_exchange_lbm_nvshmem)
             add_executable(${_lbm_nvshmem_test}
                 ${_lbm_nvshmem_test}.cu
                 ${_lbm_nvshmem_test_common_sources}
@@ -224,6 +226,21 @@ if(LBM_ENABLE_MPI)
         add_test(NAME nvshmem_exchange_passive_stresses_np2
             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
                     $<TARGET_FILE:test_exchange_passive_stresses_nvshmem>)
+
+        # VII-g pack test (face-only): local layout check at nranks=1.
+        add_test(NAME nvshmem_pack_lbm_np1
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 1
+                    $<TARGET_FILE:test_pack_lbm_nvshmem>)
+
+        # VII-g face-only halo round-trip. np=1 = self-put smoke; np=2 =
+        # real face exchange under {2,1,1}. Edge/corner puts (needed for
+        # 2-D / 3-D splits) are follow-up work.
+        add_test(NAME nvshmem_exchange_lbm_np1
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 1
+                    $<TARGET_FILE:test_exchange_lbm_nvshmem>)
+        add_test(NAME nvshmem_exchange_lbm_np2
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
+                    $<TARGET_FILE:test_exchange_lbm_nvshmem>)
 
         # VII-f headline correctness gate: two-GPU Q-tensor relaxation with
         # both halos (Q and passive-stress) in play. Uses the qtrelax params

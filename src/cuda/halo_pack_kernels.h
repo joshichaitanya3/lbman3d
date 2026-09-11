@@ -60,4 +60,79 @@ void LaunchUnpackAxisZ(HaloFieldPtrsMut fields, int nfields,
                        const LocalGrid& g, std::size_t face_stride,
                        cudaStream_t stream = 0);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LBM face pack/unpack (PR VII-g, face-only stage)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Distinct from the Q-tensor pack API above because:
+//   - Direction is reversed: pack reads from GHOST, unpack writes to OWNED.
+//   - Only 5 crossing dirs per face (not all 15 populations).
+//   - Unpack needs a per-face wall-skip predicate (invariant 3, see
+//     src/mpi/CLAUDE.md "Post-stream LBM exchange").
+//
+// One kernel per axis handles both lo and hi faces in a single launch.
+
+// Crossings for one face: the 5 dirs in Lattice::missing{X,Y,Z}{Lo,Hi} plus
+// each dir's two transverse velocity components (needed by unpack's wall
+// skip). By axis:
+//   X-face   → e_trans_a = ey,  e_trans_b = ez
+//   Y-face   → e_trans_a = ex,  e_trans_b = ez
+//   Z-face   → e_trans_a = ex,  e_trans_b = ey
+struct LbmFaceCrossings {
+    int dir[5];
+    int e_trans_a[5];
+    int e_trans_b[5];
+};
+
+// Skip predicate context: at an owned-boundary cell (0, y, z) or
+// (local_n-1, y, z) on an axis face, skip the unpack when the cell is
+// on an orthogonal physical wall AND the crossing dir would flow into
+// that wall (bounce already wrote it locally).
+//
+// For X-face: transverse axes are (Y, Z), so
+//   wall_a_lo/hi = is_wall[YLo]/[YHi], global_n_a = Params::ny, etc.
+struct LbmFaceSkipCtx {
+    bool wall_a_lo;
+    bool wall_a_hi;
+    bool wall_b_lo;
+    bool wall_b_hi;
+    int  offset_a;
+    int  offset_b;
+    int  global_n_a;
+    int  global_n_b;
+};
+
+// ---- X axis: pack (from ±X ghost) and unpack (into ±X owned boundary) ----
+void LaunchPackLbmAxisX  (const double* d_f,
+                          double* send_lo, double* send_hi,
+                          LbmFaceCrossings lo_face, LbmFaceCrossings hi_face,
+                          const LocalGrid& g, cudaStream_t stream = 0);
+void LaunchUnpackLbmAxisX(double* d_f,
+                          const double* recv_lo, const double* recv_hi,
+                          LbmFaceCrossings lo_face, LbmFaceCrossings hi_face,
+                          LbmFaceSkipCtx skip,
+                          const LocalGrid& g, cudaStream_t stream = 0);
+
+// ---- Y axis ----
+void LaunchPackLbmAxisY  (const double* d_f,
+                          double* send_lo, double* send_hi,
+                          LbmFaceCrossings lo_face, LbmFaceCrossings hi_face,
+                          const LocalGrid& g, cudaStream_t stream = 0);
+void LaunchUnpackLbmAxisY(double* d_f,
+                          const double* recv_lo, const double* recv_hi,
+                          LbmFaceCrossings lo_face, LbmFaceCrossings hi_face,
+                          LbmFaceSkipCtx skip,
+                          const LocalGrid& g, cudaStream_t stream = 0);
+
+// ---- Z axis ----
+void LaunchPackLbmAxisZ  (const double* d_f,
+                          double* send_lo, double* send_hi,
+                          LbmFaceCrossings lo_face, LbmFaceCrossings hi_face,
+                          const LocalGrid& g, cudaStream_t stream = 0);
+void LaunchUnpackLbmAxisZ(double* d_f,
+                          const double* recv_lo, const double* recv_hi,
+                          LbmFaceCrossings lo_face, LbmFaceCrossings hi_face,
+                          LbmFaceSkipCtx skip,
+                          const LocalGrid& g, cudaStream_t stream = 0);
+
 #endif  // LBM_AN_CUDA_HALO_PACK_KERNELS_H_
