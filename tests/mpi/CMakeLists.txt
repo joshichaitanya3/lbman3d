@@ -174,10 +174,14 @@ if(LBM_ENABLE_MPI)
             # nvshmem_halo.cu needs -rdc=true (device-side nvshmem_my_pe use);
             # scope the flag to that TU inside this target — mirrors the same
             # set_source_files_properties call in src/cuda/CMakeLists.txt.
+            # -diag-suppress=3012,3013 silences C++20 volatile-deprecation
+            # warnings from NVSHMEM 3.2.x's own device headers — root cause
+            # and why local alternatives don't work are documented in
+            # src/cuda/CMakeLists.txt.
             set_source_files_properties(
                 ${CMAKE_SOURCE_DIR}/src/cuda/nvshmem_halo.cu
                 TARGET_DIRECTORY ${_lbm_nvshmem_test}
-                PROPERTIES COMPILE_FLAGS "-rdc=true"
+                PROPERTIES COMPILE_FLAGS "-rdc=true -diag-suppress=3012 -diag-suppress=3013"
             )
             set_target_properties(${_lbm_nvshmem_test} PROPERTIES
                 CUDA_RESOLVE_DEVICE_SYMBOLS ON
@@ -250,7 +254,7 @@ if(LBM_ENABLE_MPI)
         set_source_files_properties(
             ${CMAKE_SOURCE_DIR}/src/cuda/nvshmem_halo.cu
             TARGET_DIRECTORY test_qtensor_relaxation_nvshmem
-            PROPERTIES COMPILE_FLAGS "-rdc=true"
+            PROPERTIES COMPILE_FLAGS "-rdc=true -diag-suppress=3012 -diag-suppress=3013"
         )
         set_target_properties(test_qtensor_relaxation_nvshmem PROPERTIES
             CUDA_RESOLVE_DEVICE_SYMBOLS ON
