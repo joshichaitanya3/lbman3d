@@ -89,6 +89,7 @@ BackendInfo InitializeComputeBackend(const MPIContext& mpi, const LocalGrid& gri
     long max_halo = local_halo;
     MPI_Allreduce(&local_halo, &max_halo, 1, MPI_LONG, MPI_MAX, mpi.cart_comm);
     constexpr size_t kSymmetricSlackBytes = 64ULL << 20;  // pack buffers + headroom
+    info.symmetric_halo_volume = static_cast<size_t>(max_halo);
     info.symmetric_bytes =
         static_cast<size_t>(max_halo) * kSymmetricDoublesPerCell * sizeof(double)
         + kSymmetricSlackBytes;
@@ -151,7 +152,7 @@ BackendInfo InitializeComputeBackend(const MPIContext& mpi, const LocalGrid& gri
 // single rank (kHaloMPI == 0), where every kernel index g.halo_idx(...) still
 // lands inside [0, HaloVolume) — the change is a no-op today and correct
 // for the MPI+GPU path without further edits.
-DeviceFields::DeviceFields(LocalGrid g) :
+DeviceFields::DeviceFields(LocalGrid g, std::size_t sym_halo_vol) :
     grid(g),
     halo_volume(g.HaloVolume()),
     d_f(nullptr),
@@ -185,49 +186,57 @@ DeviceFields::DeviceFields(LocalGrid g) :
     // Allocate halo-exchanged fields via backend allocator (VII-d).
     // These fields will be exchanged across ranks and must live on the
     // symmetric heap under NVSHMEM, or regular device memory otherwise.
+    //
+    // NVSHMEM symmetric-heap constraint: every PE's k-th nvshmem_malloc must
+    // request the SAME SIZE. For uneven domain splits the local HaloVolume
+    // differs per rank, so we use sym_halo_vol (the Allreduce-max from
+    // BackendInfo::symmetric_halo_volume) when provided. The tail beyond the
+    // local volume is never accessed by kernels (which index via local dims).
+    const std::size_t alloc_vol = sym_halo_vol > 0 ? sym_halo_vol : halo_volume;
     try {
-        d_f         = AllocateHaloField(halo_volume * Lattice::ndir);
-        d_f_new     = AllocateHaloField(halo_volume * Lattice::ndir);
-        d_qxx       = AllocateHaloField(halo_volume);
-        d_qxy       = AllocateHaloField(halo_volume);
-        d_qxz       = AllocateHaloField(halo_volume);
-        d_qyy       = AllocateHaloField(halo_volume);
-        d_qyz       = AllocateHaloField(halo_volume);
-        d_qxx_new   = AllocateHaloField(halo_volume);  // Double-buffer for Q
-        d_qxy_new   = AllocateHaloField(halo_volume);
-        d_qxz_new   = AllocateHaloField(halo_volume);
-        d_qyy_new   = AllocateHaloField(halo_volume);
-        d_qyz_new   = AllocateHaloField(halo_volume);
-        d_Sigma_xx  = AllocateHaloField(halo_volume);
-        d_Sigma_xy  = AllocateHaloField(halo_volume);
-        d_Sigma_xz  = AllocateHaloField(halo_volume);
-        d_Sigma_yy  = AllocateHaloField(halo_volume);
-        d_Sigma_yz  = AllocateHaloField(halo_volume);
-        d_Tau_xy    = AllocateHaloField(halo_volume);
-        d_Tau_xz    = AllocateHaloField(halo_volume);
-        d_Tau_yz    = AllocateHaloField(halo_volume);
+        d_f         = AllocateHaloField(alloc_vol * Lattice::ndir);
+        d_f_new     = AllocateHaloField(alloc_vol * Lattice::ndir);
+        d_qxx       = AllocateHaloField(alloc_vol);
+        d_qxy       = AllocateHaloField(alloc_vol);
+        d_qxz       = AllocateHaloField(alloc_vol);
+        d_qyy       = AllocateHaloField(alloc_vol);
+        d_qyz       = AllocateHaloField(alloc_vol);
+        d_qxx_new   = AllocateHaloField(alloc_vol);  // Double-buffer for Q
+        d_qxy_new   = AllocateHaloField(alloc_vol);
+        d_qxz_new   = AllocateHaloField(alloc_vol);
+        d_qyy_new   = AllocateHaloField(alloc_vol);
+        d_qyz_new   = AllocateHaloField(alloc_vol);
+        d_Sigma_xx  = AllocateHaloField(alloc_vol);
+        d_Sigma_xy  = AllocateHaloField(alloc_vol);
+        d_Sigma_xz  = AllocateHaloField(alloc_vol);
+        d_Sigma_yy  = AllocateHaloField(alloc_vol);
+        d_Sigma_yz  = AllocateHaloField(alloc_vol);
+        d_Tau_xy    = AllocateHaloField(alloc_vol);
+        d_Tau_xz    = AllocateHaloField(alloc_vol);
+        d_Tau_yz    = AllocateHaloField(alloc_vol);
 
-        // Zero-initialize the allocated memory.
-        checkCudaErrors(cudaMemset(d_f, 0, halo_volume * Lattice::ndir * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_f_new, 0, halo_volume * Lattice::ndir * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qxx, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qxy, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qxz, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qyy, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qyz, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qxx_new, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qxy_new, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qxz_new, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qyy_new, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_qyz_new, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_Sigma_xx, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_Sigma_xy, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_Sigma_xz, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_Sigma_yy, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_Sigma_yz, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_Tau_xy, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_Tau_xz, 0, halo_volume * sizeof(double)));
-        checkCudaErrors(cudaMemset(d_Tau_yz, 0, halo_volume * sizeof(double)));
+        // Zero-initialize the full allocated region (covers the alloc_vol tail
+        // on smaller ranks so ghost-slot reads never see uninitialized memory).
+        checkCudaErrors(cudaMemset(d_f, 0, alloc_vol * Lattice::ndir * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_f_new, 0, alloc_vol * Lattice::ndir * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxx, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxy, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxz, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qyy, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qyz, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxx_new, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxy_new, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qxz_new, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qyy_new, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_qyz_new, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_xx, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_xy, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_xz, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_yy, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Sigma_yz, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Tau_xy, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Tau_xz, 0, alloc_vol * sizeof(double)));
+        checkCudaErrors(cudaMemset(d_Tau_yz, 0, alloc_vol * sizeof(double)));
     } catch (...) {
         // On allocation failure, clean up any successfully allocated fields.
         if (d_f)         DeallocateHaloField(d_f);

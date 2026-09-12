@@ -65,7 +65,7 @@ public:
           backend_info_(InitializeComputeBackend(mpi_, grid_)),
           fluid_(grid_),
           qtensor_(grid_),
-          d_fields_(grid_),
+          d_fields_(grid_, backend_info_.symmetric_halo_volume),
           lbm_halo_(grid_, mpi_, is_wall_by_face<SimBC>),
           d_solver_()
     {

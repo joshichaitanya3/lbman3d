@@ -201,7 +201,7 @@ public:
           backend_info_(InitializeComputeBackend(mpi_, grid_)),
           fluid_(grid_),
           qtensor_(grid_),
-          d_fields_(grid_),
+          d_fields_(grid_, backend_info_.symmetric_halo_volume),
           qtensor_halo_(grid_, mpi_),
           passive_halo_(grid_, mpi_),
           qtensor_solver_(std::move(solver)),

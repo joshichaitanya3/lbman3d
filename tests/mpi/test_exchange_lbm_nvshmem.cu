@@ -42,7 +42,7 @@ protected:
         mpi = new MPIContext(/*periods=*/{1, 1, 1});
         grid = mpi->MakeLocalGrid();
         backend = InitializeComputeBackend(*mpi, grid);
-        d_fields = new DeviceFields(grid);
+        d_fields = new DeviceFields(grid, backend.symmetric_halo_volume);
         halo = new HaloExchangeLbmNvshmem(grid, *mpi, /*is_wall=*/{});
     }
 

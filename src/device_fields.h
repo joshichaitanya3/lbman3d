@@ -38,8 +38,11 @@ struct BackendInfo {
     std::string device_name;
 
     // NVSHMEM heap accounting (zeros unless is_nvshmem)
-    std::size_t symmetric_bytes = 0;
-    std::size_t regular_bytes   = 0;
+    std::size_t symmetric_bytes        = 0;
+    std::size_t regular_bytes          = 0;
+    // Max HaloVolume across all PEs (Allreduce-max). Every PE must pass this
+    // to DeviceFields so symmetric nvshmem_malloc calls use the same size.
+    std::size_t symmetric_halo_volume  = 0;
 
     // Backend allocator name: "nvshmem" (when is_nvshmem), "cuda" (GPU CPU builds),
     // or "" (CPU builds). Used by device_allocator.h to route halo-field allocations
@@ -142,7 +145,11 @@ struct DeviceFields {
     thrust::device_vector<double> d_rho, d_ux, d_uy, d_uz;
     thrust::device_vector<double> d_force_x, d_force_y, d_force_z;
 
-    explicit DeviceFields(LocalGrid g = LocalGrid::SingleRank());
+    // sym_halo_vol: maximum HaloVolume across all PEs from BackendInfo::symmetric_halo_volume.
+    // Must be identical on every PE for NVSHMEM's symmetric-heap offset guarantee.
+    // Pass 0 (default) for single-rank or non-NVSHMEM builds — falls back to g.HaloVolume().
+    explicit DeviceFields(LocalGrid g = LocalGrid::SingleRank(),
+                          std::size_t sym_halo_vol = 0);
 
     ~DeviceFields();
 

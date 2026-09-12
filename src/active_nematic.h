@@ -115,7 +115,7 @@ public:
           lbm_halo_(grid_, mpi_, is_wall_by_face<BC>),
           fluid_(grid_),
           qtensor_(grid_),
-          d_fields_(grid_),
+          d_fields_(grid_, backend_info_.symmetric_halo_volume),
           #ifdef LBM_ENABLE_NVSHMEM
           qtensor_halo_nvshmem_(grid_, mpi_),
           passive_stresses_halo_nvshmem_(grid_, mpi_),
