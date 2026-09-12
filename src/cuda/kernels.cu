@@ -124,6 +124,20 @@ __global__ void GpuCollideAndStream(
         const bool y_wall = !y_per && (raw_dy < 0 || raw_dy >= g.local_ny);
         const bool z_wall = !z_per && (raw_dz < 0 || raw_dz >= g.local_nz);
 
+        // TEMP DIAGNOSTIC — remove before merge.
+        // Fires only at rank-1's corner (0,0,0) on the wall+seam dir, and only
+        // if the fix is compiled in (otherwise x_wall symbol won't resolve at
+        // runtime the way we expect). Also dumps rho once per 500 steps at
+        // that cell so we can see whether it's decaying.
+        if (x == 0 && y == 0 && z == 0 && i == 14 && g.local_nx == 2) {
+            printf("[FIX-PROBE local_nx=%d] i=14 raw=(%d,%d,%d) "
+                   "x_seam=%d y_wall=%d z_wall=%d take_ghost=%d rho=%g\n",
+                   g.local_nx, raw_dx, raw_dy, raw_dz,
+                   (int)x_seam, (int)y_wall, (int)z_wall,
+                   (int)((x_seam || y_seam || z_seam) && !x_wall && !y_wall && !z_wall),
+                   m.rho);
+        }
+
         if ((x_seam || y_seam || z_seam) && !x_wall && !y_wall && !z_wall) {
             // Write to ghost layer. Split periodic axes: keep raw coord (ghost
             // range, e.g. -1 or local_n). Unsplit periodic axes: Plan A wrap at
