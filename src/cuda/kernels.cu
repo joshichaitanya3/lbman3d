@@ -76,6 +76,22 @@ __global__ void GpuCollideAndStream(
     double uF = m.u.Dot(force);
     double u2 = m.u.Dot(m.u);
 
+    // ── Multi-rank split detection (loop-invariant) ─────────────────────────
+    // local_n < global_n when MPI cuts that axis. On single-rank or unsplit
+    // axes local_n == global_n, so the seam checks below are false and the
+    // existing StreamXoff path fires unchanged.
+    const bool split_x = (g.local_nx != nx);
+    const bool split_y = (g.local_ny != ny);
+    const bool split_z = (g.local_nz != nz);
+
+    // Compile-time periodicity flags — both faces must be Periodic.
+    constexpr bool x_per = std::is_same_v<typename BC::XLo::UBC, Periodic>
+                         && std::is_same_v<typename BC::XHi::UBC, Periodic>;
+    constexpr bool y_per = std::is_same_v<typename BC::YLo::UBC, Periodic>
+                         && std::is_same_v<typename BC::YHi::UBC, Periodic>;
+    constexpr bool z_per = std::is_same_v<typename BC::ZLo::UBC, Periodic>
+                         && std::is_same_v<typename BC::ZHi::UBC, Periodic>;
+
     for (int i = 0; i < Lattice::ndir; ++i) {
         Vec3 e_i{
             static_cast<double>(d_ex[i]),
@@ -86,32 +102,56 @@ __global__ void GpuCollideAndStream(
         auto [feq, forcing_term] = ComputeFeqAndForcing(m, u2, uF, force, e_i, d_w[i]);
         double f_star = PointwiseBGKCollide(f[g.halo_idx(x, y, z, i)], feq, forcing_term);
         // ── Stream + Apply Boundary Conditions ───────────────────
-        // Single-rank: local dims equal Params::n*, so StreamXoff's Params::n*
-        // check matches g.local_n*. The multi-rank path adds offset arithmetic
-        // and lives in the CPU implementation for now (PR VII).
-        const int dx = StreamXoff<BC>(x, d_ex[i]);
-        const int dy = StreamYoff<BC>(y, d_ey[i]);
-        const int dz = StreamZoff<BC>(z, d_ez[i]);
-        if (g.InDomain(dx, dy, dz)) {
-            f_new[g.halo_idx(dx, dy, dz, i)] = f_star;
+
+        const int raw_dx = x + d_ex[i];
+        const int raw_dy = y + d_ey[i];
+        const int raw_dz = z + d_ez[i];
+
+        // Rank-seam detection: periodic AND split AND crossing out of owned range.
+        const bool x_seam = x_per && split_x && (raw_dx < 0 || raw_dx >= g.local_nx);
+        const bool y_seam = y_per && split_y && (raw_dy < 0 || raw_dy >= g.local_ny);
+        const bool z_seam = z_per && split_z && (raw_dz < 0 || raw_dz >= g.local_nz);
+
+        if (x_seam || y_seam || z_seam) {
+            // Write to ghost layer. Split periodic axes: keep raw coord (ghost
+            // range, e.g. -1 or local_n). Unsplit periodic axes: Plan A wrap at
+            // local_n so the ghost slot index is in the face-pack range [0, local_n).
+            // Wall axes are not intercepted here (x_seam/y_seam/z_seam remain false).
+            int gx = raw_dx, gy = raw_dy, gz = raw_dz;
+            if constexpr (x_per) {
+                if (!split_x && (raw_dx < 0 || raw_dx >= g.local_nx))
+                    gx = (raw_dx + g.local_nx) % g.local_nx;
+            }
+            if constexpr (y_per) {
+                if (!split_y && (raw_dy < 0 || raw_dy >= g.local_ny))
+                    gy = (raw_dy + g.local_ny) % g.local_ny;
+            }
+            if constexpr (z_per) {
+                if (!split_z && (raw_dz < 0 || raw_dz >= g.local_nz))
+                    gz = (raw_dz + g.local_nz) % g.local_nz;
+            }
+            f_new[g.halo_idx(gx, gy, gz, i)] = f_star;
         } else {
-            if (dx < 0) {
-                HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, d_specX[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-            }
-            else if (dx >= g.local_nx) {
-                HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, d_specX[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-            }
-            if (dy < 0) {
-                HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, d_specY[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-            }
-            else if (dy >= g.local_ny) {
-                HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, d_specY[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-            }
-            if (dz < 0) {
-                HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, d_specZ[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-            }
-            else if (dz >= g.local_nz) {
-                HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, d_specZ[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
+            // No rank seam: existing StreamXoff dispatch (wraps unsplit periodic
+            // at global n == local_n; returns raw for wall axes → HandleBoundaryPoint).
+            const int dx = StreamXoff<BC>(x, d_ex[i]);
+            const int dy = StreamYoff<BC>(y, d_ey[i]);
+            const int dz = StreamZoff<BC>(z, d_ez[i]);
+            if (g.InDomain(dx, dy, dz)) {
+                f_new[g.halo_idx(dx, dy, dz, i)] = f_star;
+            } else {
+                if (dx < 0)
+                    HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, d_specX[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
+                else if (dx >= g.local_nx)
+                    HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, d_specX[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
+                if (dy < 0)
+                    HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, d_specY[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
+                else if (dy >= g.local_ny)
+                    HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, d_specY[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
+                if (dz < 0)
+                    HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, d_specZ[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
+                else if (dz >= g.local_nz)
+                    HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, d_specZ[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
             }
         }
     }

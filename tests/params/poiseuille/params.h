@@ -28,7 +28,8 @@ namespace Params {
     
     // LBM relaxation
     inline constexpr double kDensity = 1.0;   // physical density scale
-    inline constexpr double TAUF = std::sqrt(static_cast<double>(3.0f/16.0f))+0.5; // Relaxation time
+    // sqrt(3/16) + 0.5 = sqrt(3)/4 + 0.5 — literal so nvcc (no constexpr sqrt) compiles this.
+    inline constexpr double TAUF = 0.9330127018922193; // Relaxation time
     inline constexpr double nu = (2 * TAUF - 1) / 6.0f; // kinematic shear viscosity
     inline constexpr double u_max = 0.1;
     inline constexpr double re = ny * u_max / nu; // Reynolds number; scaling parameter in simulation

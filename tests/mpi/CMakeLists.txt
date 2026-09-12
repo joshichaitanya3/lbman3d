@@ -242,6 +242,56 @@ if(LBM_ENABLE_MPI)
             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
                     $<TARGET_FILE:test_exchange_lbm_nvshmem>)
 
+        # VII-g headline correctness gate: Poiseuille flow with ExchangeLBM in
+        # play. Uses the poiseuille params (5×16×5, ALPHA=0) with a split along
+        # the periodic X axis. Shadows src/sim_config.h with
+        # tests/params/poiseuille/sim_config.h to pin SimBC = PoiseuilleConfig
+        # for DeviceSolver<SimBC> in device_solver.cu.
+        add_executable(test_poiseuille_nvshmem
+            test_poiseuille_nvshmem.cu
+            ${_lbm_nvshmem_test_common_sources}
+            ${CMAKE_SOURCE_DIR}/src/cuda/device_solver.cu
+        )
+        target_link_libraries(test_poiseuille_nvshmem PRIVATE
+            MPI::MPI_CXX GTest::gtest CUDA::toolkit
+            nvshmem::nvshmem_host nvshmem::nvshmem_device
+        )
+        target_include_directories(test_poiseuille_nvshmem PRIVATE
+            ${CMAKE_SOURCE_DIR}/tests/params/poiseuille
+            ${CMAKE_SOURCE_DIR}/src/
+            ${CMAKE_BINARY_DIR}/generated
+            ${MPI_CXX_INCLUDE_DIRS}
+        )
+        target_compile_definitions(test_poiseuille_nvshmem PRIVATE
+            LBM_ENABLE_MPI LBM_ENABLE_NVSHMEM SIM_WITH_CUDA
+        )
+        set_source_files_properties(
+            ${CMAKE_SOURCE_DIR}/src/cuda/nvshmem_halo.cu
+            TARGET_DIRECTORY test_poiseuille_nvshmem
+            PROPERTIES COMPILE_FLAGS "-rdc=true -diag-suppress=3012 -diag-suppress=3013"
+        )
+        set_target_properties(test_poiseuille_nvshmem PROPERTIES
+            CUDA_RESOLVE_DEVICE_SYMBOLS ON
+        )
+        if(HAVE_STD_FORMAT)
+            target_compile_definitions(test_poiseuille_nvshmem PRIVATE HAVE_STD_FORMAT)
+        else()
+            target_link_libraries(test_poiseuille_nvshmem PRIVATE fmt::fmt)
+        endif()
+
+        # np=1 is the self-put / single-rank baseline; ExchangeLBM's split_[d]
+        # gate is false on all axes, so streaming wraps locally and no exchange
+        # fires. The flow must still converge to the parabolic profile.
+        # np=2 is the VII-g correctness gate: X-periodic halo exchange driven by
+        # a real BGK run; wrong streaming destination or wrong pack/unpack shows
+        # up as a non-parabolic velocity profile.
+        add_test(NAME nvshmem_poiseuille_np1
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 1
+                    $<TARGET_FILE:test_poiseuille_nvshmem>)
+        add_test(NAME nvshmem_poiseuille_np2
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
+                    $<TARGET_FILE:test_poiseuille_nvshmem>)
+
         # VII-f headline correctness gate: two-GPU Q-tensor relaxation with
         # both halos (Q and passive-stress) in play. Uses the qtrelax params
         # (16^3, ALPHA=0, A=0 B=-0.3 C=0.3) — matches the single-rank

@@ -112,7 +112,19 @@ struct FullyPeriodicConfig {
     static constexpr std::string_view name = "FullyPeriodic";
 };
 
-// Periodic in X; no-slip walls (free Q anchoring) in Y.
+// Periodic X/Z; Neumann Q / no-slip velocity walls in Y. Used by the
+// Poiseuille flow integration tests (pressure-driven channel, Q inactive).
+struct PoiseuilleConfig {
+    using XLo = WallSpec<Periodic, Periodic>;
+    using XHi = WallSpec<Periodic, Periodic>;
+    using YLo = WallSpec<Neumann, NoSlip>;
+    using YHi = WallSpec<Neumann, NoSlip>;
+    using ZLo = WallSpec<Periodic, Periodic>;
+    using ZHi = WallSpec<Periodic, Periodic>;
+    static constexpr std::string_view name = "Poiseuille";
+};
+
+// Periodic in Z; no-slip walls in X and Y.
 struct ChannelConfig {
     using XLo = WallSpec<Neumann, NoSlip>;
     using XHi = WallSpec<Neumann, NoSlip>;
