@@ -112,7 +112,19 @@ __global__ void GpuCollideAndStream(
         const bool y_seam = y_per && split_y && (raw_dy < 0 || raw_dy >= g.local_ny);
         const bool z_seam = z_per && split_z && (raw_dz < 0 || raw_dz >= g.local_nz);
 
-        if (x_seam || y_seam || z_seam) {
+        // Wall crossing on any non-periodic axis. Mirrors CPU-MPI's
+        // x_crosses_wall gate (src/lbm_solver.tpp): when a wall bounce
+        // applies, HandleBoundaryPoint absorbs the pop locally (bounce-back
+        // at the source cell) regardless of whether an orthogonal axis
+        // would also cross a seam. Without this, a corner source cell
+        // whose direction hits both a wall and a periodic split seam
+        // silently writes into a corner ghost that no exchange packs, and
+        // mass leaks each step until rho→0 → NaN.
+        const bool x_wall = !x_per && (raw_dx < 0 || raw_dx >= g.local_nx);
+        const bool y_wall = !y_per && (raw_dy < 0 || raw_dy >= g.local_ny);
+        const bool z_wall = !z_per && (raw_dz < 0 || raw_dz >= g.local_nz);
+
+        if ((x_seam || y_seam || z_seam) && !x_wall && !y_wall && !z_wall) {
             // Write to ghost layer. Split periodic axes: keep raw coord (ghost
             // range, e.g. -1 or local_n). Unsplit periodic axes: Plan A wrap at
             // local_n so the ghost slot index is in the face-pack range [0, local_n).
