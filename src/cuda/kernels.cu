@@ -107,42 +107,27 @@ __global__ void GpuCollideAndStream(
         const int raw_dy = y + d_ey[i];
         const int raw_dz = z + d_ez[i];
 
-        // Rank-seam detection: periodic AND split AND crossing out of owned range.
-        const bool x_seam = x_per && split_x && (raw_dx < 0 || raw_dx >= g.local_nx);
-        const bool y_seam = y_per && split_y && (raw_dy < 0 || raw_dy >= g.local_ny);
-        const bool z_seam = z_per && split_z && (raw_dz < 0 || raw_dz >= g.local_nz);
+        // Wall crossing check in GLOBAL coords. Mirrors CPU-MPI's
+        // x_crosses_wall gate (src/lbm_solver.tpp:154): a pop is at a
+        // physical wall only if its destination leaves the *global* domain
+        // on a non-periodic axis. Using local coords misidentifies a middle
+        // seam on a split non-periodic axis (Poiseuille Y under dims={1,2,1})
+        // as a wall and falsely bounces pops that should ship to the neighbour.
+        const int raw_gx = g.offset_x + raw_dx;
+        const int raw_gy = g.offset_y + raw_dy;
+        const int raw_gz = g.offset_z + raw_dz;
+        const bool x_wall = !x_per && (raw_gx < 0 || raw_gx >= nx);
+        const bool y_wall = !y_per && (raw_gy < 0 || raw_gy >= ny);
+        const bool z_wall = !z_per && (raw_gz < 0 || raw_gz >= nz);
 
-        // Wall crossing on any non-periodic axis. Mirrors CPU-MPI's
-        // x_crosses_wall gate (src/lbm_solver.tpp): when a wall bounce
-        // applies, HandleBoundaryPoint absorbs the pop locally (bounce-back
-        // at the source cell) regardless of whether an orthogonal axis
-        // would also cross a seam. Without this, a corner source cell
-        // whose direction hits both a wall and a periodic split seam
-        // silently writes into a corner ghost that no exchange packs, and
-        // mass leaks each step until rho→0 → NaN.
-        const bool x_wall = !x_per && (raw_dx < 0 || raw_dx >= g.local_nx);
-        const bool y_wall = !y_per && (raw_dy < 0 || raw_dy >= g.local_ny);
-        const bool z_wall = !z_per && (raw_dz < 0 || raw_dz >= g.local_nz);
-
-        // TEMP DIAGNOSTIC — remove before merge.
-        // Fires only at rank-1's corner (0,0,0) on the wall+seam dir, and only
-        // if the fix is compiled in (otherwise x_wall symbol won't resolve at
-        // runtime the way we expect). Also dumps rho once per 500 steps at
-        // that cell so we can see whether it's decaying.
-        if (x == 0 && y == 0 && z == 0 && i == 14 && g.local_nx == 2) {
-            printf("[FIX-PROBE local_nx=%d] i=14 raw=(%d,%d,%d) "
-                   "x_seam=%d y_wall=%d z_wall=%d take_ghost=%d rho=%g\n",
-                   g.local_nx, raw_dx, raw_dy, raw_dz,
-                   (int)x_seam, (int)y_wall, (int)z_wall,
-                   (int)((x_seam || y_seam || z_seam) && !x_wall && !y_wall && !z_wall),
-                   m.rho);
-        }
-
-        if ((x_seam || y_seam || z_seam) && !x_wall && !y_wall && !z_wall) {
-            // Write to ghost layer. Split periodic axes: keep raw coord (ghost
-            // range, e.g. -1 or local_n). Unsplit periodic axes: Plan A wrap at
-            // local_n so the ghost slot index is in the face-pack range [0, local_n).
-            // Wall axes are not intercepted here (x_seam/y_seam/z_seam remain false).
+        if (!x_wall && !y_wall && !z_wall) {
+            // Unified write: in-domain, seam ghost (split axis), or unsplit-
+            // periodic wrap. Split axes keep raw local coord → ghost slot.
+            // Unsplit periodic axes wrap locally so the write lands in
+            // [0, local_n). Non-periodic middle seams (raw_gy inside global
+            // range but raw_dy outside local range) fall through to the
+            // raw local coord, which is the correct ghost slot for the
+            // halo exchange to pack.
             int gx = raw_dx, gy = raw_dy, gz = raw_dz;
             if constexpr (x_per) {
                 if (!split_x && (raw_dx < 0 || raw_dx >= g.local_nx))
@@ -158,25 +143,28 @@ __global__ void GpuCollideAndStream(
             }
             f_new[g.halo_idx(gx, gy, gz, i)] = f_star;
         } else {
-            // No rank seam: existing StreamXoff dispatch (wraps unsplit periodic
-            // at global n == local_n; returns raw for wall axes → HandleBoundaryPoint).
-            const int dx = StreamXoff<BC>(x, d_ex[i]);
-            const int dy = StreamYoff<BC>(y, d_ey[i]);
-            const int dz = StreamZoff<BC>(z, d_ez[i]);
-            if (g.InDomain(dx, dy, dz)) {
-                f_new[g.halo_idx(dx, dy, dz, i)] = f_star;
-            } else {
-                if (dx < 0)
+            // Wall bounce on at least one axis. Dispatch per-axis, mirroring
+            // CPU-MPI: each wall crossing applies its own HandleBoundaryPoint
+            // locally (bounce-back writes to the source cell with opp[i]),
+            // so composed wall + orthogonal-seam corners work without any
+            // extra ghost routing — the bounced pop stays in owned and
+            // streams normally next step.
+            if (x_wall) {
+                if (raw_gx < 0)
                     HandleBoundaryPoint<typename BC::XLo>(x, y, z, i, d_specX[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-                else if (dx >= g.local_nx)
+                else
                     HandleBoundaryPoint<typename BC::XHi>(x, y, z, i, d_specX[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-                if (dy < 0)
+            }
+            if (y_wall) {
+                if (raw_gy < 0)
                     HandleBoundaryPoint<typename BC::YLo>(x, y, z, i, d_specY[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-                else if (dy >= g.local_ny)
+                else
                     HandleBoundaryPoint<typename BC::YHi>(x, y, z, i, d_specY[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-                if (dz < 0)
+            }
+            if (z_wall) {
+                if (raw_gz < 0)
                     HandleBoundaryPoint<typename BC::ZLo>(x, y, z, i, d_specZ[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
-                else if (dz >= g.local_nz)
+                else
                     HandleBoundaryPoint<typename BC::ZHi>(x, y, z, i, d_specZ[i], f_star, m.rho, f_new, d_ex, d_ey, d_ez, d_w, d_opp, g);
             }
         }
