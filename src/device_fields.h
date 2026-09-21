@@ -177,6 +177,8 @@ inline BackendInfo InitializeComputeBackend(const MPIContext& mpi, const LocalGr
 
 struct DeviceFields {
     explicit DeviceFields(LocalGrid) {}
+
+    explicit DeviceFields(LocalGrid, std::size_t) {}
 };   // zero-size, optimized away entirely
 
 #endif
