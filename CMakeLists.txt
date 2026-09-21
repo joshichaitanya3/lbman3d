@@ -258,6 +258,136 @@ if(LBM_PARAMS_DIR)
     message(STATUS "Shadowing params.h from ${LBM_PARAMS_DIR}")
 endif()
 
+# ── resource_estimator: memory-budget and SLURM-generation tool ──────────────
+#
+# Build-mode flags, compiled-in grid dims, and OMP thread count are baked into
+# the binary via cmake/resource_estimator_config.h.in so that
+# `resource_estimator slurm` can generate a correct SLURM script without
+# re-reading any project headers at runtime.
+#
+# SLURM generation options (all optional):
+#   -DLBM_CLUSTER=perlmutter   Target cluster for auto-generated script
+#   -DLBM_NERSC_ACCOUNT=m1234  HPC project account number
+#   -DLBM_MPI_RANKS=8          Total MPI ranks (default: 1)
+#   -DLBM_OMP_THREADS=8        OMP threads/rank for CPU builds (default: kNumOMPThreads)
+#   -DLBM_WALLTIME=01:00:00    Walltime override (default: cluster maximum)
+#
+# When LBM_CLUSTER is non-empty, a job.slurm script is written to the build
+# directory as a post-build step each time resource_estimator is rebuilt.
+
+set(LBM_CLUSTER       "" CACHE STRING
+    "Target cluster for SLURM script generation (perlmutter, generic, or empty to skip)")
+set(LBM_NERSC_ACCOUNT "ACCOUNT" CACHE STRING
+    "HPC project account number embedded in generated SLURM scripts")
+set(LBM_MPI_RANKS     "1" CACHE STRING
+    "Total MPI ranks to request in the generated SLURM script")
+set(LBM_OMP_THREADS   "" CACHE STRING
+    "OMP threads/rank for CPU builds (empty = use kNumOMPThreads from params.h)")
+set(LBM_WALLTIME      "" CACHE STRING
+    "Walltime override for generated SLURM scripts (HH:MM:SS, empty = cluster default)")
+
+# Parse compiled-in constants from params.h (or LBM_PARAMS_DIR/params.h).
+# These are baked into resource_estimator_config.h so the binary knows its
+# own grid size and OMP thread count at runtime — useful for `slurm` mode
+# without explicit NX/NY/NZ arguments.
+set(_lbm_params_header "${CMAKE_SOURCE_DIR}/src/params.h")
+if(LBM_PARAMS_DIR AND EXISTS "${LBM_PARAMS_DIR}/params.h")
+    set(_lbm_params_header "${LBM_PARAMS_DIR}/params.h")
+endif()
+
+set(LBM_COMPILED_NX 0)
+set(LBM_COMPILED_NY 0)
+set(LBM_COMPILED_NZ 0)
+set(LBM_COMPILED_OMP_THREADS 0)
+if(EXISTS "${_lbm_params_header}")
+    file(READ "${_lbm_params_header}" _lbm_params_text)
+    if(_lbm_params_text MATCHES "constexpr int nx = ([0-9]+)")
+        set(LBM_COMPILED_NX "${CMAKE_MATCH_1}")
+    endif()
+    if(_lbm_params_text MATCHES "constexpr int ny = ([0-9]+)")
+        set(LBM_COMPILED_NY "${CMAKE_MATCH_1}")
+    endif()
+    if(_lbm_params_text MATCHES "constexpr int nz = ([0-9]+)")
+        set(LBM_COMPILED_NZ "${CMAKE_MATCH_1}")
+    endif()
+    if(_lbm_params_text MATCHES "constexpr int kNumOMPThreads = ([0-9]+)")
+        set(LBM_COMPILED_OMP_THREADS "${CMAKE_MATCH_1}")
+    endif()
+    unset(_lbm_params_text)
+    message(STATUS "resource_estimator: compiled-in grid ${LBM_COMPILED_NX}x${LBM_COMPILED_NY}x${LBM_COMPILED_NZ}, OMP=${LBM_COMPILED_OMP_THREADS}")
+endif()
+unset(_lbm_params_header)
+
+# LBM_OMP_THREADS defaults to kNumOMPThreads when not explicitly set.
+if(LBM_OMP_THREADS STREQUAL "")
+    if(LBM_COMPILED_OMP_THREADS GREATER 0)
+        set(_lbm_slurm_omp "${LBM_COMPILED_OMP_THREADS}")
+    else()
+        set(_lbm_slurm_omp "1")
+    endif()
+else()
+    set(_lbm_slurm_omp "${LBM_OMP_THREADS}")
+endif()
+
+# Convert ON/OFF booleans to 1/0 for the generated header.
+if(LBM_USE_CUDA)
+    set(LBM_USE_CUDA_INT 1)
+else()
+    set(LBM_USE_CUDA_INT 0)
+endif()
+if(LBM_ENABLE_MPI)
+    set(LBM_ENABLE_MPI_INT 1)
+else()
+    set(LBM_ENABLE_MPI_INT 0)
+endif()
+if(LBM_ENABLE_NVSHMEM)
+    set(LBM_ENABLE_NVSHMEM_INT 1)
+else()
+    set(LBM_ENABLE_NVSHMEM_INT 0)
+endif()
+
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/resource_estimator_config.h.in"
+    "${CMAKE_BINARY_DIR}/generated/resource_estimator_config.h"
+    @ONLY
+)
+
+add_executable(resource_estimator src/resource_estimator.cc)
+target_link_libraries(resource_estimator PRIVATE lbm_warnings)
+target_include_directories(resource_estimator PRIVATE "${CMAKE_BINARY_DIR}/generated")
+
+# Sanity check: warn if multiple ranks are requested but MPI is disabled.
+if(LBM_MPI_RANKS GREATER 1 AND NOT LBM_ENABLE_MPI AND NOT LBM_USE_CUDA)
+    message(WARNING
+        "LBM_MPI_RANKS=${LBM_MPI_RANKS} but neither MPI nor CUDA is enabled.\n"
+        "A single-rank CPU build ignores rank count; the generated SLURM script\n"
+        "will request 1 node / 1 task.  Add -DLBM_ENABLE_MPI=ON to fix this.")
+endif()
+
+# Post-build: write job.slurm to the build directory when LBM_CLUSTER is set.
+if(LBM_CLUSTER)
+    set(_slurm_cmd
+        $<TARGET_FILE:resource_estimator>
+        slurm
+        --cluster   "${LBM_CLUSTER}"
+        --account   "${LBM_NERSC_ACCOUNT}"
+        --ranks     "${LBM_MPI_RANKS}"
+        --omp-threads "${_lbm_slurm_omp}"
+        --output    "${CMAKE_BINARY_DIR}/job.slurm"
+    )
+    if(NOT LBM_WALLTIME STREQUAL "")
+        list(APPEND _slurm_cmd --time "${LBM_WALLTIME}")
+    endif()
+    add_custom_command(
+        TARGET resource_estimator POST_BUILD
+        COMMAND ${_slurm_cmd}
+        COMMENT "Generating SLURM script → build/job.slurm (cluster=${LBM_CLUSTER}, account=${LBM_NERSC_ACCOUNT})"
+        VERBATIM
+    )
+    message(STATUS "resource_estimator: auto-SLURM cluster=${LBM_CLUSTER} account=${LBM_NERSC_ACCOUNT} ranks=${LBM_MPI_RANKS}")
+endif()
+unset(_lbm_slurm_omp)
+
 # Testing setup
 option(LBM_BUILD_TESTS "Build unit and integration tests" ON)
 if(LBM_BUILD_TESTS)
