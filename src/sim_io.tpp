@@ -13,14 +13,13 @@ template<typename BC>
 void SimIO::ExportVTKHDF(const FluidFields& ff, AnalysisFields& af,
                          const std::string& path, int step,
                          const MPIContext& ctx, const LocalGrid& grid) {
-    constexpr int kStepWidth = [] {
-        int w = 1, n = kNumSteps - 1;
-        while (n >= 10) { n /= 10; ++w; }
-        return w;
-    }();
     const LocalGrid& g = ff.grid;
 
-    const std::string file_path = compat::format("{}/lbm_{:0{}}.vtkhdf", path, step, kStepWidth);
+    // Natural-width step number: files are keyed on step, not snapshot index,
+    // so a restart that resumes at step N and runs to M produces exactly the
+    // filenames the reader (and LoadRestart's parser) expect regardless of
+    // the number of digits.
+    const std::string file_path = compat::format("{}/lbm_{}.vtkhdf", path, step);
 
     ImageDataWriter writer(file_path, ctx);
     SimConfigAttr::StampSimConfigAttributes<BC>(writer.root());
@@ -62,12 +61,7 @@ void SimIO::ExportDisclinations(
     const MPIContext& ctx,
     const LocalGrid&
 ) {
-    constexpr int kStepWidth = [] {
-        int w = 1, n = kNumSteps - 1;
-        while (n >= 10) { n /= 10; ++w; }
-        return w;
-    }();
-    const std::string file_path = compat::format("{}/disclinations_{:0{}}.vtkhdf", path, step, kStepWidth);
+    const std::string file_path = compat::format("{}/disclinations_{}.vtkhdf", path, step);
 
     // Delegates the mesh build and dataset writes; stamps sim-config attributes
     // so find_defects can trace disclinations_*.vtkhdf back to the run that
