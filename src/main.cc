@@ -9,20 +9,29 @@
 int main() {
     ActiveNematicSim<SimBC> sim{};
 
+    if constexpr (!kRestartFile.empty()) {
+        if (MPIContext::IsRoot())
+            std::cout << compat::format("Restarting from {}\n", kRestartFile);
+        sim.LoadRestart(kRestartFile);
+        if (MPIContext::IsRoot())
+            std::cout << compat::format("Resumed at step {}, running to {}\n",
+                                        sim.GetTimeStep(), kNumSteps);
+    }
+
 #ifdef SIM_WITH_CUDA
-    // On the GPU build, the simulation fields live on the GPU memory and the 
-    // Q-tensor and the moments are only copied over to the CPU 
+    // On the GPU build, the simulation fields live on the GPU memory and the
+    // Q-tensor and the moments are only copied over to the CPU
     // (via `SnapshotToHost`) for exporting and/or logging.
     // This allows an optimization over the CPU workflow, where, once the fields are
-    // copied over, _the GPU can continue time-stepping while the CPU exports/logs. 
-    // 
+    // copied over, _the GPU can continue time-stepping while the CPU exports/logs.
+    //
     // This pattern requires the "snapshot" to be a real copy that freezes a
     // point-in-time view of the state, which only exists on GPU (device →
     // host copy). Under CPU there is no separate host memory: sim.Step()
     // mutates fluid_/qtensor_ in place, so a snapshot at the top of the batch
     // can't reference the pre-Step state after the do-while has run.
     // The #else branch below uses the sync pattern for correctness on CPU.
-    int t = 0;
+    int t = sim.GetTimeStep();
     bool save_tick = true;
     bool log_tick = true;
     while (t < kNumSteps) {
@@ -53,7 +62,7 @@ int main() {
         log_tick = log_tick_next;
     }
 #else
-    for (int t : std::views::iota(0, kNumSteps)) {
+    for (int t : std::views::iota(sim.GetTimeStep(), kNumSteps)) {
         const bool save_tick = (t % kSaveInterval == 0);
         // kDebugLogging overrides kLogInterval (logs every step) and, separately,
         // causes SimIO::ExportVTKHDF to include the raw D3Q15 populations f0..f14.

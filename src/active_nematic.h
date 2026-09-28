@@ -2,8 +2,10 @@
 #define LBM_AN_ACTIVE_NEMATIC_H_
 
 #include <memory>
+#include <regex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 
 #include "offsets.h"
 #include <params.h>
@@ -15,6 +17,7 @@
 #include "lbm_solver.h"
 #include "qtensor_solver.h"
 #include "sim_io.h"
+#include "vtkhdf_reader.h"
 #include "analysis/defect_fields.h"
 #include "analysis/defect_finder.h"
 #include "analysis/defect_analyzer.h"
@@ -241,6 +244,64 @@ public:
 
     int GetTimeStep() const { return time_step_; }
     int GetHostSnapshotTimeStep() const { return host_snapshot_step_; }
+
+    // Resume from a snapshot previously written by SimIO::ExportVTKHDF at
+    // `path`. See sim_config.h::kRestartFile for the physics rationale and
+    // caller workflow.
+    //
+    // Reads back (rho, ux, uy, uz, order, director) — the same fields the
+    // exporter writes — and reconstructs the state the solver needs:
+    //   - D3Q15 populations from moments via LbmSolver::Initialize (equilibrium
+    //     init; drops the O(TAUF) non-equilibrium part of f).
+    //   - Q from (order, director) via OrderDirectorToQtensor (uniaxial
+    //     reconstruction; exact away from defect cores).
+    // The step number is parsed from the filename ("lbm_<digits>.vtkhdf") and
+    // assigned to time_step_ so the main loop resumes from there.
+    //
+    // ImageDataReader's constructor validates the file's WholeExtent and the
+    // stamped sim-config attributes against the compile-time build, so a
+    // mismatched grid or BC fails loudly here rather than silently corrupting
+    // the run.
+    void LoadRestart(std::string_view path) {
+        const std::string path_str(path);
+        ImageDataReader reader(path_str, mpi_);
+
+        reader.ReadScalarField("rho", fluid_.rho.data(), grid_);
+        reader.ReadScalarField("ux",  fluid_.ux.data(),  grid_);
+        reader.ReadScalarField("uy",  fluid_.uy.data(),  grid_);
+        reader.ReadScalarField("uz",  fluid_.uz.data(),  grid_);
+        // Owned populations to equilibrium at the loaded (rho, u). Halo
+        // populations stay at their default (0) — LatticeBoltzmannStep is
+        // push-scheme, reads only owned f, and refreshes ghosts each step
+        // via ExchangeLBM. Same rationale as fresh Init.
+        lbm_.Initialize(fluid_);
+
+        reader.ReadScalarField("order",    af_.order_.data(),    grid_);
+        reader.ReadVectorField("director", af_.director_.data(), grid_, 3);
+        // Uniaxial reconstruction; writes owned Q, leaves halo default. The
+        // Q halo is refreshed by ExchangeQTensor at the top of every
+        // QTensorStep, so we don't preemptively exchange here.
+        OrderDirectorToQtensor(af_, qtensor_);
+
+        // Parse "lbm_<step>.vtkhdf" out of the filename. Matches both the
+        // natural-width filenames written by the current SimIO and any
+        // zero-padded legacy files, since \d+ is width-agnostic.
+        static const std::regex kStepPattern(R"(lbm_(\d+)\.vtkhdf$)");
+        std::smatch match;
+        if (!std::regex_search(path_str, match, kStepPattern)) {
+            throw std::runtime_error(
+                "ActiveNematicSim::LoadRestart: cannot parse step number from '" +
+                path_str + "' — expected filename of the form lbm_<digits>.vtkhdf.");
+        }
+        time_step_ = std::stoi(match[1].str());
+
+        #ifdef SIM_WITH_CUDA
+        // Same host → device push done for a fresh start; overwrites the
+        // device state that the constructor's Initialize() had pushed.
+        d_fields_.Initialize(fluid_, qtensor_);
+        d_solver_.Initialize(d_fields_);
+        #endif
+    }
 };
 
 #endif // LBM_AN_ACTIVE_NEMATIC_H_

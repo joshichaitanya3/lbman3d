@@ -101,6 +101,21 @@ inline constexpr Advection kQAdvection = Advection::Centred;
 // ── Time loop ─────────────────────────────────────────────────────────────────
 inline constexpr int kNumSteps     = 10000;
 inline constexpr int kSaveInterval = 100;
+
+// Empty = fresh start (uniform director + noise, quiescent flow).
+// Otherwise a path to a snapshot written by SimIO::ExportVTKHDF, e.g.
+// "data/lbm_2000.vtkhdf". The step number is parsed from the filename and
+// becomes the starting value of the time loop, which then runs up to
+// kNumSteps — so a restart must bump kNumSteps past the snapshot step.
+//
+// Restart reconstructs Q from (order, director) under the uniaxial approximation
+// and the D3Q15 populations from (rho, ux, uy, uz) at equilibrium. Dropping the
+// non-equilibrium part of f is O(TAUF) ≈ a few timesteps of transient; negligible
+// for steady-state seeking. A full-fidelity checkpoint mode (saving f directly)
+// is not implemented — every existing snapshot is a valid checkpoint under this
+// scheme.
+inline constexpr std::string_view kRestartFile = "";
+
 // Log cadence is independent from the VTKHDF export cadence: logs are cheap
 // (scalars per step) while exports are a full-grid write. For per-step
 // divergence tracking, enable Params::kDebugLogging instead — it overrides
