@@ -58,3 +58,20 @@ add_executable(vtkhdf_roundtrip_test
 )
 
 lbm_add_test(vtkhdf_roundtrip_test unit)
+
+# Restart round-trip: save a snapshot mid-run, reconstruct state via the same
+# code path ActiveNematicSim::LoadRestart exercises (equilibrium f from moments,
+# uniaxial Q from order+director), and compare against a continuous reference
+# run after advancing both by kPostRestartSteps.
+add_executable(restart_test
+    test_restart.cc
+)
+
+target_sources(restart_test
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
+    ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
+    ${CMAKE_SOURCE_DIR}/src/analysis_fields.cc
+)
+
+lbm_add_test(restart_test coupled)
