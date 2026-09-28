@@ -161,7 +161,7 @@ $ ./build/resource_estimator slurm 20 100 100 --ranks 256 --account m1234
 SLURM script written → job.slurm
   Cluster  : NERSC Perlmutter (HPE Cray EX)
   Grid     : 20 x 100 x 100  |  Build: CPU+MPI
-  Memory   : 83.92 MiB/rank — fits
+  Memory   : 83.92 MiB total  |  335.7 KiB/rank
   Layout   : 256 ranks  →  2 nodes × 128 tasks/node
 ```
 
@@ -172,21 +172,23 @@ SLURM script written → job.slurm
 # Cluster  : NERSC Perlmutter (HPE Cray EX)
 # Grid     : 20 x 100 x 100  (200000 cells)
 # Build    : CPU+MPI
-# Memory   : 83.92 MiB/rank
+# Memory   : 83.92 MiB total  |  335.7 KiB/rank  (budget: 4.0 GiB CPU RAM/rank)
 # Layout   : 256 ranks  →  2 nodes × 128 tasks/node
 # OMP      : 1 thread/rank  (128/128 cores/node used)
 #
 #SBATCH --job-name=lbman3d_20x100x100
-#SBATCH -A m1234
-#SBATCH -C cpu
-#SBATCH -q regular
-#SBATCH -N 2
-#SBATCH --ntasks-per-node=128
-#SBATCH -t 24:00:00
 #SBATCH --output=lbman3d-%j.out
+#SBATCH --error=lbman3d-%j.err
+#SBATCH --time=24:00:00
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=128
+#SBATCH -A m1234
+#SBATCH --constraint=cpu
+#SBATCH --qos=regular
 
 module load PrgEnv-gnu
 module load cray-mpich
+module load cray-hdf5-parallel
 
 srun ./build/main
 ```
@@ -204,20 +206,28 @@ SLURM script written → job.slurm
 # Build    : CUDA+NVSHMEM+MPI
 # Layout   : 8 ranks  →  2 nodes × 4 tasks/node
 #
-#SBATCH -A m1234
-#SBATCH -C gpu
-#SBATCH -q regular
-#SBATCH -N 2
+#SBATCH --job-name=lbman3d_64x64x128
+#SBATCH --output=lbman3d-%j.out
+#SBATCH --error=lbman3d-%j.err
+#SBATCH --time=24:00:00
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=4
 #SBATCH --gpus-per-task=1
-#SBATCH -t 24:00:00
-#SBATCH --output=lbman3d-%j.out
+#SBATCH --cpus-per-task=32
+#SBATCH -A m1234
+#SBATCH --constraint=gpu
+#SBATCH --qos=regular
 
 module load PrgEnv-gnu
 module load cudatoolkit
 module load cray-mpich
+module load cray-hdf5-parallel
 module load nvshmem
+export NVSHMEM_BOOTSTRAP=MPI
+export SLURM_MPI_TYPE=cray_shasta
+export MPICH_GPU_SUPPORT_ENABLED=0
 
+export SLURM_CPU_BIND="cores"
 srun --ntasks-per-node=4 --gpus-per-task=1 ./build/main
 ```
 

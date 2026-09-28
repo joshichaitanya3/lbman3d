@@ -108,13 +108,15 @@ struct PartitionSpec {
 struct ClusterSpec {
     const char*   id;           // CLI key passed to --cluster
     const char*   display_name;
-    const char*   setup_base_cpu;   // module/env lines for CPU builds
-    const char*   setup_base_gpu;   // module/env lines for GPU builds
-    const char*   setup_mpi;        // extra lines appended if MPI build
-    const char*   setup_nvshmem;    // extra lines appended if NVSHMEM build
+    const char*   setup_base_cpu;      // module/env lines for CPU builds
+    const char*   setup_base_gpu;      // module/env lines for GPU builds
+    const char*   setup_mpi;           // extra lines appended if MPI build
+    const char*   setup_nvshmem;       // extra lines appended if NVSHMEM build
+    const char*   setup_hdf5_serial;   // HDF5 module for CPU non-MPI builds
+    const char*   setup_hdf5_parallel; // HDF5 module for MPI/GPU builds
     PartitionSpec cpu;
-    PartitionSpec gpu;              // gpu.node.gpus_per_node == 0 → no GPU partition
-    const char*   gpu_80g_constraint; // SLURM -C for 80 GB variant (nullptr = none)
+    PartitionSpec gpu;                 // gpu.node.gpus_per_node == 0 → no GPU partition
+    const char*   gpu_80g_constraint;  // SLURM --constraint for 80 GB variant (nullptr = none)
 };
 
 static const ClusterSpec kClusters[] = {
@@ -131,8 +133,15 @@ static const ClusterSpec kClusters[] = {
         "module load PrgEnv-gnu\nmodule load cudatoolkit",
         // setup_mpi (appended for MPI builds)
         "module load cray-mpich",
-        // setup_nvshmem (appended for NVSHMEM builds)
-        "module load nvshmem",
+        // setup_nvshmem (appended for NVSHMEM builds; includes env vars required on Perlmutter)
+        "module load nvshmem\n"
+        "export NVSHMEM_BOOTSTRAP=MPI\n"
+        "export SLURM_MPI_TYPE=cray_shasta\n"
+        "export MPICH_GPU_SUPPORT_ENABLED=0",
+        // setup_hdf5_serial — CPU non-MPI
+        "module load cray-hdf5",
+        // setup_hdf5_parallel — MPI or GPU builds
+        "module load cray-hdf5-parallel",
         // CPU partition
         { "regular", "cpu", { 128, 512.0, 0, 0.0 }, "24:00:00" },
         // GPU partition — default A100 40 GB
@@ -150,6 +159,8 @@ static const ClusterSpec kClusters[] = {
         "# TODO: module load <compiler> <cuda>",
         "# TODO: module load <mpi>",
         "# TODO: module load <nvshmem>",
+        nullptr,  // setup_hdf5_serial  — fill in for your cluster
+        nullptr,  // setup_hdf5_parallel — fill in for your cluster
         { "regular", nullptr, { 128, 256.0,  0, 0.0 }, "24:00:00" },
         { "regular", nullptr, {   0,   0.0,  0, 0.0 }, "24:00:00" },
         nullptr,
@@ -363,35 +374,52 @@ static bool generateSlurm(long long nx, long long ny, long long nz,
     }
 
     // ── Node / task arithmetic ───────────────────────────────────────────────
-    int tasks_per_node, nodes;
+    // cpus_per_task: the SLURM --cpus-per-task value (OMP threads per rank for
+    // CPU builds; 0 = omit the directive, used for GPU builds).
+    int tasks_per_node, nodes, cpus_per_task;
     if (is_gpu && node.gpus_per_node > 0) {
         // Each MPI rank owns exactly one GPU.
         tasks_per_node = node.gpus_per_node;
-        nodes = ceilDiv(effective_ranks, tasks_per_node);
+        nodes          = ceilDiv(effective_ranks, tasks_per_node);
+        // NERSC formula: 2 × floor(cores_per_node / tasks_per_node) logical CPUs per task.
+        // The factor-of-2 accounts for SMT (2 hardware threads per physical core on EPYC).
+        // This ensures each GPU rank owns its proportional share of logical CPUs and the
+        // OS can bind threads to physical (not sibling SMT) cores.
+        cpus_per_task  = (node.cores_per_node > 0)
+                         ? 2 * (node.cores_per_node / tasks_per_node)
+                         : 0;
+    } else if (!effective_mpi) {
+        // CPU single-rank (pure OpenMP): one task that owns cpus_per_task cores.
+        // SLURM allocates only those cores; the remainder of the node stays free.
+        tasks_per_node = 1;
+        nodes          = 1;
+        cpus_per_task  = std::max(1, opts.omp_threads);
     } else {
-        // CPU: pack as many MPI ranks as possible given the OMP thread count.
-        int t = std::max(1, opts.omp_threads);
+        // CPU+MPI (hybrid): pack as many MPI ranks per node as OMP threads allow.
+        int t          = std::max(1, opts.omp_threads);
         tasks_per_node = std::max(1, node.cores_per_node / t);
-        nodes = ceilDiv(effective_ranks, tasks_per_node);
+        nodes          = ceilDiv(effective_ranks, tasks_per_node);
+        cpus_per_task  = t;
     }
 
-    // ── OMP efficiency check (CPU builds only) ───────────────────────────────
-    // Warn when kNumOMPThreads does not divide cores_per_node evenly, i.e.
-    // some cores will sit idle.  Suggest the nearest divisors so the user can
-    // update params.h::kNumOMPThreads before the next build.
+    // ── OMP efficiency check (CPU+MPI builds only) ───────────────────────────
+    // Warn when kNumOMPThreads does not divide cores_per_node evenly so that
+    // the user can update params.h::kNumOMPThreads before the next build.
+    // (For single-rank jobs SLURM only allocates the requested --cpus-per-task
+    // cores, so unutilised node cores are not wasted.)
     bool omp_efficient = true;
-    if (!is_gpu && node.cores_per_node > 0) {
-        int used = tasks_per_node * opts.omp_threads;
+    if (!is_gpu && effective_mpi && node.cores_per_node > 0) {
+        int used = tasks_per_node * cpus_per_task;
         if (used != node.cores_per_node) {
             omp_efficient = false;
             int idle = node.cores_per_node - used;
             fprintf(stderr,
                 "warning: kNumOMPThreads=%d → %d tasks/node × %d threads = %d/%d cores used "
                 "(%d idle)\n",
-                opts.omp_threads, tasks_per_node, opts.omp_threads,
+                cpus_per_task, tasks_per_node, cpus_per_task,
                 used, node.cores_per_node, idle);
-            int suggest_lo = largestDivisorAtMost(node.cores_per_node, opts.omp_threads);
-            int suggest_hi = smallestDivisorAtLeast(node.cores_per_node, opts.omp_threads + 1);
+            int suggest_lo = largestDivisorAtMost(node.cores_per_node, cpus_per_task);
+            int suggest_hi = smallestDivisorAtLeast(node.cores_per_node, cpus_per_task + 1);
             fprintf(stderr,
                 "         For full core utilisation set kNumOMPThreads=%d",
                 suggest_lo);
@@ -511,57 +539,78 @@ static bool generateSlurm(long long nx, long long ny, long long nz,
             tasks_per_node,  tasks_per_node  != 1 ? "s" : "",
             auto_scaled ? "  [ranks auto-scaled to fit domain]" : "");
     if (!is_gpu) {
-        int used = tasks_per_node * opts.omp_threads;
-        fprintf(f, "# OMP      : %d thread%s/rank  (%d/%d cores/node used%s)\n",
-                opts.omp_threads, opts.omp_threads != 1 ? "s" : "",
-                used, node.cores_per_node,
-                omp_efficient ? "" : " — see warning above");
-        if (!omp_efficient) {
-            int suggest_lo = largestDivisorAtMost(node.cores_per_node, opts.omp_threads);
-            int suggest_hi = smallestDivisorAtLeast(node.cores_per_node, opts.omp_threads + 1);
-            fprintf(f, "#            To use all %d cores, set kNumOMPThreads=%d",
-                    node.cores_per_node, suggest_lo);
-            if (suggest_hi != suggest_lo && suggest_hi <= node.cores_per_node)
-                fprintf(f, " or %d", suggest_hi);
-            fprintf(f, " in params.h\n");
+        if (!effective_mpi) {
+            // Single-rank: SLURM only allocates cpus_per_task cores for this job.
+            fprintf(f, "# OMP      : %d thread%s  (--cpus-per-task=%d; rest of %d-core node free)\n",
+                    cpus_per_task, cpus_per_task != 1 ? "s" : "",
+                    cpus_per_task, node.cores_per_node);
+        } else {
+            int used = tasks_per_node * cpus_per_task;
+            fprintf(f, "# OMP      : %d thread%s/rank  (%d/%d cores/node used%s)\n",
+                    cpus_per_task, cpus_per_task != 1 ? "s" : "",
+                    used, node.cores_per_node,
+                    omp_efficient ? "" : " — see warning above");
+            if (!omp_efficient) {
+                int suggest_lo = largestDivisorAtMost(node.cores_per_node, cpus_per_task);
+                int suggest_hi = smallestDivisorAtLeast(node.cores_per_node, cpus_per_task + 1);
+                fprintf(f, "#            To use all %d cores, set kNumOMPThreads=%d",
+                        node.cores_per_node, suggest_lo);
+                if (suggest_hi != suggest_lo && suggest_hi <= node.cores_per_node)
+                    fprintf(f, " or %d", suggest_hi);
+                fprintf(f, " in params.h\n");
+            }
         }
     }
     fprintf(f, "#\n");
 
     // ── SBATCH directives ────────────────────────────────────────────────────
     fprintf(f, "#SBATCH --job-name=lbman3d_%lldx%lldx%lld\n", nx, ny, nz);
+    fprintf(f, "#SBATCH --output=lbman3d-%%j.out\n");
+    fprintf(f, "#SBATCH --error=lbman3d-%%j.err\n");
+    fprintf(f, "#SBATCH --time=%s\n", wt);
+    fprintf(f, "#SBATCH --nodes=%d\n", nodes);
+    if (!effective_mpi)
+        fprintf(f, "#SBATCH --ntasks=1\n");
+    else
+        fprintf(f, "#SBATCH --ntasks-per-node=%d\n", tasks_per_node);
+    if (is_gpu && node.gpus_per_node > 0)
+        fprintf(f, "#SBATCH --gpus-per-task=1\n");
+    if (cpus_per_task > 1)
+        fprintf(f, "#SBATCH --cpus-per-task=%d\n", cpus_per_task);
     if (opts.account && opts.account[0])
         fprintf(f, "#SBATCH -A %s\n", opts.account);
     if (constraint)
-        fprintf(f, "#SBATCH -C %s\n", constraint);
-    fprintf(f, "#SBATCH -q %s\n", part.queue);
-    fprintf(f, "#SBATCH -N %d\n", nodes);
-    fprintf(f, "#SBATCH --ntasks-per-node=%d\n", tasks_per_node);
-    if (is_gpu && node.gpus_per_node > 0)
-        fprintf(f, "#SBATCH --gpus-per-task=1\n");
-    if (!is_gpu && opts.omp_threads > 1)
-        fprintf(f, "#SBATCH --cpus-per-task=%d\n", opts.omp_threads);
-    fprintf(f, "#SBATCH -t %s\n", wt);
-    fprintf(f, "#SBATCH --output=lbman3d-%%j.out\n");
+        fprintf(f, "#SBATCH --constraint=%s\n", constraint);
+    fprintf(f, "#SBATCH --qos=%s\n", part.queue);
     fprintf(f, "\n");
 
     // ── Module setup ─────────────────────────────────────────────────────────
     writeModuleLines(f, is_gpu ? cs->setup_base_gpu : cs->setup_base_cpu);
-    if (is_mpi)     writeModuleLines(f, cs->setup_mpi);
+    if (is_mpi) writeModuleLines(f, cs->setup_mpi);
+    // HDF5: serial for CPU non-MPI builds, parallel for everything else.
+    if (is_mpi || is_gpu)
+        writeModuleLines(f, cs->setup_hdf5_parallel);
+    else
+        writeModuleLines(f, cs->setup_hdf5_serial);
+    // NVSHMEM env vars (NVSHMEM_BOOTSTRAP, SLURM_MPI_TYPE, etc.) go last.
     if (is_nvshmem) writeModuleLines(f, cs->setup_nvshmem);
     fprintf(f, "\n");
 
     // ── Environment / launch ─────────────────────────────────────────────────
-    if (!is_gpu && opts.omp_threads > 1)
-        fprintf(f, "export OMP_NUM_THREADS=%d\n\n", opts.omp_threads);
+    if (!is_gpu && cpus_per_task > 1)
+        fprintf(f, "export OMP_NUM_THREADS=%d\n\n", cpus_per_task);
 
-    if (is_gpu && node.gpus_per_node > 0)
+    if (is_gpu && node.gpus_per_node > 0) {
+        // NERSC recommends SLURM_CPU_BIND=cores so each GPU rank gets exclusive
+        // physical-core access rather than sharing SMT siblings with other ranks.
+        fprintf(f, "export SLURM_CPU_BIND=\"cores\"\n");
         fprintf(f, "srun --ntasks-per-node=%d --gpus-per-task=1 ./build/main\n",
                 tasks_per_node);
-    else if (is_mpi)
+    } else if (is_mpi) {
         fprintf(f, "srun ./build/main\n");
-    else
+    } else {
         fprintf(f, "./build/main\n");
+    }
 
     if (own_f) {
         fclose(f);
