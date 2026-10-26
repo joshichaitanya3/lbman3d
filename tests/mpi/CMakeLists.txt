@@ -68,6 +68,24 @@ if(LBM_ENABLE_MPI)
         COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 8
                 $<TARGET_FILE:test_corner_sweep>)
 
+    # Same as above but with fully periodic boundary conditions
+    add_executable(test_corner_sweep_periodic
+        test_corner_sweep.cc
+        mpi_test_main.cc
+        ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
+        ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
+    )
+    target_link_libraries(test_corner_sweep_periodic PRIVATE MPI::MPI_CXX GTest::gtest)
+    target_include_directories(test_corner_sweep_periodic PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/params/periodic_mpi   # shadows src/params.h with 8×8×8 grid  **AND** src/sim_config.h with fully periodic boundary conditions
+        ${CMAKE_SOURCE_DIR}/src/
+    )
+    target_compile_definitions(test_corner_sweep_periodic PRIVATE LBM_ENABLE_MPI)
+
+    add_test(NAME mpi_corner_sweep_periodic_np8
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 8
+                $<TARGET_FILE:test_corner_sweep_periodic>)
+
     add_executable(test_exchange_correctness
         test_exchange_correctness.cc
         mpi_test_main.cc
@@ -110,6 +128,34 @@ if(LBM_ENABLE_MPI)
                 $<TARGET_FILE:test_poiseuille_mpi>)
 
     # np=2 exchange round-trip deferred to PR VII when idx() covers halo coordinates
+
+    # CPU-MPI Q-tensor relaxation integration test. Exercises ExchangeQTensor
+    # and ExchangePassiveStresses on the CPU path under a full MPI decomposition.
+    # Uses the qtrelax params (16³, ALPHA=0, A=0 B=-0.3 C=0.3, FullyPeriodicConfig)
+    # — same grid and physics as the single-rank integration test and the NVSHMEM
+    # counterpart so results are directly comparable.
+    add_executable(test_qtensor_relaxation_mpi
+        test_qtensor_relaxation_mpi.cc
+        mpi_test_main.cc
+        ${CMAKE_SOURCE_DIR}/src/fluid_fields.cc
+        ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc
+        ${CMAKE_SOURCE_DIR}/src/analysis_fields.cc
+    )
+    target_link_libraries(test_qtensor_relaxation_mpi PRIVATE MPI::MPI_CXX GTest::gtest)
+    target_include_directories(test_qtensor_relaxation_mpi PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests/params/qtrelax   # shadows src/params.h (16³) and src/sim_config.h (FullyPeriodicConfig)
+        ${CMAKE_SOURCE_DIR}/src/
+    )
+    target_compile_definitions(test_qtensor_relaxation_mpi PRIVATE LBM_ENABLE_MPI)
+
+    # np=2 exercises a single-axis split; np=8 exercises the full 2×2×2
+    # three-axis split on the 16³ grid (8³ cells per rank).
+    add_test(NAME mpi_qtensor_relaxation_np2
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 2
+                $<TARGET_FILE:test_qtensor_relaxation_mpi>)
+    add_test(NAME mpi_qtensor_relaxation_np8
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_PREFLAGS} ${MPIEXEC_NUMPROC_FLAG} 8
+                $<TARGET_FILE:test_qtensor_relaxation_mpi>)
 
     # PR VII-e — NVSHMEM Q-tensor halo tests. Gated on LBM_ENABLE_NVSHMEM
     # because they call NVSHMEM directly (via HaloExchangeQTensorNvshmem) and
