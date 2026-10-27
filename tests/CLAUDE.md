@@ -113,7 +113,10 @@ No params needed (only touches `lattice_stencil.h` arrays). Tests:
 - **InteriorPassthrough**: `QAxisOffset(x, ±1, n) == x±1` for non-boundary x
 - **NeumannClamp**: `QWallOffset<Neumann>(0, -1, n) == 0`; `QWallOffset<Neumann>(n-1, +1, n) == n-1`
 - **PeriodicWrap**: `QWallOffset<Periodic>(0, -1, 8) == 7`; `QWallOffset<Periodic>(7, +1, 8) == 0`
-- **AxisDispatch**: For `FullyPeriodicConfig`, `QXoff(0, -1) == nx-1`. For `ChannelConfig` (Periodic X, Neumann Y/Z), `QXoff(0,-1) == nx-1` but `QYoff(0,-1) == 0`.
+- **AxisDispatch**: For `FullyPeriodicConfig`, `QXoff(0, -1, g) == nx-1`. For `ChannelConfig` (Neumann X/Y, Periodic Z), `QZoff(0,-1, g) == nz-1` but `QYoff(0,-1, g) == 0`. `g = LocalGrid::SingleRank()`
+- **UnsplitResolveMatchesAxisOffset**: on an unsplit axis `ResolveAxisOffset` is exactly `QAxisOffset`, for every `i ∈ [-1, n]` and `s ∈ {-1,0,1}` — the serial path is unchanged
+- **SplitPeriodicSeamsReadGhosts**: x split in two (hand-built `LocalGrid`, `kHaloMPI = 1`): both seams, including the global periodic wrap, resolve to the ghost (`-1` / `local_nx`)
+- **SplitWalledAxis**: same split under `ChannelConfig`: a rank seam resolves to the ghost even at local `x = 0`; only the physical wall clamps, including on the high rank where local `x != nx-1`
 
 ### `test_boundary_handler.cc` — streaming offsets, velocity ghosts, gradients
 

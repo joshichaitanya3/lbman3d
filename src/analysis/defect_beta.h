@@ -63,13 +63,15 @@ inline QSample<BC> InterpolateQ(const QTensorFields& qf,
 
     // Fold i0 into a valid vertex index for THIS axis before offsetting;
     // QXoff/QYoff/QZoff then produce a valid neighbour under BC.
-    const int i0w = QXoff<BC>(i0, 0);
-    const int j0w = QYoff<BC>(j0, 0);
-    const int k0w = QZoff<BC>(k0, 0);
+    // Serial-only today (ActiveNematicSim::Export guards the analysis with
+    // #ifndef LBM_ENABLE_MPI), so g is unsplit and these are global indices.
+    const int i0w = QXoff<BC>(i0, 0, g);
+    const int j0w = QYoff<BC>(j0, 0, g);
+    const int k0w = QZoff<BC>(k0, 0, g);
 
-    const int i1 = QXoff<BC>(i0w, 1);
-    const int j1 = QYoff<BC>(j0w, 1);
-    const int k1 = QZoff<BC>(k0w, 1);
+    const int i1 = QXoff<BC>(i0w, 1, g);
+    const int j1 = QYoff<BC>(j0w, 1, g);
+    const int k1 = QZoff<BC>(k0w, 1, g);
 
     auto sample = [&](const std::vector<double>& q) -> double {
         const double c000 = q[g.halo_idx(i0w, j0w, k0w)];
