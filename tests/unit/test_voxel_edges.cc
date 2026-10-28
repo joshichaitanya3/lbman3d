@@ -77,7 +77,7 @@ std::array<Face, 6> VoxelFaces(int x, int y, int z) {
 template<typename BC>
 class VoxelEdgesTest : public ::testing::Test {
 protected:
-    DefectFields df{periodicity_by_axis<BC>};
+    DefectFields fields{periodicity_by_axis<BC>};
     DefectFinder<BC> finder;
 
     // A voxel exists wherever all six of its faces do: n per axis if
@@ -102,11 +102,11 @@ TYPED_TEST_SUITE(VoxelEdgesTest, BCs, BCName);
 static_assert(Params::nx >= 3 && Params::ny >= 3 && Params::nz >= 3);
 
 TYPED_TEST(VoxelEdgesTest, NoFiringFacesEmitNoEdges) {
-    EXPECT_TRUE(this->finder.EmitVoxelEdges(this->df).empty());
+    EXPECT_TRUE(this->finder.EmitVoxelEdges(this->fields).empty());
 }
 
 TYPED_TEST(VoxelEdgesTest, SingleFiringFaceEmitsNoEdges) {
-    DefectFields& df = this->df;
+    DefectFields& df = this->fields;
     int n_failures = 0;
     std::string first_failure;
     auto check_family = [&](std::vector<uint8_t>& flags, const char* family) {
@@ -131,7 +131,7 @@ TYPED_TEST(VoxelEdgesTest, SingleFiringFaceEmitsNoEdges) {
 // least one": a pair emitted from two different voxel visits would be
 // double-counted.
 TYPED_TEST(VoxelEdgesTest, EveryVoxelFacePairEmitsExactlyThatEdge) {
-    DefectFields& df = this->df;
+    DefectFields& df = this->fields;
     constexpr std::array<int, 6> pt = {1, 2, 3, 4, 5, 6};
 
     int n_failures = 0;
