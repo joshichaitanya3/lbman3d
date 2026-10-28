@@ -31,7 +31,8 @@ tests/
 │   ├── test_antisym_stress.cc
 │   ├── test_qtensor_init.cc
 │   ├── test_upwind_advection.cc
-│   └── test_idx.cc
+│   ├── test_idx.cc
+│   └── test_voxel_edges.cc
 └── integration/
     ├── CMakeLists.txt
     ├── test_poiseuille.cc        # A1: Poiseuille flow
@@ -66,7 +67,7 @@ Example: `lbm_add_test(unit_tests unit)` → compiler finds `tests/params/unit/p
 
 All unit test `.cc` files are compiled into **one executable** (`unit_tests`) sharing `params/unit/params.h`. They also link `src/fluid_fields.cc` and `src/qtensor_fields.cc` (needed for `FluidFields`/`QTensorFields` constructors that some tests invoke).
 
-Do **not** link `sim_io.cc`, `vtkhdf_writer.*`, or the defect-finder — they pull in HDF5 write paths that are not needed for unit tests. HDF5 headers are still needed at configure time because `find_package(HDF5 REQUIRED)` runs unconditionally in the root.
+Do **not** link `sim_io.cc` or `vtkhdf_writer.*` — they pull in HDF5 write paths that are not needed for unit tests. The defect finder (`analysis/defect_finder.h`) is fine: it includes no HDF5 headers, and `unit_tests` links `src/analysis/defect_fields.cc` for it. Keep it that way — don't add an I/O include to the finder. HDF5 headers are still needed at configure time because `find_package(HDF5 REQUIRED)` runs unconditionally in the root.
 
 ### Integration tests
 
@@ -196,6 +197,14 @@ The seeded initial state must be a fixed point of the bulk Q dynamics. Checked t
 - **AdvectiveDerivativeSumsThreeAxesWithMatchedPairing**: the wrapper model.h actually calls — sums all three axes *and* pairs each velocity component with that axis's derivatives. A transposed-axis `QDerivs` must give a different answer, so the test constrains the pairing and not merely the sum
 - **DefaultSchemeFollowsSimConfig**: the default template argument tracks `kQAdvection`, so the shipped configuration is what the solver runs
 - **LaplacianIsUnchangedBitwise**: `lap` stays bit-identical to the original single six-neighbour sum over every cell, so enabling the feature cannot perturb existing centred-scheme results
+
+### `test_voxel_edges.cc` — disclination connectivity edges (`DefectFinder::EmitVoxelEdges`)
+
+The graph has one edge per pair of firing faces that share a voxel. 12 of a voxel's 15 face pairs are emitted while visiting it; 1–2 and 1–5 come from the `+x` neighbour and 2–5 from the `+y` neighbour (numbering as in the figure in `defect_finder.tpp`). The reference is built from the voxel's six faces directly, not from the finder's lookup helpers. Typed over `FullyPeriodicConfig`, `SlitNoSlipConfig` (walled x) and a local all-walled config.
+
+- **NoFiringFacesEmitNoEdges** / **SingleFiringFaceEmitsNoEdges**: every plaquette of every family, alone
+- **EveryVoxelFacePairEmitsExactlyThatEdge**: for every voxel and each of its 15 pairs, firing exactly those two faces emits exactly one edge, between them. "Exactly one" also catches double emission. Needs `n ≥ 3` per axis, so that two faces share at most one voxel. A loop that stops at `n-1` on a walled axis fails here: pairs 1–2/1–5 at `x = nx-2`, and 2–5 at `y = ny-2`
+- **WedgeLineEndingOnXWallKeepsWallPlaquette** (all walled, so no periodic image): a +1/2 wedge line, tilted in z so it enters the last voxel through its high-z face. Runs the full `FindDefects` and asserts the extracted path, including the wall plaquette at its end. The geometry is laid out for the 8³ unit grid
 
 ### `test_idx.cc` — index function
 

@@ -6,8 +6,8 @@
 #include "qtensor_fields.h"
 #include <params.h>
 #include <ranges>
+#include <utility>
 #include <vector>
-#include "vtkhdf_writer.h"
 #include "boundary.h"
 #include "offsets.h"
 
@@ -25,6 +25,12 @@ class DefectFinder {
 public:
 
     DefectFinder() = default;
+
+    // Every connectivity-graph edge, one per pair of firing faces that share
+    // a voxel, each emitted exactly once. Public so the edge set can be
+    // tested face pair by face pair.
+    std::vector<std::pair<FaceId, FaceId>> EmitVoxelEdges(const DefectFields& df) const;
+
     void FindDefects(const AnalysisFields& af, DefectFields& df) {
         std::fill(df.def_x.begin(), df.def_x.end(), 0);
         std::fill(df.def_y.begin(), df.def_y.end(), 0);

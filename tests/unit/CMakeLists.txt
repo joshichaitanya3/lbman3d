@@ -15,6 +15,7 @@ add_executable(unit_tests
     test_boundary_names.cc
     test_sim_config_validate.cc
     test_order_director_roundtrip.cc
+    test_voxel_edges.cc
     # Add more test files as needed
 )
 
@@ -22,6 +23,7 @@ target_sources(unit_tests
     PRIVATE
     ${CMAKE_SOURCE_DIR}/src/analysis_fields.cc
     ${CMAKE_SOURCE_DIR}/src/qtensor_fields.cc   # QTensorFields ctor, for Initialize()
+    ${CMAKE_SOURCE_DIR}/src/analysis/defect_fields.cc  # DefectFields ctor, for test_voxel_edges
 )
 
 lbm_add_test(unit_tests unit)
