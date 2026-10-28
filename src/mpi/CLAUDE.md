@@ -34,12 +34,29 @@ Consequences to preserve:
   cleanly; a free `idx(x,y,z,grid)` would collide with the existing
   `idx(x,y,z,i)` (direction) overload.
 - **No periodic modulo in `idx`.** The old free `idx` wrapped with `%`; the
-  member does not. Periodicity is handled by halo exchange and by the ghost
-  offsets in `offsets.h` / `boundary_handler.h` (`QWallOffset`,
-  `SafeFetchAxisOffset`, …), never by `idx`. This is safe because every caller
-  already guarantees in-domain coordinates (the old `%` was documented as
-  "insurance"); streaming destinations are guarded by `InDomain` before they
-  reach `idx`.
+  member does not. This is safe because every caller already guarantees
+  in-domain coordinates (the old `%` was documented as "insurance"); streaming
+  destinations are guarded by `InDomain` before they reach `idx`.
+- **Neighbour resolution: decide in global coordinates, index in local ones.**
+  Periodic wraps and physical walls are properties of the *global* domain, but
+  every stencil runs on local coordinates. So a neighbour lookup resolves the
+  step on the global coordinate (`offset + i` against `Params::n`) and returns
+  a local index, by one rule per axis:
+  - **unsplit axis** (`local_n == n`, i.e. `dims[d] == 1`): local == global,
+    so wrap/clamp locally — the ghost layer on that axis is never read;
+  - **split axis**: a step across a rank seam *or* a periodic wrap uses the
+    raw local index `i ± 1`, which is a ghost the halo exchange filled; only a
+    step through a **physical wall** is clamped back onto the boundary node.
+  Wall *tests* (`i == 0` / `i == n-1` in `QAxisGhostPair`,
+  `VelocityAxisGhostPair`) likewise take the global coordinate — on a split
+  axis, local 0 is a rank seam on every rank but the first. The FD stencils
+  get this from `ResolveAxisOffset` (`offsets.h`), which `QXoff/QYoff/QZoff`,
+  `QGradientAndLaplacian` and `VelocityGradientTensor` all go through;
+  `LatticeBoltzmannStep` applies the same rule to streaming
+  (`x_split`/`dx_eff`). Never wrap or wall-test a local coordinate against
+  `Params::nx/ny/nz` directly: it is correct only when the axis is unsplit,
+  so serial and single-GPU runs cannot catch it. `tests/mpi/test_fd_stencils_mpi.cc`
+  checks the stencils at np=2 and np=8 against a single-rank reference.
 - **One source of truth, copied cheaply.** `ActiveNematicSim::grid_` is
   authoritative. `FluidFields`/`QTensorFields` hold a **by-value** `LocalGrid`
   (a ~7-int POD) constructed from it; solvers index through the fields' grid
@@ -96,11 +113,11 @@ from its `BC` template parameter. `FullyPeriodicConfig` → `{1,1,1}`;
 `ChannelConfig` → `{1,1,0}` (periodic in x/y, walled in z).
 
 ### Halo seam
-The ghost-value functions in `boundary_handler.h`
-(`SafeFetchAxisOffset`, `QAxisGhostPair`, `VelocityAxisGhostPair`) are the
-correct insertion point for MPI halo exchange — they already operate on values
-rather than raw indices, which makes them compatible with halo buffers without
-touching the physics kernels.
+The neighbour resolver `ResolveAxisOffset` (`offsets.h`) and the ghost-value
+functions in `boundary_handler.h` (`QAxisGhostPair`, `VelocityAxisGhostPair`)
+are where MPI meets the stencils: the resolver sends seam and split-periodic
+lookups into the halo, and the ghost-value functions substitute wall values
+by global position. The physics kernels never see the difference.
 
 ### Two halo structs, not one
 

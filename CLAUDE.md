@@ -149,7 +149,7 @@ Two complementary mechanisms live in `offsets.h` and `boundary_handler.h`:
 - **`offsets.h`** (`QXoff/QYoff/QZoff`) — Neumann-only (zero-gradient) index clamp. Used only where a Dirichlet ghost is not needed: the nematic-stress gradients in `SetActiveStressAndComputeBodyForce` — both the symmetric part `P` and the antisymmetric part `T`, neither of which has a prescribed wall target. Carries a known, unquantified O(1) boundary-layer error at `Anchoring` walls; unreachable in shipped configs, and settling it needs a grid-refinement study rather than a blind stencil change (see the comment block in `offsets.h`).
 - **`boundary_handler.h`** — wall-type-aware ghost values (not indices) for: LBM streaming (`StreamXoff`), velocity gradients (`VelocityGradientTensor`, used in the Beris-Edwards co-rotation and strain rate), and Q gradients/Laplacians (`QGradientAndLaplacian`, used everywhere Q derivatives appear). Mirrors `offsets.h`'s design but with proper Dirichlet (anchoring) and SpecularReflection handling.
 
-Ghost methods (`SafeFetchAxisOffset`, `QAxisGhostPair`, `VelocityAxisGhostPair`) operate on **values, not raw memory indices**, which is deliberate: it avoids out-of-domain raw pointer arithmetic and keeps the design compatible with future MPI ghost-cell exchange.
+Ghost methods (`QAxisGhostPair`, `VelocityAxisGhostPair`) operate on **values, not raw memory indices**, which is deliberate: it avoids out-of-domain raw pointer arithmetic and keeps the design compatible with MPI ghost-cell exchange. Neighbour indices come from `ResolveAxisOffset` (`offsets.h`), which makes the wrap/clamp/wall decision on the **global** coordinate and returns a **local** index — a ghost on a split MPI axis. See "Neighbour resolution" in `src/mpi/CLAUDE.md`.
 
 ### Memory layout
 
@@ -168,7 +168,7 @@ This split is invisible to callers since `__CUDA_ARCH__` branches inside the sam
 ## Future scalability
 
 The code is designed with multi-GPU/multi-node MPI in mind. When adding features that touch neighbour lookups:
-- Use the ghost-value functions in `boundary_handler.h` (e.g., `SafeFetchAxisOffset`, `QAxisGhostPair`) rather than raw index arithmetic — these are the correct seam for future MPI halo-exchange insertion.
+- Use `ResolveAxisOffset`/`QXoff` (`offsets.h`) and the ghost-value functions in `boundary_handler.h` (e.g. `QAxisGhostPair`) rather than raw index arithmetic. Make wrap and wall decisions on global coordinates (`g.offset_x + x` against `Params::nx`), never on local ones.
 - Do not hardcode assumptions that the entire domain fits in one contiguous block of memory.
 
 ### Runtime grid dims and the optional `constexpr` fast path

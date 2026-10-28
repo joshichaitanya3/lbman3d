@@ -63,30 +63,15 @@ template<typename BCConfig> inline CUDA_HOST_DEVICE int StreamZoff(int z, int s)
     return StreamAxisOffset<typename BCConfig::ZLo::UBC, typename BCConfig::ZHi::UBC>(z, s, nz);
 }
 
-// Safe neighbor index for a raw array fetch feeding VelocityAxisGradient or
-// QAxisGhostPair: idx(x,y,z) asserts its input is already in [0,n) (it wraps
-// only *after* that check), so a raw i+s can't be handed to it directly on a
-// non-periodic axis. Periodic -> real wraparound neighbor (always used
-// as-is). Non-periodic -> clamps into [0,n) purely so idx() doesn't assert;
-// the fetched value there is only ever read at the interior (clamp is then
-// a no-op) or at a genuine wall (i==0 / i==n-1), where the caller discards
-// it in favor of a properly-constructed ghost value anyway. BC-tag-generic
-// (only checks Periodic-or-not), so shared verbatim between velocity's UBC
-// and Q's QBC callers.
-template<typename BC>
-inline CUDA_HOST_DEVICE constexpr int SafeFetchOffset(int i, int s, int n) {
-    if constexpr (std::is_same_v<BC, Periodic>)
-        return ((i + s) % n + n) % n;
-    else
-        return (i + s < 0) ? 0 : (i + s >= n ? n - 1 : i + s);
-}
-
-template<typename LoBC, typename HiBC>
-inline CUDA_HOST_DEVICE int SafeFetchAxisOffset(int i, int s, int n) {
-    if (i + s <  0) return SafeFetchOffset<LoBC>(i, s, n);
-    if (i + s >= n) return SafeFetchOffset<HiBC>(i, s, n);
-    return i + s;
-}
+// Neighbour indices for the gradient stencils below come from
+// ResolveAxisOffset (offsets.h): the wrap/clamp/wall decision is made on the
+// global coordinate, and the result is a local index — owned, or a ghost on a
+// split axis. On a non-periodic axis the clamp exists only so the fetch stays
+// in bounds: the value fetched at a genuine wall is discarded by
+// VelocityAxisGhostPair / QAxisGhostPair in favour of a properly-constructed
+// ghost value. Those wall tests (i==0 / i==n-1) therefore take the GLOBAL
+// coordinate and extent, never local ones: on a split axis, local 0 is a rank
+// seam on every rank but the first.
 
 // Wall velocity extraction: 0 for NoSlip/SpecularReflection, the prescribed
 // component for MovingWall<Ux,Uy,Uz>.
@@ -146,14 +131,13 @@ inline CUDA_HOST_DEVICE NeighborPair VelocityAxisGhostPair(
 }
 
 // Central-difference gradient of velocity component A along an axis whose
-// walls are LoBC/HiBC. v_minus/v_plus must already be fetched with a
-// wraparound-safe index (e.g. idx(x-1,y,z), which always wraps modulo n —
-// see offsets.h) so the fetch itself never goes out of bounds; on a
-// Periodic axis those fetched values are the real neighbors and used
-// directly, short-circuiting before VelocityGhost (which has no Periodic
-// case) is ever consulted. On a non-Periodic axis, i==0/i==n-1 replaces the
-// (physically meaningless, since idx() wrapped it) fetched value with the
-// correct wall-aware ghost value instead.
+// walls are LoBC/HiBC. i is the GLOBAL coordinate and n the global extent.
+// v_minus/v_plus must already be fetched at ResolveAxisOffset's index, so the
+// fetch itself never goes out of bounds; on a Periodic axis those fetched
+// values are the real neighbors and used directly, short-circuiting before
+// VelocityGhost (which has no Periodic case) is ever consulted. On a
+// non-Periodic axis, i==0/i==n-1 replaces the (physically meaningless, since
+// the fetch clamped) value with the correct wall-aware ghost value instead.
 template<Axis A, typename LoBC, typename HiBC>
 inline CUDA_HOST_DEVICE double VelocityAxisGradient(
     int i, int n, double v_minus, double v_center, double v_plus, bool is_normal
@@ -183,28 +167,33 @@ inline CUDA_HOST_DEVICE GradTensor VelocityGradientTensor(
     using ZLoU = typename BCConfig::ZLo::UBC;
     using ZHiU = typename BCConfig::ZHi::UBC;
 
-    const int xm = SafeFetchAxisOffset<XLoU, XHiU>(x, -1, nx);
-    const int xp = SafeFetchAxisOffset<XLoU, XHiU>(x, +1, nx);
-    const int ym = SafeFetchAxisOffset<YLoU, YHiU>(y, -1, ny);
-    const int yp = SafeFetchAxisOffset<YLoU, YHiU>(y, +1, ny);
-    const int zm = SafeFetchAxisOffset<ZLoU, ZHiU>(z, -1, nz);
-    const int zp = SafeFetchAxisOffset<ZLoU, ZHiU>(z, +1, nz);
+    const int xm = ResolveAxisOffset<XLoU, XHiU>(x, -1, g.offset_x, g.local_nx, nx);
+    const int xp = ResolveAxisOffset<XLoU, XHiU>(x, +1, g.offset_x, g.local_nx, nx);
+    const int ym = ResolveAxisOffset<YLoU, YHiU>(y, -1, g.offset_y, g.local_ny, ny);
+    const int yp = ResolveAxisOffset<YLoU, YHiU>(y, +1, g.offset_y, g.local_ny, ny);
+    const int zm = ResolveAxisOffset<ZLoU, ZHiU>(z, -1, g.offset_z, g.local_nz, nz);
+    const int zp = ResolveAxisOffset<ZLoU, ZHiU>(z, +1, g.offset_z, g.local_nz, nz);
+
+    // Wall tests run on global coordinates (see ResolveAxisOffset).
+    const int gx = g.offset_x + x;
+    const int gy = g.offset_y + y;
+    const int gz = g.offset_z + z;
 
     const double ux0 = ux[g.halo_idx(x, y, z)];
     const double uy0 = uy[g.halo_idx(x, y, z)];
     const double uz0 = uz[g.halo_idx(x, y, z)];
 
     return GradTensor{
-        VelocityAxisGradient<Axis::X, XLoU, XHiU>(x, nx, ux[g.halo_idx(xm, y, z)], ux0, ux[g.halo_idx(xp, y, z)], true),
-        VelocityAxisGradient<Axis::X, YLoU, YHiU>(y, ny, ux[g.halo_idx(x, ym, z)], ux0, ux[g.halo_idx(x, yp, z)], false),
-        VelocityAxisGradient<Axis::X, ZLoU, ZHiU>(z, nz, ux[g.halo_idx(x, y, zm)], ux0, ux[g.halo_idx(x, y, zp)], false),
+        VelocityAxisGradient<Axis::X, XLoU, XHiU>(gx, nx, ux[g.halo_idx(xm, y, z)], ux0, ux[g.halo_idx(xp, y, z)], true),
+        VelocityAxisGradient<Axis::X, YLoU, YHiU>(gy, ny, ux[g.halo_idx(x, ym, z)], ux0, ux[g.halo_idx(x, yp, z)], false),
+        VelocityAxisGradient<Axis::X, ZLoU, ZHiU>(gz, nz, ux[g.halo_idx(x, y, zm)], ux0, ux[g.halo_idx(x, y, zp)], false),
 
-        VelocityAxisGradient<Axis::Y, XLoU, XHiU>(x, nx, uy[g.halo_idx(xm, y, z)], uy0, uy[g.halo_idx(xp, y, z)], false),
-        VelocityAxisGradient<Axis::Y, YLoU, YHiU>(y, ny, uy[g.halo_idx(x, ym, z)], uy0, uy[g.halo_idx(x, yp, z)], true),
-        VelocityAxisGradient<Axis::Y, ZLoU, ZHiU>(z, nz, uy[g.halo_idx(x, y, zm)], uy0, uy[g.halo_idx(x, y, zp)], false),
+        VelocityAxisGradient<Axis::Y, XLoU, XHiU>(gx, nx, uy[g.halo_idx(xm, y, z)], uy0, uy[g.halo_idx(xp, y, z)], false),
+        VelocityAxisGradient<Axis::Y, YLoU, YHiU>(gy, ny, uy[g.halo_idx(x, ym, z)], uy0, uy[g.halo_idx(x, yp, z)], true),
+        VelocityAxisGradient<Axis::Y, ZLoU, ZHiU>(gz, nz, uy[g.halo_idx(x, y, zm)], uy0, uy[g.halo_idx(x, y, zp)], false),
 
-        VelocityAxisGradient<Axis::Z, XLoU, XHiU>(x, nx, uz[g.halo_idx(xm, y, z)], uz0, uz[g.halo_idx(xp, y, z)], false),
-        VelocityAxisGradient<Axis::Z, YLoU, YHiU>(y, ny, uz[g.halo_idx(x, ym, z)], uz0, uz[g.halo_idx(x, yp, z)], false)
+        VelocityAxisGradient<Axis::Z, XLoU, XHiU>(gx, nx, uz[g.halo_idx(xm, y, z)], uz0, uz[g.halo_idx(xp, y, z)], false),
+        VelocityAxisGradient<Axis::Z, YLoU, YHiU>(gy, ny, uz[g.halo_idx(x, ym, z)], uz0, uz[g.halo_idx(x, yp, z)], false)
     };
 }
 
@@ -264,10 +253,11 @@ inline CUDA_HOST_DEVICE double QGhost(double q_boundary) {
 }
 
 // Ghost-substituted (minus, plus) neighbor pair for Q component C along an
-// axis whose walls are LoBC/HiBC. q_minus/q_plus must already be fetched
-// with SafeFetchAxisOffset. Periodic short-circuits to the real fetched
-// neighbors (QGhost has no Periodic case); otherwise i==0/i==n-1 replaces
-// the (physically meaningless, since the fetch clamped) value with QGhost.
+// axis whose walls are LoBC/HiBC. i is the GLOBAL coordinate and n the global
+// extent. q_minus/q_plus must already be fetched at ResolveAxisOffset's
+// index. Periodic short-circuits to the real fetched neighbors (QGhost has no
+// Periodic case); otherwise i==0/i==n-1 replaces the (physically
+// meaningless, since the fetch clamped) value with QGhost.
 template<QComp C, typename LoBC, typename HiBC>
 inline CUDA_HOST_DEVICE NeighborPair QAxisGhostPair(
     int i, int n, double q_minus, double q_center, double q_plus
@@ -293,18 +283,19 @@ inline CUDA_HOST_DEVICE QDerivs QGradientAndLaplacian(const double* q, int x, in
     using ZLoQ = typename BCConfig::ZLo::QBC;
     using ZHiQ = typename BCConfig::ZHi::QBC;
 
-    const int xm = SafeFetchAxisOffset<XLoQ, XHiQ>(x, -1, nx);
-    const int xp = SafeFetchAxisOffset<XLoQ, XHiQ>(x, +1, nx);
-    const int ym = SafeFetchAxisOffset<YLoQ, YHiQ>(y, -1, ny);
-    const int yp = SafeFetchAxisOffset<YLoQ, YHiQ>(y, +1, ny);
-    const int zm = SafeFetchAxisOffset<ZLoQ, ZHiQ>(z, -1, nz);
-    const int zp = SafeFetchAxisOffset<ZLoQ, ZHiQ>(z, +1, nz);
+    const int xm = ResolveAxisOffset<XLoQ, XHiQ>(x, -1, g.offset_x, g.local_nx, nx);
+    const int xp = ResolveAxisOffset<XLoQ, XHiQ>(x, +1, g.offset_x, g.local_nx, nx);
+    const int ym = ResolveAxisOffset<YLoQ, YHiQ>(y, -1, g.offset_y, g.local_ny, ny);
+    const int yp = ResolveAxisOffset<YLoQ, YHiQ>(y, +1, g.offset_y, g.local_ny, ny);
+    const int zm = ResolveAxisOffset<ZLoQ, ZHiQ>(z, -1, g.offset_z, g.local_nz, nz);
+    const int zp = ResolveAxisOffset<ZLoQ, ZHiQ>(z, +1, g.offset_z, g.local_nz, nz);
 
     const double q0 = q[g.halo_idx(x, y, z)];
 
-    const NeighborPair px = QAxisGhostPair<C, XLoQ, XHiQ>(x, nx, q[g.halo_idx(xm, y, z)], q0, q[g.halo_idx(xp, y, z)]);
-    const NeighborPair py = QAxisGhostPair<C, YLoQ, YHiQ>(y, ny, q[g.halo_idx(x, ym, z)], q0, q[g.halo_idx(x, yp, z)]);
-    const NeighborPair pz = QAxisGhostPair<C, ZLoQ, ZHiQ>(z, nz, q[g.halo_idx(x, y, zm)], q0, q[g.halo_idx(x, y, zp)]);
+    // Wall tests run on global coordinates (see ResolveAxisOffset).
+    const NeighborPair px = QAxisGhostPair<C, XLoQ, XHiQ>(g.offset_x + x, nx, q[g.halo_idx(xm, y, z)], q0, q[g.halo_idx(xp, y, z)]);
+    const NeighborPair py = QAxisGhostPair<C, YLoQ, YHiQ>(g.offset_y + y, ny, q[g.halo_idx(x, ym, z)], q0, q[g.halo_idx(x, yp, z)]);
+    const NeighborPair pz = QAxisGhostPair<C, ZLoQ, ZHiQ>(g.offset_z + z, nz, q[g.halo_idx(x, y, zm)], q0, q[g.halo_idx(x, y, zp)]);
 
     return QDerivs{
         (px.plus - px.minus) / 2.0,
@@ -348,12 +339,12 @@ inline CUDA_HOST_DEVICE Vec3 PassiveStressDivergence(
     const LocalGrid& g
 ) {
 
-    const int xm = QXoff<BCConfig>(x, -1);
-    const int xp = QXoff<BCConfig>(x, +1);
-    const int ym = QYoff<BCConfig>(y, -1);
-    const int yp = QYoff<BCConfig>(y, +1);
-    const int zm = QZoff<BCConfig>(z, -1);
-    const int zp = QZoff<BCConfig>(z, +1);
+    const int xm = QXoff<BCConfig>(x, -1, g);
+    const int xp = QXoff<BCConfig>(x, +1, g);
+    const int ym = QYoff<BCConfig>(y, -1, g);
+    const int yp = QYoff<BCConfig>(y, +1, g);
+    const int zm = QZoff<BCConfig>(z, -1, g);
+    const int zp = QZoff<BCConfig>(z, +1, g);
 
     // Central differences of each stress component along each axis
     const double dx_Sigma_xx = (sigma_xx[g.halo_idx(xp, y, z)] - sigma_xx[g.halo_idx(xm, y, z)]) / 2.0;

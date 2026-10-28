@@ -34,7 +34,7 @@ double NematicFreeEnergyDensity(
     double lap_Qxx, double lap_Qxy, double lap_Qxz, double lap_Qyy, double lap_Qyz);
 
 // Domain-integrated nematic free energy. Recomputes the Laplacian stencil
-// itself (via QXoff/QYoff/QZoff, grid.h), since that's only cheap to keep
+// itself (via QXoff/QYoff/QZoff, offsets.h), since that's only cheap to keep
 // inline in the solver's hot loop, not worth carrying as per-step state.
 // Call occasionally (e.g. from SimIO::Log), not every step.
 template<typename BC>
@@ -48,9 +48,9 @@ double TotalNematicFreeEnergy(const QTensorFields& qf) {
         for (int y = 0; y < g.local_ny; ++y) {
             for (int x = 0; x < g.local_nx; ++x) {
                 const int idxp = g.halo_idx(x, y, z);
-                const int xm = QXoff<BC>(x, -1), xp = QXoff<BC>(x, 1);
-                const int ym = QYoff<BC>(y, -1), yp = QYoff<BC>(y, 1);
-                const int zm = QZoff<BC>(z, -1), zp = QZoff<BC>(z, 1);
+                const int xm = QXoff<BC>(x, -1, g), xp = QXoff<BC>(x, 1, g);
+                const int ym = QYoff<BC>(y, -1, g), yp = QYoff<BC>(y, 1, g);
+                const int zm = QZoff<BC>(z, -1, g), zp = QZoff<BC>(z, 1, g);
 
                 const double Qxx = qf.qxx[idxp];
                 const double Qxy = qf.qxy[idxp];
