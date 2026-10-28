@@ -4,7 +4,6 @@
 #include "qtensor_fields.h"
 #include <params.h>
 #include <ranges>
-#include "vtkhdf_writer.h"
 #include "boundary.h"
 #include "defect_finder.h"
 
@@ -182,17 +181,24 @@ void DefectFinder<BC>::ComputeWindingNumbers(const AnalysisFields& af, DefectFie
 
 
 template<typename BC>
-void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
+std::vector<std::pair<FaceId, FaceId>> DefectFinder<BC>::EmitVoxelEdges(const DefectFields& df) const {
 
     /* Voxel-based edge insertion. Every voxel (x,y,z) has six face defects
      * around it (see the numbered figure below); we iterate voxels and add
      * an edge for every pair of face defects that both fire. To avoid
      * counting cross-voxel edges twice, backward-facing candidate edges
      * (into the xm/ym voxels) are only added where they cannot have been
-     * inserted by an earlier voxel iteration. The bounds below iterate
-     * every voxel that owns at least one plaquette; under periodic BC on
-     * an axis the range extends to n (with wrapping done inside the face
-     * lookups), otherwise it stops at n-1.
+     * inserted by an earlier voxel iteration. Three of a voxel's 15 face
+     * pairs are therefore emitted from a neighbour: 1-2 and 1-5 from the
+     * voxel at x+1 (whose pt 3 is this voxel's pt 1), and 2-5 from the
+     * voxel at y+1 (whose pt 4 is this voxel's pt 2).
+     *
+     * So the loop runs over every vertex as a voxel, regardless of BC. On a
+     * walled axis the last layer (x = nx-1, say) is not a voxel: every
+     * forward lookup from it falls outside its face family's extent and
+     * returns 0, so it only emits the backward edges of the real voxel at
+     * nx-2. Stopping at nx-1 there would drop them. Under periodic BC the
+     * wrap is done inside the face lookups.
      *
      *             8_ _ _ _ _ _ _ _ _ _ _ _  7
      *            /|                        /|         z
@@ -218,9 +224,8 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
     constexpr bool py = kPY<BC>;
     constexpr bool pz = kPZ<BC>;
 
-    const int vx_end = px ? nx : nx - 1;
-    const int vy_end = py ? ny : ny - 1;
-    const int vz_end = pz ? nz : nz - 1;
+    std::vector<std::pair<FaceId, FaceId>> edges;
+    auto add_edge = [&](FaceId u, FaceId v) { edges.emplace_back(u, v); };
 
     // Local helpers that look up the six face defects around a voxel, with
     // BC-aware wrap. FaceId comes back as kNoFace when the plaquette doesn't
@@ -231,54 +236,61 @@ void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
         if (LookupDefX(df, x, y, z, px, py, pz) == 1) {
             const FaceId first = FidX(df, x, y, z, px, py, pz);
             // forward: 3 <-> 6, 5, 4, 2, 1
-            if (LookupDefZ(df, x,  y,  z,  px, py, pz) == 1) df.conn.AddEdge(first, FidZ(df, x, y, z,  px, py, pz));
-            if (LookupDefZ(df, x,  y,  zp, px, py, pz) == 1) df.conn.AddEdge(first, FidZ(df, x, y, zp, px, py, pz));
-            if (LookupDefY(df, x,  y,  z,  px, py, pz) == 1) df.conn.AddEdge(first, FidY(df, x, y, z,  px, py, pz));
-            if (LookupDefY(df, x,  yp, z,  px, py, pz) == 1) df.conn.AddEdge(first, FidY(df, x, yp, z, px, py, pz));
-            if (LookupDefX(df, xp, y,  z,  px, py, pz) == 1) df.conn.AddEdge(first, FidX(df, xp, y, z, px, py, pz));
+            if (LookupDefZ(df, x,  y,  z,  px, py, pz) == 1) add_edge(first, FidZ(df, x, y, z,  px, py, pz));
+            if (LookupDefZ(df, x,  y,  zp, px, py, pz) == 1) add_edge(first, FidZ(df, x, y, zp, px, py, pz));
+            if (LookupDefY(df, x,  y,  z,  px, py, pz) == 1) add_edge(first, FidY(df, x, y, z,  px, py, pz));
+            if (LookupDefY(df, x,  yp, z,  px, py, pz) == 1) add_edge(first, FidY(df, x, yp, z, px, py, pz));
+            if (LookupDefX(df, xp, y,  z,  px, py, pz) == 1) add_edge(first, FidX(df, xp, y, z, px, py, pz));
             // backward: 1 <-> 5, 2 (through the xm voxel; the low-x face of xm
             // voxel — pt 3 there — was handled in that voxel's own iteration,
             // but 1 <-> 5 and 1 <-> 2 are cross-voxel across x=x and must be
             // added here).
-            if (LookupDefZ(df, xm, y,  zp, px, py, pz) == 1) df.conn.AddEdge(first, FidZ(df, xm, y, zp, px, py, pz));
-            if (LookupDefY(df, xm, yp, z,  px, py, pz) == 1) df.conn.AddEdge(first, FidY(df, xm, yp, z, px, py, pz));
+            if (LookupDefZ(df, xm, y,  zp, px, py, pz) == 1) add_edge(first, FidZ(df, xm, y, zp, px, py, pz));
+            if (LookupDefY(df, xm, yp, z,  px, py, pz) == 1) add_edge(first, FidY(df, xm, yp, z, px, py, pz));
         }
 
         // ── pt 4 = def_y at (x, y, z): current voxel's low-y face ─────────
         if (LookupDefY(df, x, y, z, px, py, pz) == 1) {
             const FaceId first = FidY(df, x, y, z, px, py, pz);
             // forward: 4 <-> 6, 5, 1, 2
-            if (LookupDefZ(df, x,  y,  z,  px, py, pz) == 1) df.conn.AddEdge(first, FidZ(df, x, y, z,  px, py, pz));
-            if (LookupDefZ(df, x,  y,  zp, px, py, pz) == 1) df.conn.AddEdge(first, FidZ(df, x, y, zp, px, py, pz));
-            if (LookupDefX(df, xp, y,  z,  px, py, pz) == 1) df.conn.AddEdge(first, FidX(df, xp, y, z, px, py, pz));
-            if (LookupDefY(df, x,  yp, z,  px, py, pz) == 1) df.conn.AddEdge(first, FidY(df, x, yp, z, px, py, pz));
+            if (LookupDefZ(df, x,  y,  z,  px, py, pz) == 1) add_edge(first, FidZ(df, x, y, z,  px, py, pz));
+            if (LookupDefZ(df, x,  y,  zp, px, py, pz) == 1) add_edge(first, FidZ(df, x, y, zp, px, py, pz));
+            if (LookupDefX(df, xp, y,  z,  px, py, pz) == 1) add_edge(first, FidX(df, xp, y, z, px, py, pz));
+            if (LookupDefY(df, x,  yp, z,  px, py, pz) == 1) add_edge(first, FidY(df, x, yp, z, px, py, pz));
             // backward: 2 <-> 5 (through the ym voxel)
-            if (LookupDefZ(df, x, ym, zp, px, py, pz) == 1) df.conn.AddEdge(first, FidZ(df, x, ym, zp, px, py, pz));
+            if (LookupDefZ(df, x, ym, zp, px, py, pz) == 1) add_edge(first, FidZ(df, x, ym, zp, px, py, pz));
         }
 
         // ── pt 6 = def_z at (x, y, z): current voxel's low-z face ─────────
         if (LookupDefZ(df, x, y, z, px, py, pz) == 1) {
             const FaceId first = FidZ(df, x, y, z, px, py, pz);
             // forward: 6 <-> 1, 2, 5
-            if (LookupDefX(df, xp, y,  z,  px, py, pz) == 1) df.conn.AddEdge(first, FidX(df, xp, y, z, px, py, pz));
-            if (LookupDefY(df, x,  yp, z,  px, py, pz) == 1) df.conn.AddEdge(first, FidY(df, x, yp, z, px, py, pz));
-            if (LookupDefZ(df, x,  y,  zp, px, py, pz) == 1) df.conn.AddEdge(first, FidZ(df, x, y, zp, px, py, pz));
+            if (LookupDefX(df, xp, y,  z,  px, py, pz) == 1) add_edge(first, FidX(df, xp, y, z, px, py, pz));
+            if (LookupDefY(df, x,  yp, z,  px, py, pz) == 1) add_edge(first, FidY(df, x, yp, z, px, py, pz));
+            if (LookupDefZ(df, x,  y,  zp, px, py, pz) == 1) add_edge(first, FidZ(df, x, y, zp, px, py, pz));
             // No backward edges remaining under the x→y→z voxel ordering.
         }
     };
 
-    for (int z = 0; z < vz_end; ++z) {
+    for (int z = 0; z < nz; ++z) {
         const int zp = z + 1; // periodic z-wrap happens inside the face lookups
-        for (int y = 0; y < vy_end; ++y) {
+        for (int y = 0; y < ny; ++y) {
             const int ym = y - 1;
             const int yp = y + 1;
-            for (int x = 0; x < vx_end; ++x) {
+            for (int x = 0; x < nx; ++x) {
                 const int xm = x - 1;
                 const int xp = x + 1;
                 compute_voxel(x, y, z, xm, xp, ym, yp, zp);
             }
         }
     }
+    return edges;
+}
+
+
+template<typename BC>
+void DefectFinder<BC>::BuildConnectivityGraph(DefectFields& df) {
+    for (const auto& [u, v] : EmitVoxelEdges(df)) df.conn.AddEdge(u, v);
 }
 
 
